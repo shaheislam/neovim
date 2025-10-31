@@ -19,6 +19,16 @@ return {
         strings = 'none',
         variables = 'none'
       },
+      highlights = {
+        -- Enhanced styling for specific syntax groups
+        ["@type"] = { fmt = "bold,italic" },
+        ["@type.builtin"] = { fmt = "bold,italic" },
+        ["@keyword"] = { fmt = "bold,italic" },
+        ["@keyword.function"] = { fmt = "bold,italic" },
+        ["@boolean"] = { fmt = "bold" },
+        ["@conditional"] = { fmt = "italic" },
+        ["@repeat"] = { fmt = "italic" },
+      },
     },
     config = function(_, opts)
       require("onedark").setup(opts)

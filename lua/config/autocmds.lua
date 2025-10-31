@@ -4,6 +4,9 @@
 -- Load styling system
 require("config.autocmds.styling").setup()
 
+-- Load LSP autocmds
+require("config.autocmds.lsp").setup()
+
 -- Helper function to create augroups
 local function augroup(name)
   return vim.api.nvim_create_augroup("nvim_mini_" .. name, { clear = true })

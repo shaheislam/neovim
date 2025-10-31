@@ -25,13 +25,6 @@ return {
 					lualine_b = { "branch" },
 					lualine_c = {
 						{
-							function()
-								local cwd = vim.fn.getcwd()
-								local name = vim.fn.fnamemodify(cwd, ":t")
-								return "󱉭  " .. name
-							end,
-						},
-						{
 							"diagnostics",
 							symbols = {
 								error = " ",
@@ -49,7 +42,12 @@ return {
 									if ok then
 										local oil_dir = oil.get_current_dir()
 										if oil_dir then
-											return "oil://" .. oil_dir
+											-- Remove /Users/shahe prefix, show relative path from home
+											local home = os.getenv("HOME")
+											if home and oil_dir:find(home, 1, true) == 1 then
+												oil_dir = oil_dir:sub(#home + 2) -- +2 to skip the trailing /
+											end
+											return oil_dir
 										end
 									end
 								end

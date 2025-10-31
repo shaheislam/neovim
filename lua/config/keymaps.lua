@@ -32,9 +32,31 @@ keymap("n", "<leader>w", ":w<CR>", { desc = "Save file" })
 -- Quit
 keymap("n", "<leader>q", ":q<CR>", { desc = "Quit" })
 
--- Better scrolling (centered)
-keymap("n", "<C-d>", "<C-d>zz", { desc = "Scroll down (centered)" })
-keymap("n", "<C-u>", "<C-u>zz", { desc = "Scroll up (centered)" })
+-- Global scroll direction swap (works in all buffers and windows)
+-- <C-d> = scroll UP, <C-f> = scroll DOWN
+local function setup_scroll_mappings()
+  -- For normal buffers: neoscroll provides smooth animations
+  -- For floating windows/popups (which-key, help, etc.): these keymaps provide the swap
+  local modes = { "n", "v", "x" }
+
+  for _, mode in ipairs(modes) do
+    -- <C-d> scrolls UP (use native <C-u>)
+    vim.keymap.set(mode, "<C-d>", "<C-u>", {
+      desc = "Scroll up",
+      silent = true,
+      remap = true -- Allow neoscroll to intercept in normal buffers
+    })
+
+    -- <C-f> scrolls DOWN (use native <C-d>)
+    vim.keymap.set(mode, "<C-f>", "<C-d>", {
+      desc = "Scroll down",
+      silent = true,
+      remap = true -- Allow neoscroll to intercept in normal buffers
+    })
+  end
+end
+
+setup_scroll_mappings()
 
 -- Search navigation (centered)
 keymap("n", "n", "nzzzv", { desc = "Next search result (centered)" })

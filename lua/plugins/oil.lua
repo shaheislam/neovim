@@ -59,6 +59,22 @@ return {
     end,
     config = function(_, opts)
       require("oil").setup(opts)
+
+      -- Auto-sync PWD with Oil directory
+      vim.api.nvim_create_autocmd("BufEnter", {
+        pattern = "oil://*",
+        callback = function()
+          local oil_dir = require("oil").get_current_dir()
+          if oil_dir then
+            -- Only change directory if it's different from current PWD
+            local current_dir = vim.fn.getcwd()
+            if oil_dir ~= current_dir then
+              vim.cmd.cd(oil_dir)
+            end
+          end
+        end,
+        desc = "Sync PWD with Oil directory",
+      })
     end,
   },
 }

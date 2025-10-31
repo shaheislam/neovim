@@ -60,20 +60,55 @@ return {
     config = function(_, opts)
       require("oil").setup(opts)
 
-      -- Auto-sync PWD with Oil directory
+      -- Guard flag to prevent recursion between DirChanged and BufEnter
+      local changing_dir = false
+
+      -- Auto-sync PWD with Oil directory navigation
       vim.api.nvim_create_autocmd("BufEnter", {
         pattern = "oil://*",
         callback = function()
+          if changing_dir then
+            return
+          end
+
           local oil_dir = require("oil").get_current_dir()
           if oil_dir then
             -- Only change directory if it's different from current PWD
             local current_dir = vim.fn.getcwd()
             if oil_dir ~= current_dir then
+              changing_dir = true
               vim.cmd.cd(oil_dir)
+              vim.schedule(function()
+                changing_dir = false
+              end)
             end
           end
         end,
-        desc = "Sync PWD with Oil directory",
+        desc = "Sync PWD with Oil directory navigation",
+      })
+
+      -- Auto-update Oil view when directory changes via :cd
+      vim.api.nvim_create_autocmd("DirChanged", {
+        pattern = "*",
+        callback = function()
+          if changing_dir then
+            return
+          end
+
+          -- Check if any buffer is an Oil buffer
+          for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+            if vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].filetype == "oil" then
+              -- Update Oil to show the new working directory
+              changing_dir = true
+              require("oil").open(vim.fn.getcwd())
+              vim.schedule(function()
+                changing_dir = false
+              end)
+              break
+            end
+          end
+        end,
+        desc = "Update Oil view when directory changes via :cd",
       })
     end,
   },

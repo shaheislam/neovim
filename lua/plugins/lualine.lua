@@ -33,6 +33,16 @@ return {
 						{ "filename", path = 1, symbols = { modified = "  ", readonly = "", unnamed = "" } },
 					},
 					lualine_x = {
+						-- Nix environment indicator (matches production neovim)
+						function()
+							if os.getenv("IN_NIX_SHELL") then
+								local name = os.getenv("name") or "nix"
+								return "❄️  " .. name
+							elseif vim.fn.filereadable("flake.nix") == 1 then
+								return "❄️  (flake)"
+							end
+							return ""
+						end,
 						{
 							"diff",
 							symbols = {

@@ -205,7 +205,12 @@ return {
             end
           end
         end
-        return LazyVim.root.git()
+        -- Find git root from current working directory (LazyVim-free approach)
+        local git_root = vim.fs.find(".git", { path = vim.fn.getcwd(), upward = true })[1]
+        if git_root then
+          return vim.fn.fnamemodify(git_root, ":h")
+        end
+        return vim.fn.getcwd()  -- Fallback to current working directory if no git root found
       end
 
       local function get_local_dir()

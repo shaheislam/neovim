@@ -106,6 +106,27 @@ vim.api.nvim_create_autocmd("VimEnter", {
   end,
 })
 
+-- Auto-open Oil when starting nvim without arguments
+vim.api.nvim_create_autocmd("VimEnter", {
+  group = augroup("oil_on_startup"),
+  callback = function()
+    -- Only open Oil if:
+    -- 1. No files were specified on the command line
+    -- 2. Not reading from stdin
+    -- 3. Not in diff mode
+    local should_open_oil = vim.fn.argc() == 0
+      and vim.fn.line2byte("$") == -1
+      and not vim.o.diff
+
+    if should_open_oil then
+      -- Open Oil immediately (no delay needed since Oil is loaded eagerly)
+      vim.defer_fn(function()
+        require("oil").open(vim.fn.getcwd())
+      end, 0)
+    end
+  end,
+})
+
 -- Close certain filetypes with 'q'
 vim.api.nvim_create_autocmd("FileType", {
   group = augroup("close_with_q"),

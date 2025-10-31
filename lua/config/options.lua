@@ -56,3 +56,6 @@ opt.mouse = "a"
 opt.updatetime = 250
 opt.timeoutlen = 300
 opt.hidden = true
+
+-- Disable intro screen to prevent flicker when auto-opening Oil
+opt.shortmess:append("I")

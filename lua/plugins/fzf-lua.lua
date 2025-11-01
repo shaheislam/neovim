@@ -1611,6 +1611,17 @@ return {
       { "<leader>gC", function() require("fzf-lua").git_bcommits() end, desc = "Git buffer commits" },
       { "<leader>gb", function() require("fzf-lua").git_branches() end, desc = "Git branches (with stash)" },
       { "<leader>gs", function() require("fzf-lua").git_stash() end, desc = "Git stash" },
+      {
+        "<leader>gx",
+        function()
+          require("fzf-lua").live_grep({
+            search = "^<{7} |^={7}|^>{7}",
+            prompt = "Git Conflicts> ",
+            rg_opts = "--column --line-number --no-heading --color=always"
+          })
+        end,
+        desc = "Find Git Conflicts"
+      },
 
       -- Undo history
       { "<leader>fu", function() require("fzf-lua").changes() end, desc = "Undo History" },

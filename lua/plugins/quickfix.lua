@@ -58,6 +58,26 @@ return {
             vim.cmd("wincmd k")
             vim.cmd(qf_idx .. "cc")
             vim.cmd("normal! zz")
+
+            -- Ensure syntax highlighting is properly enabled
+            local current_buf = vim.api.nvim_get_current_buf()
+
+            -- Explicitly detect filetype if not already set
+            if vim.bo[current_buf].filetype == "" then
+              vim.cmd("filetype detect")
+            end
+
+            -- Enable syntax highlighting
+            if vim.bo[current_buf].syntax == "" then
+              vim.bo[current_buf].syntax = vim.bo[current_buf].filetype
+            end
+
+            -- Ensure treesitter is attached if available
+            local ok, ts_highlighter = pcall(require, "vim.treesitter.highlighter")
+            if ok and ts_highlighter then
+              pcall(ts_highlighter.active, current_buf)
+            end
+
             vim.cmd("wincmd j")
           end
         end
@@ -152,7 +172,10 @@ return {
   {
     "kevinhwang91/nvim-bqf",
     ft = "qf",
-    dependencies = { "junegunn/fzf" },
+    dependencies = {
+      "junegunn/fzf",
+      "nvim-treesitter/nvim-treesitter", -- Enable syntax highlighting in quickfix
+    },
     opts = {
       auto_enable = true,
       auto_resize_height = false,

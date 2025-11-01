@@ -158,10 +158,8 @@ return {
           cmd = get_lsp_cmd("terraform-ls"),
         },
 
-        -- Ansible
-        ansiblels = {
-          cmd = get_lsp_cmd("ansible-language-server"),
-        },
+        -- Ansible support removed (ansible-language-server unmaintained/removed from nixpkgs)
+        -- Use ansible-lint for validation instead
 
         -- Docker
         dockerls = {

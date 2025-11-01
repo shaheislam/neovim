@@ -206,7 +206,7 @@ function M.setup()
       local format_on_save_servers = {
         gopls = true,
         rust_analyzer = true,
-        tsserver = true,
+        ts_ls = true,
         lua_ls = true,
         ruff = true,
       }

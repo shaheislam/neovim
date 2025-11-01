@@ -144,12 +144,12 @@ return {
         },
 
         -- Python linting (ruff)
-        ruff_lsp = {
+        ruff = {
           cmd = get_lsp_cmd("ruff-lsp"),
         },
 
         -- TypeScript/JavaScript
-        tsserver = {
+        ts_ls = {
           cmd = get_lsp_cmd("typescript-language-server"),
         },
 
@@ -247,7 +247,7 @@ return {
         },
 
         -- Protocol Buffers
-        bufls = {
+        buf_ls = {
           cmd = get_lsp_cmd("buf-language-server"),
         },
       }

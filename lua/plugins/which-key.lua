@@ -74,6 +74,15 @@ return {
 				-- Markdown operations
 				{ "<leader>mp", desc = "Toggle Markdown Preview" },
 
+				-- Multicursor operations
+				{ "<leader>n", desc = "Add cursor to next match" },
+				{ "<leader>N", desc = "Add cursor to prev match" },
+				{ "<leader>j", desc = "Skip next match" },
+				{ "<leader>J", desc = "Skip prev match" },
+				{ "<leader>A", desc = "Add cursors to all matches" },
+				{ "<leader>x", desc = "Delete cursor" },
+				{ "<leader>a", desc = "Align cursors" },
+
 				-- Git operations (if you add more git plugins later)
 				{ "<leader>gg", desc = "Git Status" },
 				{ "<leader>gb", desc = "Git Branches" },

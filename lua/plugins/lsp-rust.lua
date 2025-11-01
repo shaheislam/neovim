@@ -125,8 +125,12 @@ return {
           },
         },
         -- DAP configuration
+        -- rustaceanvim will auto-configure DAP if nvim-dap is installed
+        -- It will try to use codelldb if available, otherwise fall back to lldb
         dap = {
-          adapter = false,
+          -- adapter = true means use the default adapter configuration
+          -- rustaceanvim will handle the setup automatically
+          adapter = true,
         },
       }
     end,

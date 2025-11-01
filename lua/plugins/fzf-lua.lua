@@ -1818,6 +1818,13 @@ return {
         end,
         desc = "Projects"
       },
+
+      -- DAP pickers (Debug Adapter Protocol integration)
+      { "<leader>fdb", function() require("fzf-lua").dap_breakpoints() end, desc = "DAP Breakpoints" },
+      { "<leader>fdc", function() require("fzf-lua").dap_commands() end, desc = "DAP Commands" },
+      { "<leader>fdC", function() require("fzf-lua").dap_configurations() end, desc = "DAP Configurations" },
+      { "<leader>fdv", function() require("fzf-lua").dap_variables() end, desc = "DAP Variables" },
+      { "<leader>fdf", function() require("fzf-lua").dap_frames() end, desc = "DAP Frames" },
     },
   },
 

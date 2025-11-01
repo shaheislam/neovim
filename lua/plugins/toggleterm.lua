@@ -3,7 +3,22 @@ return {
     "akinsho/toggleterm.nvim",
     version = "*",
     keys = {
-      { "<leader>ft", "<cmd>ToggleTerm direction=horizontal<cr>", desc = "Terminal Split" },
+      {
+        "<leader>ft",
+        function()
+          -- Get Oil's current directory if in Oil buffer, otherwise use vim's cwd
+          local cwd = vim.fn.getcwd()
+          if vim.bo.filetype == "oil" then
+            local oil = require("oil")
+            local oil_dir = oil.get_current_dir()
+            if oil_dir then
+              cwd = oil_dir
+            end
+          end
+          require("toggleterm").toggle(1, 15, cwd, "horizontal")
+        end,
+        desc = "Terminal Split (current dir)",
+      },
     },
     opts = {
       size = function(term)

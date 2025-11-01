@@ -107,6 +107,15 @@ return {
               analyses = {
                 unusedparams = true,
               },
+              codelenses = {
+                gc_details = true,
+                generate = true,
+                regenerate_cgo = true,
+                test = true,
+                tidy = true,
+                upgrade_dependency = true,
+                vendor = true,
+              },
             },
           },
         },
@@ -118,6 +127,18 @@ return {
             ["rust-analyzer"] = {
               cargo = {
                 allFeatures = true,
+              },
+              lens = {
+                enable = true,
+                references = {
+                  adt = { enable = true },
+                  enumVariant = { enable = true },
+                  method = { enable = true },
+                  trait = { enable = true },
+                },
+                implementations = { enable = true },
+                run = { enable = true },
+                debug = { enable = true },
               },
             },
           },
@@ -141,6 +162,16 @@ return {
 
             return nil
           end,
+          settings = {
+            basedpyright = {
+              analysis = {
+                -- Enable code lens for Python
+                enableCodeLens = true,
+                autoSearchPaths = true,
+                useLibraryCodeForTypes = true,
+              },
+            },
+          },
         },
 
         -- Python linting (ruff)
@@ -151,6 +182,22 @@ return {
         -- TypeScript/JavaScript
         ts_ls = {
           cmd = get_lsp_cmd("typescript-language-server"),
+          settings = {
+            typescript = {
+              implementationsCodeLens = { enabled = true },
+              referencesCodeLens = {
+                enabled = true,
+                showOnAllFunctions = true,
+              },
+            },
+            javascript = {
+              implementationsCodeLens = { enabled = true },
+              referencesCodeLens = {
+                enabled = true,
+                showOnAllFunctions = true,
+              },
+            },
+          },
         },
 
         -- Terraform
@@ -202,6 +249,17 @@ return {
               },
               telemetry = {
                 enable = false,
+              },
+              hint = {
+                enable = true,
+                setType = false,
+                paramType = true,
+                paramName = "Disable",
+                semicolon = "Disable",
+                arrayIndex = "Disable",
+              },
+              codeLens = {
+                enable = true,
               },
             },
           },
@@ -315,9 +373,16 @@ return {
           end, "Previous Warning")
 
           -- Diagnostic actions
-          map("n", "<leader>cl", vim.diagnostic.open_float, "Line Diagnostics")
           map("n", "<leader>cd", "<cmd>FzfLua diagnostics_document<cr>", "Buffer Diagnostics")
           map("n", "<leader>cD", "<cmd>FzfLua diagnostics_workspace<cr>", "Workspace Diagnostics")
+
+          -- Code lens actions
+          map("n", "<leader>cl", function()
+            pcall(vim.lsp.codelens.run)
+          end, "Run Code Lens")
+          map("n", "<leader>cL", function()
+            pcall(vim.lsp.codelens.refresh)
+          end, "Refresh Code Lens")
 
           -- Hover documentation (integrated with nvim-ufo in lsp-enhancements.lua)
           map("n", "K", vim.lsp.buf.hover, "Hover Documentation")

@@ -59,3 +59,6 @@ opt.hidden = true
 
 -- Disable intro screen to prevent flicker when auto-opening Oil
 opt.shortmess:append("I")
+
+-- LSP Enhancements
+vim.g.auto_refresh_codelens = true -- Enable auto-refresh for code lens

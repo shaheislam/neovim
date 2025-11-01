@@ -79,6 +79,20 @@ return {
 								return path .. modified_sign .. readonly_sign
 							end,
 						},
+						-- Aerial breadcrumb (current function/class/scope)
+						{
+							"aerial",
+							sep = " ", -- separator between symbols
+							sep_icon = "", -- separator between icon and symbol
+							depth = 5, -- show up to 5 levels deep
+							dense = false, -- show full breadcrumb path
+							colored = true, -- color the symbol icons
+							cond = function()
+								-- Only show if aerial is loaded and has symbols
+								local ok, _ = pcall(require, "aerial")
+								return ok
+							end,
+						},
 						-- Session status from nvim-possession
 						{
 							function()

@@ -370,4 +370,29 @@ return {
 			})
 		end,
 	},
+
+	-- Git conflict resolution with visual markers
+	{
+		"akinsho/git-conflict.nvim",
+		version = "*",
+		config = function()
+			require("git-conflict").setup({
+				default_mappings = true, -- Enable default keymaps
+				default_commands = true, -- Enable default commands
+				disable_diagnostics = false, -- Show diagnostics during conflict resolution
+				list_opener = "copen", -- Command to open list of conflicts
+				highlights = { -- Visual conflict markers
+					incoming = "DiffAdd",
+					current = "DiffText",
+				},
+			})
+
+			-- Custom keymaps (in addition to defaults)
+			vim.keymap.set("n", "<leader>gco", "<cmd>GitConflictChooseOurs<cr>", { desc = "Choose our version" })
+			vim.keymap.set("n", "<leader>gct", "<cmd>GitConflictChooseTheirs<cr>", { desc = "Choose their version" })
+			vim.keymap.set("n", "<leader>gcb", "<cmd>GitConflictChooseBoth<cr>", { desc = "Choose both versions" })
+			vim.keymap.set("n", "<leader>gcn", "<cmd>GitConflictChooseNone<cr>", { desc = "Choose neither version" })
+			vim.keymap.set("n", "<leader>gcl", "<cmd>GitConflictListQf<cr>", { desc = "List conflicts in quickfix" })
+		end,
+	},
 }

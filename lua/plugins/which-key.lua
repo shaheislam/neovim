@@ -51,6 +51,7 @@ return {
 				{ "<leader>s", group = "session" },
 				{ "<leader>w", group = "window/viewport" },
 				{ "<leader>e", desc = "Open File Browser" },
+				{ "<leader>m", group = "markdown" },
 
 				-- Session management
 				{ "<leader>sl", desc = "List Sessions" },
@@ -69,6 +70,9 @@ return {
 				{ "<leader>fr", desc = "Recent Files" },
 				{ "<leader>fe", desc = "Open File Browser" },
 				{ "<leader>ft", desc = "Terminal Split" },
+
+				-- Markdown operations
+				{ "<leader>mp", desc = "Toggle Markdown Preview" },
 
 				-- Git operations (if you add more git plugins later)
 				{ "<leader>gg", desc = "Git Status" },

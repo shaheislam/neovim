@@ -79,6 +79,25 @@ return {
 								return path .. modified_sign .. readonly_sign
 							end,
 						},
+						-- Session status from nvim-possession
+						{
+							function()
+								local ok, possession = pcall(require, "nvim-possession")
+								if ok then
+									return possession.status()
+								end
+								return ""
+							end,
+							cond = function()
+								local ok, possession = pcall(require, "nvim-possession")
+								if ok then
+									return possession.status() ~= nil and possession.status() ~= ""
+								end
+								return false
+							end,
+							color = { fg = "#7aa2f7", gui = "bold" },  -- Tokyo Night blue
+							icon = "📌",
+						},
 					},
 					lualine_x = {
 						{

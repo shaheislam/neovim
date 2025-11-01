@@ -48,8 +48,15 @@ return {
 				{ "<leader>g", group = "git" },
 				{ "<leader>h", group = "git hunks" },
 				{ "<leader>q", group = "quickfix/quit" },
+				{ "<leader>s", group = "session" },
 				{ "<leader>w", group = "window/viewport" },
 				{ "<leader>e", desc = "Open File Browser" },
+
+				-- Session management
+				{ "<leader>sl", desc = "List Sessions" },
+				{ "<leader>sn", desc = "New Session" },
+				{ "<leader>su", desc = "Update Session" },
+				{ "<leader>sd", desc = "Delete Session" },
 
 				-- Quickfix specific
 				{ "<leader>qq", desc = "Toggle Quickfix" },

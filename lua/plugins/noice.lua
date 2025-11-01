@@ -14,7 +14,7 @@ return {
     { "<C-c>", function() require("noice").cmd("dismiss") end, desc = "Dismiss Messages", mode = {"n", "i", "v"} },
     -- Quick access to history (in addition to LazyVim's <leader>snh)
     { "<leader>mh", function() require("noice").cmd("history") end, desc = "Message History" },
-    { "<leader>ml", function() require("noice").cmd("last") end, desc = "Last Message" },
+    { "<leader>ml", function() vim.cmd("Noice last split") end, desc = "Last Message" },
     { "<leader>md", function() require("noice").cmd("dismiss") end, desc = "Dismiss Messages" },
     -- Toggle persistent messages
     { "<leader>mp", function()

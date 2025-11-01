@@ -66,8 +66,14 @@ return {
       -- Auto-sync PWD with Oil directory navigation
       vim.api.nvim_create_autocmd("BufEnter", {
         pattern = "oil://*",
-        callback = function()
+        callback = function(event)
           if changing_dir then
+            return
+          end
+
+          -- Only sync PWD if we're actually entering an Oil buffer
+          -- Don't run when opening files FROM Oil
+          if vim.bo[event.buf].filetype ~= "oil" then
             return
           end
 
@@ -92,6 +98,14 @@ return {
         pattern = "*",
         callback = function()
           if changing_dir then
+            return
+          end
+
+          -- Don't interfere if current buffer is not Oil (e.g., opening a file)
+          local current_buf = vim.api.nvim_get_current_buf()
+          local current_ft = vim.bo[current_buf].filetype
+
+          if current_ft ~= "oil" then
             return
           end
 

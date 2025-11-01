@@ -88,6 +88,27 @@ return {
 
       -- Apply terminal keymaps automatically
       vim.cmd("autocmd! TermOpen term://* lua set_terminal_keymaps()")
+
+      -- Sync Neovim's PWD with ToggleTerm's directory
+      vim.api.nvim_create_autocmd("BufEnter", {
+        pattern = "term://*",
+        callback = function(event)
+          local buf = event.buf
+          -- Only for toggleterm buffers
+          if vim.bo[buf].filetype ~= "toggleterm" then
+            return
+          end
+
+          -- Get the terminal's actual working directory
+          local term_dir = vim.fn.getcwd(vim.fn.bufwinid(buf))
+          local nvim_pwd = vim.fn.getcwd()
+
+          if term_dir ~= "" and term_dir ~= nvim_pwd then
+            vim.cmd.cd(term_dir)
+          end
+        end,
+        desc = "Sync Neovim PWD with ToggleTerm directory",
+      })
     end,
   },
 }

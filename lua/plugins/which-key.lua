@@ -61,6 +61,7 @@ return {
 				{ "<leader>fb", desc = "Find Buffers" },
 				{ "<leader>fr", desc = "Recent Files" },
 				{ "<leader>fe", desc = "Open File Browser" },
+				{ "<leader>ft", desc = "Terminal Split" },
 
 				-- Git operations (if you add more git plugins later)
 				{ "<leader>gg", desc = "Git Status" },

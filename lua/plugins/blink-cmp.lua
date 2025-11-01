@@ -4,9 +4,9 @@
 return {
   {
     "saghen/blink.cmp",
-    lazy = false,
     dependencies = "rafamadriz/friendly-snippets",
     version = "v0.*",
+    event = { "InsertEnter", "CmdlineEnter" },
     opts = {
       -- Appearance
       appearance = {
@@ -17,6 +17,20 @@ return {
       -- Sources
       sources = {
         default = { "lsp", "path", "snippets", "buffer" },
+      },
+
+      -- Command-line completion
+      cmdline = {
+        enabled = true,
+        completion = {
+          list = { selection = { preselect = false } },
+          menu = {
+            auto_show = function(ctx)
+              return vim.fn.getcmdtype() == ":"
+            end,
+          },
+          ghost_text = { enabled = true },
+        },
       },
 
       -- Completion behavior

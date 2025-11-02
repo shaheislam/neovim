@@ -54,7 +54,8 @@ return {
         return
       end
 
-      local lspconfig = require("lspconfig")
+      -- NOTE: Neovim 0.11+ uses vim.lsp.config instead of require('lspconfig')
+      -- See :help lspconfig-nvim-0.11 for migration details
 
       -- Enhanced diagnostics configuration
       vim.diagnostic.config({
@@ -322,10 +323,11 @@ return {
         },
       }
 
-      -- Track disabled servers
+      -- Track disabled servers and enabled servers
       local disabled_servers = {}
+      local enabled_servers = {}
 
-      -- Set up each server
+      -- Set up each server using Neovim 0.11+ vim.lsp.config API
       for server_name, server_config in pairs(servers) do
         if server_config.cmd then
           -- Check if cmd is a function and call it
@@ -352,30 +354,32 @@ return {
           goto continue
         end
 
-        -- Set up the server (with proper error handling to avoid deprecation warning)
+        -- Set up the server using new vim.lsp.config API (Neovim 0.11+)
         local ok, err = pcall(function()
-          lspconfig[server_name].setup(server_config)
+          vim.lsp.config[server_name] = server_config
         end)
         if not ok then
-          -- Only warn if it's not just a missing server module
-          if not string.match(tostring(err), "module.*not found") and
-             not string.match(tostring(err), "attempt to index") then
-            vim.notify("Failed to setup LSP '" .. server_name .. "': " .. tostring(err), vim.log.levels.WARN)
-          end
+          vim.notify("Failed to setup LSP '" .. server_name .. "': " .. tostring(err), vim.log.levels.WARN)
+        else
+          -- Track successfully configured server
+          table.insert(enabled_servers, server_name)
         end
 
         ::continue::
       end
 
-      -- Show a single summary notification if servers were disabled
+      -- CRITICAL: Enable all configured servers (Neovim 0.11+ requirement)
+      if #enabled_servers > 0 then
+        vim.lsp.enable(enabled_servers)
+      end
+
+      -- Show summary of disabled servers at DEBUG level (reduce noise)
       if #disabled_servers > 0 then
-        vim.defer_fn(function()
-          vim.notify(
-            string.format("Some LSPs not available: %s", table.concat(disabled_servers, ", ")),
-            vim.log.levels.INFO,
-            { title = "Nix LSP Status" }
-          )
-        end, 100)
+        vim.notify(
+          string.format("LSPs not available from Nix: %s", table.concat(disabled_servers, ", ")),
+          vim.log.levels.DEBUG,
+          { title = "Nix LSP Status" }
+        )
       end
 
       -- LSP Keymaps (set on LspAttach)

@@ -49,6 +49,11 @@ return {
       -- Optional: which-key for LSP keymap help
     },
     config = function()
+      -- Skip LSP loading during git operations to avoid interrupting workflow
+      if vim.env.GIT_PREFIX or vim.env.GIT_INDEX_FILE or vim.env.GIT_WORK_TREE then
+        return
+      end
+
       local lspconfig = require("lspconfig")
 
       -- Enhanced diagnostics configuration
@@ -347,11 +352,16 @@ return {
           goto continue
         end
 
-        -- Set up the server (with safety check)
-        if lspconfig[server_name] then
+        -- Set up the server (with proper error handling to avoid deprecation warning)
+        local ok, err = pcall(function()
           lspconfig[server_name].setup(server_config)
-        else
-          vim.notify("LSP server '" .. server_name .. "' not found in lspconfig", vim.log.levels.WARN)
+        end)
+        if not ok then
+          -- Only warn if it's not just a missing server module
+          if not string.match(tostring(err), "module.*not found") and
+             not string.match(tostring(err), "attempt to index") then
+            vim.notify("Failed to setup LSP '" .. server_name .. "': " .. tostring(err), vim.log.levels.WARN)
+          end
         end
 
         ::continue::

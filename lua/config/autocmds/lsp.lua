@@ -41,7 +41,7 @@ function M.setup()
   vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
     group = augroup("document_highlight"),
     callback = function()
-      local clients = vim.lsp.get_active_clients({ bufnr = 0 })
+      local clients = vim.lsp.get_clients({ bufnr = 0 })
       for _, client in pairs(clients) do
         if client.server_capabilities.documentHighlightProvider then
           local ok, _ = pcall(vim.lsp.buf.document_highlight)
@@ -118,7 +118,7 @@ function M.setup()
       return
     end
 
-    local clients = vim.lsp.get_active_clients({ bufnr = bufnr })
+    local clients = vim.lsp.get_clients({ bufnr = bufnr })
     for _, client in pairs(clients) do
       if client.server_capabilities and client.server_capabilities.codeLensProvider then
         local ok, _ = pcall(vim.lsp.codelens.refresh)
@@ -275,7 +275,7 @@ function M.setup()
   vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "InsertLeave" }, {
     group = augroup("semantic_tokens"),
     callback = function()
-      local clients = vim.lsp.get_active_clients({ bufnr = 0 })
+      local clients = vim.lsp.get_clients({ bufnr = 0 })
       for _, client in pairs(clients) do
         if client.server_capabilities.semanticTokensProvider then
           vim.schedule(function()

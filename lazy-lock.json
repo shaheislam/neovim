@@ -9,6 +9,7 @@
   "friendly-snippets": { "branch": "main", "commit": "572f5660cf05f8cd8834e096d7b4c921ba18e175" },
   "fzf": { "branch": "master", "commit": "5cb695744fb9e418585065f1aca110cc2d901ca3" },
   "fzf-lua": { "branch": "main", "commit": "a8458b79a957a6e3e217d84106a0fd4b9470ff4c" },
+  "git-conflict.nvim": { "branch": "main", "commit": "4bbfdd92d547d2862a75b4e80afaf30e73f7bbb4" },
   "github-nvim-theme": { "branch": "main", "commit": "c106c9472154d6b2c74b74565616b877ae8ed31d" },
   "gitsigns.nvim": { "branch": "main", "commit": "20ad4419564d6e22b189f6738116b38871082332" },
   "gruvbox-material": { "branch": "master", "commit": "834dbf21836862300ced7444db4262b796330ab7" },

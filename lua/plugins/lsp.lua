@@ -116,6 +116,15 @@ return {
                 upgrade_dependency = true,
                 vendor = true,
               },
+              hints = {
+                assignVariableTypes = true,
+                compositeLiteralFields = true,
+                compositeLiteralTypes = true,
+                constantValues = true,
+                functionTypeParameters = true,
+                parameterNames = true,
+                rangeVariableTypes = true,
+              },
             },
           },
         },
@@ -324,15 +333,26 @@ return {
             else
               server_config.cmd = cmd_result
             end
-          elseif type(server_config.cmd) == "table" and server_config.cmd[1] == nil then
-            -- Skip if cmd array is empty or has nil
-            table.insert(disabled_servers, server_name)
-            goto continue
+          elseif type(server_config.cmd) == "table" then
+            -- Check if the table is empty or has nil first element
+            if #server_config.cmd == 0 or server_config.cmd[1] == nil then
+              -- Skip if cmd array is empty or has nil
+              table.insert(disabled_servers, server_name)
+              goto continue
+            end
           end
+        else
+          -- No cmd specified, skip this server
+          table.insert(disabled_servers, server_name)
+          goto continue
         end
 
-        -- Set up the server
-        lspconfig[server_name].setup(server_config)
+        -- Set up the server (with safety check)
+        if lspconfig[server_name] then
+          lspconfig[server_name].setup(server_config)
+        else
+          vim.notify("LSP server '" .. server_name .. "' not found in lspconfig", vim.log.levels.WARN)
+        end
 
         ::continue::
       end

@@ -49,11 +49,6 @@ return {
       -- Optional: which-key for LSP keymap help
     },
     config = function()
-      -- Skip LSP loading during git operations to avoid interrupting workflow
-      if vim.env.GIT_PREFIX or vim.env.GIT_INDEX_FILE or vim.env.GIT_WORK_TREE then
-        return
-      end
-
       -- NOTE: Neovim 0.11+ uses vim.lsp.config instead of require('lspconfig')
       -- See :help lspconfig-nvim-0.11 for migration details
 

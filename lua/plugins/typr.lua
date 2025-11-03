@@ -10,30 +10,30 @@ return {
       { "<leader>ty", "<cmd>Typr<cr>", desc = "Open Typr (typing practice)" },
       { "<leader>tY", "<cmd>TyprStats<cr>", desc = "Typr Statistics" },
     },
-    opts = {},
-    config = function(_, opts)
-      -- Ensure typr buffer is properly deleted when window closes
-      -- This prevents orphaned buffers from accumulating
-      vim.api.nvim_create_autocmd("FileType", {
-        pattern = "typr",
-        callback = function(event)
-          -- Create a buffer-specific autocmd that fires when the window closes
-          vim.api.nvim_create_autocmd("WinClosed", {
-            buffer = event.buf,
-            once = true,  -- Only fire once per buffer
-            callback = function()
-              -- Schedule deletion to avoid conflicts with window closing
-              vim.schedule(function()
-                if vim.api.nvim_buf_is_valid(event.buf) then
-                  vim.api.nvim_buf_delete(event.buf, { force = true })
+    opts = {
+      on_attach = function(buf)
+        -- Workaround for volt plugin bug where state is cleared before WinClosed autocmd
+        -- This causes the dim window to not close on first Esc
+        vim.keymap.set("n", "<Esc>", function()
+          -- Get all current windows before any are closed
+          local wins = vim.api.nvim_list_wins()
+
+          -- Trigger normal typr close (press 'q')
+          vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("q", true, false, true), "n", false)
+
+          -- After a brief delay, force close any remaining floating windows
+          vim.schedule(function()
+            for _, win in ipairs(wins) do
+              if vim.api.nvim_win_is_valid(win) then
+                local config = vim.api.nvim_win_get_config(win)
+                if config.relative ~= "" then  -- Is a floating window
+                  pcall(vim.api.nvim_win_close, win, true)
                 end
-              end)
-            end,
-            desc = "Delete typr buffer when window closes",
-          })
-        end,
-        desc = "Setup typr buffer cleanup on window close",
-      })
-    end,
+              end
+            end
+          end)
+        end, { buffer = buf, desc = "Close Typr and cleanup floating windows" })
+      end,
+    },
   },
 }

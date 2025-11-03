@@ -6,6 +6,13 @@ return {
   {
     "nvim-neotest/neotest",
     dependencies = {
+      -- Core dependencies (required by neotest)
+      "nvim-neotest/nvim-nio",           -- Async IO library (REQUIRED)
+      "nvim-lua/plenary.nvim",           -- Lua utility functions
+      "antoinemadec/FixCursorHold.nvim", -- Fix CursorHold performance
+      "nvim-treesitter/nvim-treesitter", -- Syntax parsing
+
+      -- Test adapters
       "nvim-neotest/neotest-python",
       "nvim-neotest/neotest-go",
       "nvim-neotest/neotest-jest",

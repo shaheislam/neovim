@@ -108,6 +108,9 @@ return {
 				{ "[c", desc = "Previous Git hunk" },
 				{ "]C", desc = "Last Git hunk" },
 				{ "[C", desc = "First Git hunk" },
+
+				-- Window management
+				{ "<C-z>", desc = "Toggle Zoom Window" },
 			})
 		end,
 	},

@@ -8,7 +8,8 @@
       "Bash(find:*)",
       "mcp__filesystem__directory_tree",
       "mcp__filesystem__read_multiple_files",
-      "WebFetch(domain:cmp.saghen.dev)"
+      "WebFetch(domain:cmp.saghen.dev)",
+      "WebFetch(domain:vyskocil.me)"
     ]
   },
   "disabledMcpjsonServers": [

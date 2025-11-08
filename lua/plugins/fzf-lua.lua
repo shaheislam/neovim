@@ -1209,7 +1209,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("files"),
-              ["--header"] = "C-y: copy path | C-r: history | M-g/s/l/d/p: scope | M-o: browse",
+              ["--header"] = "C-y: copy path | C-Y: copy full path | C-r: history | M-g/s/l/d/p: scope | M-o: browse",
             }
           end,
           actions = {
@@ -1231,9 +1231,20 @@ return {
             ["ctrl-r"] = search_history_action(),  -- Search history
             ["ctrl-y"] = function(selected, opts)
               if not selected or #selected == 0 then return end
-              local filepath = selected[1]:match("^%s*(.-)%s*$")
-              if filepath then
-                vim.fn.setreg("+", filepath)
+              local path = require("fzf-lua.path")
+              local file = path.entry_to_file(selected[1], opts)
+              if file and file.path then
+                vim.fn.setreg("+", file.path)
+              end
+              return actions.resume(selected, opts)
+            end,
+            ["ctrl-Y"] = function(selected, opts)
+              if not selected or #selected == 0 then return end
+              local path = require("fzf-lua.path")
+              local file = path.entry_to_file(selected[1], opts)
+              if file and file.path then
+                local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                vim.fn.setreg("+", abs_path)
               end
               return actions.resume(selected, opts)
             end,
@@ -1249,7 +1260,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("grep"),
-              ["--header"] = "C-y: copy | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden",
+              ["--header"] = "C-y: copy | C-Y: copy full path | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden",
             }
           end,
           actions = {
@@ -1275,7 +1286,21 @@ return {
             ["ctrl-h"] = { actions.toggle_hidden },
             ["ctrl-y"] = function(selected, opts)
               if not selected or #selected == 0 then return end
-              vim.fn.setreg("+", selected[1])
+              local path = require("fzf-lua.path")
+              local file = path.entry_to_file(selected[1], opts)
+              if file and file.path then
+                vim.fn.setreg("+", file.path)
+              end
+              return actions.resume(selected, opts)
+            end,
+            ["ctrl-Y"] = function(selected, opts)
+              if not selected or #selected == 0 then return end
+              local path = require("fzf-lua.path")
+              local file = path.entry_to_file(selected[1], opts)
+              if file and file.path then
+                local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                vim.fn.setreg("+", abs_path)
+              end
               return actions.resume(selected, opts)
             end,
           },
@@ -1295,7 +1320,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("buffers"),
-              ["--header"] = "C-y: copy path | C-d: delete | C-r: search history",
+              ["--header"] = "C-y: copy path | C-Y: copy full path | C-d: delete | C-r: search history",
             }
           end,
           actions = {
@@ -1313,9 +1338,20 @@ return {
             ["ctrl-r"] = search_history_action(),  -- Search history
             ["ctrl-y"] = function(selected, opts)
               if not selected or #selected == 0 then return end
-              local filepath = selected[1]:match("%[(.-)%]") or selected[1]
-              if filepath then
-                vim.fn.setreg("+", filepath)
+              local path = require("fzf-lua.path")
+              local file = path.entry_to_file(selected[1], opts)
+              if file and file.path then
+                vim.fn.setreg("+", file.path)
+              end
+              return actions.resume(selected, opts)
+            end,
+            ["ctrl-Y"] = function(selected, opts)
+              if not selected or #selected == 0 then return end
+              local path = require("fzf-lua.path")
+              local file = path.entry_to_file(selected[1], opts)
+              if file and file.path then
+                local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                vim.fn.setreg("+", abs_path)
               end
               return actions.resume(selected, opts)
             end,
@@ -1359,16 +1395,27 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("git_files"),
-                ["--header"] = "C-y: copy path | C-r: search history",
+                ["--header"] = "C-y: copy path | C-Y: copy full path | C-r: search history",
               }
             end,
             actions = {
               ["ctrl-r"] = search_history_action(),  -- Search history
               ["ctrl-y"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
-                local filepath = selected[1]:match("^%s*(.-)%s*$")
-                if filepath then
-                  vim.fn.setreg("+", filepath)
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  vim.fn.setreg("+", file.path)
+                end
+                return actions.resume(selected, opts)
+              end,
+              ["ctrl-Y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  vim.fn.setreg("+", abs_path)
                 end
                 return actions.resume(selected, opts)
               end,
@@ -1520,13 +1567,27 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_symbols"),
-                ["--header"] = "C-y: copy location",
+                ["--header"] = "C-y: copy location | C-Y: copy full path",
               }
             end,
             actions = {
               ["ctrl-y"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
-                vim.fn.setreg("+", selected[1])
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  vim.fn.setreg("+", file.path)
+                end
+                return actions.resume(selected, opts)
+              end,
+              ["ctrl-Y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  vim.fn.setreg("+", abs_path)
+                end
                 return actions.resume(selected, opts)
               end,
             },
@@ -1536,13 +1597,27 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_references"),
-                ["--header"] = "C-y: copy location",
+                ["--header"] = "C-y: copy location | C-Y: copy full path",
               }
             end,
             actions = {
               ["ctrl-y"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
-                vim.fn.setreg("+", selected[1])
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  vim.fn.setreg("+", file.path)
+                end
+                return actions.resume(selected, opts)
+              end,
+              ["ctrl-Y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  vim.fn.setreg("+", abs_path)
+                end
                 return actions.resume(selected, opts)
               end,
             },
@@ -1551,13 +1626,27 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_definitions"),
-                ["--header"] = "C-y: copy location",
+                ["--header"] = "C-y: copy location | C-Y: copy full path",
               }
             end,
             actions = {
               ["ctrl-y"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
-                vim.fn.setreg("+", selected[1])
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  vim.fn.setreg("+", file.path)
+                end
+                return actions.resume(selected, opts)
+              end,
+              ["ctrl-Y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  vim.fn.setreg("+", abs_path)
+                end
                 return actions.resume(selected, opts)
               end,
             },
@@ -1566,13 +1655,27 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_implementations"),
-                ["--header"] = "C-y: copy location",
+                ["--header"] = "C-y: copy location | C-Y: copy full path",
               }
             end,
             actions = {
               ["ctrl-y"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
-                vim.fn.setreg("+", selected[1])
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  vim.fn.setreg("+", file.path)
+                end
+                return actions.resume(selected, opts)
+              end,
+              ["ctrl-Y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  vim.fn.setreg("+", abs_path)
+                end
                 return actions.resume(selected, opts)
               end,
             },
@@ -1581,13 +1684,27 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_doc_symbols"),
-                ["--header"] = "C-y: copy location",
+                ["--header"] = "C-y: copy location | C-Y: copy full path",
               }
             end,
             actions = {
               ["ctrl-y"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
-                vim.fn.setreg("+", selected[1])
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  vim.fn.setreg("+", file.path)
+                end
+                return actions.resume(selected, opts)
+              end,
+              ["ctrl-Y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  vim.fn.setreg("+", abs_path)
+                end
                 return actions.resume(selected, opts)
               end,
             },
@@ -1596,13 +1713,27 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_workspace_symbols"),
-                ["--header"] = "C-y: copy location",
+                ["--header"] = "C-y: copy location | C-Y: copy full path",
               }
             end,
             actions = {
               ["ctrl-y"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
-                vim.fn.setreg("+", selected[1])
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  vim.fn.setreg("+", file.path)
+                end
+                return actions.resume(selected, opts)
+              end,
+              ["ctrl-Y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local path = require("fzf-lua.path")
+                local file = path.entry_to_file(selected[1], opts)
+                if file and file.path then
+                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  vim.fn.setreg("+", abs_path)
+                end
                 return actions.resume(selected, opts)
               end,
             },

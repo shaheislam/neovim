@@ -9,7 +9,8 @@
       "mcp__filesystem__directory_tree",
       "mcp__filesystem__read_multiple_files",
       "WebFetch(domain:cmp.saghen.dev)",
-      "WebFetch(domain:vyskocil.me)"
+      "WebFetch(domain:vyskocil.me)",
+      "WebFetch(domain:nvim-mini.org)"
     ]
   },
   "disabledMcpjsonServers": [

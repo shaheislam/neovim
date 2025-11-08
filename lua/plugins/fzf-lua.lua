@@ -1209,7 +1209,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("files"),
-              ["--header"] = "C-y: copy path | C-Y: copy full path | C-r: history | M-g/s/l/d/p: scope | M-o: browse",
+              ["--header"] = "C-y: copy path | C-f: copy full path | C-r: history | M-g/s/l/d/p: scope | M-o: browse",
             }
           end,
           actions = {
@@ -1234,16 +1234,52 @@ return {
               local path = require("fzf-lua.path")
               local file = path.entry_to_file(selected[1], opts)
               if file and file.path then
-                vim.fn.setreg("+", file.path)
+                -- Determine reference directory (Oil dir or picker's cwd)
+                local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                -- Check if launched from Oil buffer
+                if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                  local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                  if ft == "oil" then
+                    local oil_dir = require("oil").get_current_dir(original_bufnr)
+                    if oil_dir then
+                      ref_dir = oil_dir
+                    end
+                  end
+                end
+
+                -- Make both absolute for comparison
+                local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                -- Calculate relative path
+                local rel_path
+                if abs_file:find(abs_ref, 1, true) == 1 then
+                  rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                else
+                  rel_path = abs_file  -- Fallback if outside ref_dir
+                end
+
+                vim.fn.setreg("+", rel_path)
               end
               return actions.resume(selected, opts)
             end,
-            ["ctrl-Y"] = function(selected, opts)
+            ["ctrl-f"] = function(selected, opts)
               if not selected or #selected == 0 then return end
               local path = require("fzf-lua.path")
               local file = path.entry_to_file(selected[1], opts)
               if file and file.path then
-                local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                -- Get the cwd from opts
+                local cwd = opts.cwd or vim.fn.getcwd()
+                local filepath = file.path
+
+                -- If path is relative, make it absolute using the picker's cwd
+                if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                  filepath = cwd .. "/" .. filepath
+                end
+
+                -- Normalize the path (resolve .., ., etc.)
+                local abs_path = vim.fn.fnamemodify(filepath, ":p")
                 vim.fn.setreg("+", abs_path)
               end
               return actions.resume(selected, opts)
@@ -1260,7 +1296,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("grep"),
-              ["--header"] = "C-y: copy | C-Y: copy full path | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden",
+              ["--header"] = "C-y: copy | C-f: copy full path | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden",
             }
           end,
           actions = {
@@ -1289,16 +1325,52 @@ return {
               local path = require("fzf-lua.path")
               local file = path.entry_to_file(selected[1], opts)
               if file and file.path then
-                vim.fn.setreg("+", file.path)
+                -- Determine reference directory (Oil dir or picker's cwd)
+                local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                -- Check if launched from Oil buffer
+                if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                  local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                  if ft == "oil" then
+                    local oil_dir = require("oil").get_current_dir(original_bufnr)
+                    if oil_dir then
+                      ref_dir = oil_dir
+                    end
+                  end
+                end
+
+                -- Make both absolute for comparison
+                local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                -- Calculate relative path
+                local rel_path
+                if abs_file:find(abs_ref, 1, true) == 1 then
+                  rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                else
+                  rel_path = abs_file  -- Fallback if outside ref_dir
+                end
+
+                vim.fn.setreg("+", rel_path)
               end
               return actions.resume(selected, opts)
             end,
-            ["ctrl-Y"] = function(selected, opts)
+            ["ctrl-f"] = function(selected, opts)
               if not selected or #selected == 0 then return end
               local path = require("fzf-lua.path")
               local file = path.entry_to_file(selected[1], opts)
               if file and file.path then
-                local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                -- Get the cwd from opts
+                local cwd = opts.cwd or vim.fn.getcwd()
+                local filepath = file.path
+
+                -- If path is relative, make it absolute using the picker's cwd
+                if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                  filepath = cwd .. "/" .. filepath
+                end
+
+                -- Normalize the path (resolve .., ., etc.)
+                local abs_path = vim.fn.fnamemodify(filepath, ":p")
                 vim.fn.setreg("+", abs_path)
               end
               return actions.resume(selected, opts)
@@ -1320,7 +1392,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("buffers"),
-              ["--header"] = "C-y: copy path | C-Y: copy full path | C-d: delete | C-r: search history",
+              ["--header"] = "C-y: copy path | C-f: copy full path | C-d: delete | C-r: search history",
             }
           end,
           actions = {
@@ -1341,16 +1413,52 @@ return {
               local path = require("fzf-lua.path")
               local file = path.entry_to_file(selected[1], opts)
               if file and file.path then
-                vim.fn.setreg("+", file.path)
+                -- Determine reference directory (Oil dir or picker's cwd)
+                local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                -- Check if launched from Oil buffer
+                if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                  local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                  if ft == "oil" then
+                    local oil_dir = require("oil").get_current_dir(original_bufnr)
+                    if oil_dir then
+                      ref_dir = oil_dir
+                    end
+                  end
+                end
+
+                -- Make both absolute for comparison
+                local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                -- Calculate relative path
+                local rel_path
+                if abs_file:find(abs_ref, 1, true) == 1 then
+                  rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                else
+                  rel_path = abs_file  -- Fallback if outside ref_dir
+                end
+
+                vim.fn.setreg("+", rel_path)
               end
               return actions.resume(selected, opts)
             end,
-            ["ctrl-Y"] = function(selected, opts)
+            ["ctrl-f"] = function(selected, opts)
               if not selected or #selected == 0 then return end
               local path = require("fzf-lua.path")
               local file = path.entry_to_file(selected[1], opts)
               if file and file.path then
-                local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                -- Get the cwd from opts
+                local cwd = opts.cwd or vim.fn.getcwd()
+                local filepath = file.path
+
+                -- If path is relative, make it absolute using the picker's cwd
+                if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                  filepath = cwd .. "/" .. filepath
+                end
+
+                -- Normalize the path (resolve .., ., etc.)
+                local abs_path = vim.fn.fnamemodify(filepath, ":p")
                 vim.fn.setreg("+", abs_path)
               end
               return actions.resume(selected, opts)
@@ -1395,7 +1503,7 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("git_files"),
-                ["--header"] = "C-y: copy path | C-Y: copy full path | C-r: search history",
+                ["--header"] = "C-y: copy path | C-f: copy full path | C-r: search history",
               }
             end,
             actions = {
@@ -1405,16 +1513,52 @@ return {
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  vim.fn.setreg("+", file.path)
+                  -- Determine reference directory (Oil dir or picker's cwd)
+                  local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                  -- Check if launched from Oil buffer
+                  if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                    local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                    if ft == "oil" then
+                      local oil_dir = require("oil").get_current_dir(original_bufnr)
+                      if oil_dir then
+                        ref_dir = oil_dir
+                      end
+                    end
+                  end
+
+                  -- Make both absolute for comparison
+                  local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                  local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                  -- Calculate relative path
+                  local rel_path
+                  if abs_file:find(abs_ref, 1, true) == 1 then
+                    rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                  else
+                    rel_path = abs_file  -- Fallback if outside ref_dir
+                  end
+
+                  vim.fn.setreg("+", rel_path)
                 end
                 return actions.resume(selected, opts)
               end,
-              ["ctrl-Y"] = function(selected, opts)
+              ["ctrl-f"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  -- Get the cwd from opts
+                  local cwd = opts.cwd or vim.fn.getcwd()
+                  local filepath = file.path
+
+                  -- If path is relative, make it absolute using the picker's cwd
+                  if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                    filepath = cwd .. "/" .. filepath
+                  end
+
+                  -- Normalize the path (resolve .., ., etc.)
+                  local abs_path = vim.fn.fnamemodify(filepath, ":p")
                   vim.fn.setreg("+", abs_path)
                 end
                 return actions.resume(selected, opts)
@@ -1567,7 +1711,7 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_symbols"),
-                ["--header"] = "C-y: copy location | C-Y: copy full path",
+                ["--header"] = "C-y: copy location | C-f: copy full path",
               }
             end,
             actions = {
@@ -1576,16 +1720,52 @@ return {
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  vim.fn.setreg("+", file.path)
+                  -- Determine reference directory (Oil dir or picker's cwd)
+                  local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                  -- Check if launched from Oil buffer
+                  if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                    local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                    if ft == "oil" then
+                      local oil_dir = require("oil").get_current_dir(original_bufnr)
+                      if oil_dir then
+                        ref_dir = oil_dir
+                      end
+                    end
+                  end
+
+                  -- Make both absolute for comparison
+                  local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                  local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                  -- Calculate relative path
+                  local rel_path
+                  if abs_file:find(abs_ref, 1, true) == 1 then
+                    rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                  else
+                    rel_path = abs_file  -- Fallback if outside ref_dir
+                  end
+
+                  vim.fn.setreg("+", rel_path)
                 end
                 return actions.resume(selected, opts)
               end,
-              ["ctrl-Y"] = function(selected, opts)
+              ["ctrl-f"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  -- Get the cwd from opts
+                  local cwd = opts.cwd or vim.fn.getcwd()
+                  local filepath = file.path
+
+                  -- If path is relative, make it absolute using the picker's cwd
+                  if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                    filepath = cwd .. "/" .. filepath
+                  end
+
+                  -- Normalize the path (resolve .., ., etc.)
+                  local abs_path = vim.fn.fnamemodify(filepath, ":p")
                   vim.fn.setreg("+", abs_path)
                 end
                 return actions.resume(selected, opts)
@@ -1597,7 +1777,7 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_references"),
-                ["--header"] = "C-y: copy location | C-Y: copy full path",
+                ["--header"] = "C-y: copy location | C-f: copy full path",
               }
             end,
             actions = {
@@ -1606,16 +1786,52 @@ return {
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  vim.fn.setreg("+", file.path)
+                  -- Determine reference directory (Oil dir or picker's cwd)
+                  local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                  -- Check if launched from Oil buffer
+                  if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                    local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                    if ft == "oil" then
+                      local oil_dir = require("oil").get_current_dir(original_bufnr)
+                      if oil_dir then
+                        ref_dir = oil_dir
+                      end
+                    end
+                  end
+
+                  -- Make both absolute for comparison
+                  local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                  local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                  -- Calculate relative path
+                  local rel_path
+                  if abs_file:find(abs_ref, 1, true) == 1 then
+                    rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                  else
+                    rel_path = abs_file  -- Fallback if outside ref_dir
+                  end
+
+                  vim.fn.setreg("+", rel_path)
                 end
                 return actions.resume(selected, opts)
               end,
-              ["ctrl-Y"] = function(selected, opts)
+              ["ctrl-f"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  -- Get the cwd from opts
+                  local cwd = opts.cwd or vim.fn.getcwd()
+                  local filepath = file.path
+
+                  -- If path is relative, make it absolute using the picker's cwd
+                  if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                    filepath = cwd .. "/" .. filepath
+                  end
+
+                  -- Normalize the path (resolve .., ., etc.)
+                  local abs_path = vim.fn.fnamemodify(filepath, ":p")
                   vim.fn.setreg("+", abs_path)
                 end
                 return actions.resume(selected, opts)
@@ -1626,7 +1842,7 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_definitions"),
-                ["--header"] = "C-y: copy location | C-Y: copy full path",
+                ["--header"] = "C-y: copy location | C-f: copy full path",
               }
             end,
             actions = {
@@ -1635,16 +1851,52 @@ return {
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  vim.fn.setreg("+", file.path)
+                  -- Determine reference directory (Oil dir or picker's cwd)
+                  local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                  -- Check if launched from Oil buffer
+                  if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                    local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                    if ft == "oil" then
+                      local oil_dir = require("oil").get_current_dir(original_bufnr)
+                      if oil_dir then
+                        ref_dir = oil_dir
+                      end
+                    end
+                  end
+
+                  -- Make both absolute for comparison
+                  local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                  local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                  -- Calculate relative path
+                  local rel_path
+                  if abs_file:find(abs_ref, 1, true) == 1 then
+                    rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                  else
+                    rel_path = abs_file  -- Fallback if outside ref_dir
+                  end
+
+                  vim.fn.setreg("+", rel_path)
                 end
                 return actions.resume(selected, opts)
               end,
-              ["ctrl-Y"] = function(selected, opts)
+              ["ctrl-f"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  -- Get the cwd from opts
+                  local cwd = opts.cwd or vim.fn.getcwd()
+                  local filepath = file.path
+
+                  -- If path is relative, make it absolute using the picker's cwd
+                  if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                    filepath = cwd .. "/" .. filepath
+                  end
+
+                  -- Normalize the path (resolve .., ., etc.)
+                  local abs_path = vim.fn.fnamemodify(filepath, ":p")
                   vim.fn.setreg("+", abs_path)
                 end
                 return actions.resume(selected, opts)
@@ -1655,7 +1907,7 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_implementations"),
-                ["--header"] = "C-y: copy location | C-Y: copy full path",
+                ["--header"] = "C-y: copy location | C-f: copy full path",
               }
             end,
             actions = {
@@ -1664,16 +1916,52 @@ return {
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  vim.fn.setreg("+", file.path)
+                  -- Determine reference directory (Oil dir or picker's cwd)
+                  local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                  -- Check if launched from Oil buffer
+                  if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                    local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                    if ft == "oil" then
+                      local oil_dir = require("oil").get_current_dir(original_bufnr)
+                      if oil_dir then
+                        ref_dir = oil_dir
+                      end
+                    end
+                  end
+
+                  -- Make both absolute for comparison
+                  local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                  local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                  -- Calculate relative path
+                  local rel_path
+                  if abs_file:find(abs_ref, 1, true) == 1 then
+                    rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                  else
+                    rel_path = abs_file  -- Fallback if outside ref_dir
+                  end
+
+                  vim.fn.setreg("+", rel_path)
                 end
                 return actions.resume(selected, opts)
               end,
-              ["ctrl-Y"] = function(selected, opts)
+              ["ctrl-f"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  -- Get the cwd from opts
+                  local cwd = opts.cwd or vim.fn.getcwd()
+                  local filepath = file.path
+
+                  -- If path is relative, make it absolute using the picker's cwd
+                  if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                    filepath = cwd .. "/" .. filepath
+                  end
+
+                  -- Normalize the path (resolve .., ., etc.)
+                  local abs_path = vim.fn.fnamemodify(filepath, ":p")
                   vim.fn.setreg("+", abs_path)
                 end
                 return actions.resume(selected, opts)
@@ -1684,7 +1972,7 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_doc_symbols"),
-                ["--header"] = "C-y: copy location | C-Y: copy full path",
+                ["--header"] = "C-y: copy location | C-f: copy full path",
               }
             end,
             actions = {
@@ -1693,16 +1981,52 @@ return {
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  vim.fn.setreg("+", file.path)
+                  -- Determine reference directory (Oil dir or picker's cwd)
+                  local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                  -- Check if launched from Oil buffer
+                  if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                    local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                    if ft == "oil" then
+                      local oil_dir = require("oil").get_current_dir(original_bufnr)
+                      if oil_dir then
+                        ref_dir = oil_dir
+                      end
+                    end
+                  end
+
+                  -- Make both absolute for comparison
+                  local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                  local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                  -- Calculate relative path
+                  local rel_path
+                  if abs_file:find(abs_ref, 1, true) == 1 then
+                    rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                  else
+                    rel_path = abs_file  -- Fallback if outside ref_dir
+                  end
+
+                  vim.fn.setreg("+", rel_path)
                 end
                 return actions.resume(selected, opts)
               end,
-              ["ctrl-Y"] = function(selected, opts)
+              ["ctrl-f"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  -- Get the cwd from opts
+                  local cwd = opts.cwd or vim.fn.getcwd()
+                  local filepath = file.path
+
+                  -- If path is relative, make it absolute using the picker's cwd
+                  if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                    filepath = cwd .. "/" .. filepath
+                  end
+
+                  -- Normalize the path (resolve .., ., etc.)
+                  local abs_path = vim.fn.fnamemodify(filepath, ":p")
                   vim.fn.setreg("+", abs_path)
                 end
                 return actions.resume(selected, opts)
@@ -1713,7 +2037,7 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_workspace_symbols"),
-                ["--header"] = "C-y: copy location | C-Y: copy full path",
+                ["--header"] = "C-y: copy location | C-f: copy full path",
               }
             end,
             actions = {
@@ -1722,16 +2046,52 @@ return {
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  vim.fn.setreg("+", file.path)
+                  -- Determine reference directory (Oil dir or picker's cwd)
+                  local ref_dir = opts.cwd or vim.fn.getcwd()
+
+                  -- Check if launched from Oil buffer
+                  if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+                    local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
+                    if ft == "oil" then
+                      local oil_dir = require("oil").get_current_dir(original_bufnr)
+                      if oil_dir then
+                        ref_dir = oil_dir
+                      end
+                    end
+                  end
+
+                  -- Make both absolute for comparison
+                  local abs_file = vim.fn.fnamemodify(file.path, ":p")
+                  local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
+
+                  -- Calculate relative path
+                  local rel_path
+                  if abs_file:find(abs_ref, 1, true) == 1 then
+                    rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
+                  else
+                    rel_path = abs_file  -- Fallback if outside ref_dir
+                  end
+
+                  vim.fn.setreg("+", rel_path)
                 end
                 return actions.resume(selected, opts)
               end,
-              ["ctrl-Y"] = function(selected, opts)
+              ["ctrl-f"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
                 local path = require("fzf-lua.path")
                 local file = path.entry_to_file(selected[1], opts)
                 if file and file.path then
-                  local abs_path = vim.fn.fnamemodify(file.path, ":p")
+                  -- Get the cwd from opts
+                  local cwd = opts.cwd or vim.fn.getcwd()
+                  local filepath = file.path
+
+                  -- If path is relative, make it absolute using the picker's cwd
+                  if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+                    filepath = cwd .. "/" .. filepath
+                  end
+
+                  -- Normalize the path (resolve .., ., etc.)
+                  local abs_path = vim.fn.fnamemodify(filepath, ":p")
                   vim.fn.setreg("+", abs_path)
                 end
                 return actions.resume(selected, opts)

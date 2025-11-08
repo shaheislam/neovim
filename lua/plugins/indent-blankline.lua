@@ -1,28 +1,13 @@
--- indent-blankline.nvim - Indentation guides
--- Shows vertical lines at each indentation level
+-- blink.indent - Fast indentation guides
+-- Shows vertical lines at each indentation level (~10x faster than alternatives)
 
 return {
   {
-    "lukas-reineke/indent-blankline.nvim",
-    main = "ibl",
+    "saghen/blink.indent",
     event = { "BufReadPost", "BufNewFile" },
     opts = {
-      -- Indentation guide configuration
-      indent = {
-        char = "│",
-        tab_char = "│",
-      },
-      -- Scope configuration (requires treesitter)
-      scope = {
-        enabled = true,
-        show_start = true,
-        show_end = false,
-        injected_languages = true,
-        highlight = { "Function", "Label" },
-        priority = 500,
-      },
-      -- Exclude certain filetypes
-      exclude = {
+      -- Exclude certain filetypes and buftypes
+      blocked = {
         filetypes = {
           "help",
           "alpha",

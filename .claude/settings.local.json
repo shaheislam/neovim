@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  },
+  "disabledMcpjsonServers": [
+    "browser-tools",
+    "sequential-thinking",
+    "github",
+    "memory",
+    "git",
+    "fetch",
+    "duckduckgo",
+    "playwright",
+    "steampipe",
+    "context7"
+  ]
+}

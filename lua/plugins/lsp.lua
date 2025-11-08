@@ -60,8 +60,7 @@ return {
           spacing = 4,
           source = "if_many",
           prefix = "●",
-          -- Only show virtual text for errors and warnings
-          severity = { min = vim.diagnostic.severity.WARN },
+          -- Show all diagnostic severities (ERROR, WARN, INFO, HINT)
         },
         severity_sort = true,
         float = {

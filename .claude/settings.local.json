@@ -5,7 +5,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(nvim:*)",
       "mcp__fetch__fetch",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "mcp__filesystem__directory_tree",
+      "mcp__filesystem__read_multiple_files"
     ]
   },
   "disabledMcpjsonServers": [

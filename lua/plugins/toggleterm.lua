@@ -15,7 +15,15 @@ return {
               cwd = oil_dir
             end
           end
-          require("toggleterm").toggle(1, math.floor(vim.o.lines * 0.4), cwd, "horizontal")
+
+          -- Create or get a terminal instance with the correct directory
+          local Terminal = require("toggleterm.terminal").Terminal
+          local term = Terminal:new({
+            dir = cwd,
+            direction = "horizontal",
+            hidden = false,
+          })
+          term:toggle()
         end,
         desc = "Terminal Split (current dir)",
       },

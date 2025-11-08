@@ -43,14 +43,46 @@ return {
         menu = {
           border = "rounded",
           draw = {
-            columns = { { "label", "label_description", gap = 1 }, { "kind_icon", "kind" } },
+            columns = {
+              { "kind_icon", "label", "label_description", gap = 1 },
+              { "kind", "source_name", gap = 1 }
+            },
+            components = {
+              -- Enhanced label_description with LSP detail fallback
+              label_description = {
+                width = { max = 50 },
+                text = function(ctx)
+                  -- Show label_description if available (for imports)
+                  if ctx.label_description and ctx.label_description ~= '' then
+                    return ctx.label_description
+                  -- Fall back to LSP detail field (type info, signatures)
+                  elseif ctx.item and ctx.item.detail then
+                    return ctx.item.detail
+                  end
+                  return ''
+                end,
+              },
+              -- Add source name with brackets
+              source_name = {
+                width = { max = 20 },
+                text = function(ctx)
+                  return "[" .. ctx.source_name .. "]"
+                end,
+                highlight = "BlinkCmpSource",
+              },
+            },
           },
         },
         documentation = {
           auto_show = true,
           auto_show_delay_ms = 200,
+          update_delay_ms = 50,
+          treesitter_highlighting = true,
           window = {
             border = "rounded",
+            max_width = 80,
+            max_height = 20,
+            scrollbar = true,
           },
         },
         ghost_text = {

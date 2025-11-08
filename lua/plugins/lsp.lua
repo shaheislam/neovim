@@ -96,11 +96,21 @@ return {
         relative = "cursor",
       })
 
+      -- Get blink.cmp LSP capabilities
+      local capabilities = vim.lsp.protocol.make_client_capabilities()
+
+      -- Merge blink.cmp capabilities if available
+      local has_blink, blink_cmp = pcall(require, 'blink.cmp')
+      if has_blink then
+        capabilities = blink_cmp.get_lsp_capabilities(capabilities)
+      end
+
       -- LSP server configurations
       local servers = {
         -- Go
         gopls = {
           cmd = get_lsp_cmd("gopls"),
+          capabilities = capabilities,
           settings = {
             gopls = {
               gofumpt = true,
@@ -133,6 +143,7 @@ return {
         -- Rust (basic setup, enhanced by rustaceanvim which is lazy-loaded)
         rust_analyzer = {
           cmd = get_lsp_cmd("rust-analyzer"),
+          capabilities = capabilities,
           settings = {
             ["rust-analyzer"] = {
               cargo = {
@@ -172,6 +183,7 @@ return {
 
             return nil
           end,
+          capabilities = capabilities,
           settings = {
             basedpyright = {
               analysis = {
@@ -187,11 +199,13 @@ return {
         -- Python linting (ruff)
         ruff = {
           cmd = get_lsp_cmd("ruff-lsp"),
+          capabilities = capabilities,
         },
 
         -- TypeScript/JavaScript
         ts_ls = {
           cmd = get_lsp_cmd("typescript-language-server"),
+          capabilities = capabilities,
           settings = {
             typescript = {
               implementationsCodeLens = { enabled = true },
@@ -213,6 +227,7 @@ return {
         -- Terraform
         terraformls = {
           cmd = get_lsp_cmd("terraform-ls"),
+          capabilities = capabilities,
         },
 
         -- Ansible support removed (ansible-language-server unmaintained/removed from nixpkgs)
@@ -221,30 +236,36 @@ return {
         -- Docker
         dockerls = {
           cmd = get_lsp_cmd("docker-langserver"),
+          capabilities = capabilities,
         },
 
         docker_compose_language_service = {
           cmd = get_lsp_cmd("docker-compose-langserver"),
+          capabilities = capabilities,
         },
 
         -- Helm
         helm_ls = {
           cmd = get_lsp_cmd("helm_ls"),
+          capabilities = capabilities,
         },
 
         -- YAML
         yamlls = {
           cmd = get_lsp_cmd("yaml-language-server"),
+          capabilities = capabilities,
         },
 
         -- JSON
         jsonls = {
           cmd = get_lsp_cmd("vscode-json-language-server"),
+          capabilities = capabilities,
         },
 
         -- Lua
         lua_ls = {
           cmd = get_lsp_cmd("lua-language-server"),
+          capabilities = capabilities,
           settings = {
             Lua = {
               runtime = {
@@ -278,21 +299,25 @@ return {
         -- Markdown
         marksman = {
           cmd = get_lsp_cmd("marksman"),
+          capabilities = capabilities,
         },
 
         -- Bash
         bashls = {
           cmd = get_lsp_cmd("bash-language-server"),
+          capabilities = capabilities,
         },
 
         -- TOML
         taplo = {
           cmd = get_lsp_cmd("taplo"),
+          capabilities = capabilities,
         },
 
         -- Nix
         nil_ls = {
           cmd = get_lsp_cmd("nil"),
+          capabilities = capabilities,
           settings = {
             ["nil"] = {
               formatting = {
@@ -305,16 +330,19 @@ return {
         -- SQL
         sqls = {
           cmd = get_lsp_cmd("sqls"),
+          capabilities = capabilities,
         },
 
         -- GraphQL
         graphql = {
           cmd = get_lsp_cmd("graphql-lsp"),
+          capabilities = capabilities,
         },
 
         -- Protocol Buffers
         buf_ls = {
           cmd = get_lsp_cmd("buf-language-server"),
+          capabilities = capabilities,
         },
       }
 

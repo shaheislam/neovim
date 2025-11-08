@@ -4,7 +4,8 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(nvim:*)",
-      "mcp__fetch__fetch"
+      "mcp__fetch__fetch",
+      "Bash(find:*)"
     ]
   },
   "disabledMcpjsonServers": [

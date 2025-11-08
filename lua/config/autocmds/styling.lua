@@ -88,23 +88,26 @@ local function apply_consistent_styles()
     merge_style(group, style)
   end
 
-  -- Blink Plugins - OneDark theme colors
+  -- Blink Plugins - Dynamic theme-aware colors via highlight linking
   local blink_highlights = {
-    -- Blink Indent: Scope guide colors
-    BlinkIndentScope = { fg = "#56b6c2" },  -- OneDark cyan for active scope
+    -- Blink Indent: Link to operator colors (cyan/teal in most themes)
+    BlinkIndentScope = { link = "@operator" },
 
-    -- Blink Pairs: Rainbow bracket colors
-    BlinkPairsOrange = { fg = "#d19a66" },      -- OneDark orange
-    BlinkPairsPurple = { fg = "#c678dd" },      -- OneDark purple
-    BlinkPairsBlue = { fg = "#61afef" },        -- OneDark blue
-    BlinkPairsUnmatched = { fg = "#e86671" },   -- OneDark red for errors
-    BlinkPairsMatchParen = { fg = "#e5c07b", bold = true },  -- OneDark yellow, bold
+    -- Blink Pairs: Rainbow bracket colors from semantic groups
+    BlinkPairsOrange = { link = "@number" },           -- Orange from numbers
+    BlinkPairsPurple = { link = "Identifier" },        -- Purple from identifiers
+    BlinkPairsBlue = { link = "@function" },           -- Blue from functions
+    BlinkPairsUnmatched = { link = "DiagnosticError" }, -- Red from errors
   }
 
-  -- Apply blink highlights directly (these are color definitions, not style overrides)
+  -- Apply blink highlights with theme-aware links
   for group, highlight in pairs(blink_highlights) do
     vim.api.nvim_set_hl(0, group, highlight)
   end
+
+  -- Match paren: Link to type colors, then add bold styling
+  vim.api.nvim_set_hl(0, "BlinkPairsMatchParen", { link = "@type" })
+  merge_style("BlinkPairsMatchParen", { bold = true })
 end
 
 function M.setup()

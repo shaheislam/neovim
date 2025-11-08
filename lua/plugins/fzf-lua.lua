@@ -1209,6 +1209,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("files"),
+              ["--header"] = "C-y: copy path | C-r: history | M-g/s/l/d/p: scope | M-o: browse",
             }
           end,
           actions = {
@@ -1228,6 +1229,14 @@ return {
             ["alt-n"] = navigate_history(1),
             ["alt-o"] = select_directory(),
             ["ctrl-r"] = search_history_action(),  -- Search history
+            ["ctrl-y"] = function(selected, opts)
+              if not selected or #selected == 0 then return end
+              local filepath = selected[1]:match("^%s*(.-)%s*$")
+              if filepath then
+                vim.fn.setreg("+", filepath)
+              end
+              return actions.resume(selected, opts)
+            end,
           },
         },
 
@@ -1240,6 +1249,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("grep"),
+              ["--header"] = "C-y: copy | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden",
             }
           end,
           actions = {
@@ -1263,6 +1273,11 @@ return {
             ["ctrl-r"] = search_history_action(),  -- Search history
             ["ctrl-t"] = { actions.toggle_ignore },
             ["ctrl-h"] = { actions.toggle_hidden },
+            ["ctrl-y"] = function(selected, opts)
+              if not selected or #selected == 0 then return end
+              vim.fn.setreg("+", selected[1])
+              return actions.resume(selected, opts)
+            end,
           },
           -- Enable interactive ripgrep mode
           rg_glob = true,
@@ -1280,6 +1295,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("buffers"),
+              ["--header"] = "C-y: copy path | C-d: delete | C-r: search history",
             }
           end,
           actions = {
@@ -1295,6 +1311,14 @@ return {
             ["alt-n"] = navigate_history(1),
             ["ctrl-d"] = { actions.buf_del, actions.resume },
             ["ctrl-r"] = search_history_action(),  -- Search history
+            ["ctrl-y"] = function(selected, opts)
+              if not selected or #selected == 0 then return end
+              local filepath = selected[1]:match("%[(.-)%]") or selected[1]
+              if filepath then
+                vim.fn.setreg("+", filepath)
+              end
+              return actions.resume(selected, opts)
+            end,
           },
         },
 
@@ -1335,10 +1359,19 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("git_files"),
+                ["--header"] = "C-y: copy path | C-r: search history",
               }
             end,
             actions = {
               ["ctrl-r"] = search_history_action(),  -- Search history
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local filepath = selected[1]:match("^%s*(.-)%s*$")
+                if filepath then
+                  vim.fn.setreg("+", filepath)
+                end
+                return actions.resume(selected, opts)
+              end,
             },
           },
           commits = {
@@ -1348,11 +1381,20 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("git_commits"),
+                ["--header"] = "C-y: copy SHA | C-r: search history",
               }
             end,
             actions = {
               ["default"] = actions.git_checkout,
               ["ctrl-r"] = search_history_action(),  -- Search history
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local commit_sha = selected[1]:match("^([a-f0-9]+)")
+                if commit_sha then
+                  vim.fn.setreg("+", commit_sha)
+                end
+                return actions.resume(selected, opts)
+              end,
             },
           },
           bcommits = {
@@ -1362,11 +1404,20 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("git_bcommits"),
+                ["--header"] = "C-y: copy SHA | C-r: search history",
               }
             end,
             actions = {
               ["default"] = actions.git_buf_edit,
               ["ctrl-r"] = search_history_action(),  -- Search history
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local commit_sha = selected[1]:match("^([a-f0-9]+)")
+                if commit_sha then
+                  vim.fn.setreg("+", commit_sha)
+                end
+                return actions.resume(selected, opts)
+              end,
             },
           },
           branches = {
@@ -1376,10 +1427,19 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("git_branches"),
+                ["--header"] = "C-y: copy branch | C-r: search history",
               }
             end,
             actions = {
               ["ctrl-r"] = search_history_action(),  -- Search history
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local branch = selected[1]:match("^%s*(%S+)")
+                if branch then
+                  vim.fn.setreg("+", branch)
+                end
+                return actions.resume(selected, opts)
+              end,
               ["default"] = function(selected)
                 if not selected or #selected == 0 then return end
 
@@ -1433,12 +1493,21 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("git_stash"),
+                ["--header"] = "C-y: copy stash | C-x: drop | C-r: search history",
               }
             end,
             actions = {
               ["default"] = actions.git_stash_apply,
               ["ctrl-x"] = actions.git_stash_drop,
               ["ctrl-r"] = search_history_action(),  -- Search history
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                local stash_ref = selected[1]:match("^(%S+)")
+                if stash_ref then
+                  vim.fn.setreg("+", stash_ref)
+                end
+                return actions.resume(selected, opts)
+              end,
             },
           },
         },
@@ -1451,44 +1520,92 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_symbols"),
+                ["--header"] = "C-y: copy location",
               }
             end,
+            actions = {
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                vim.fn.setreg("+", selected[1])
+                return actions.resume(selected, opts)
+              end,
+            },
           },
           -- Add history for other LSP pickers that might be used (evaluated dynamically)
           references = {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_references"),
+                ["--header"] = "C-y: copy location",
               }
             end,
+            actions = {
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                vim.fn.setreg("+", selected[1])
+                return actions.resume(selected, opts)
+              end,
+            },
           },
           definitions = {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_definitions"),
+                ["--header"] = "C-y: copy location",
               }
             end,
+            actions = {
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                vim.fn.setreg("+", selected[1])
+                return actions.resume(selected, opts)
+              end,
+            },
           },
           implementations = {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_implementations"),
+                ["--header"] = "C-y: copy location",
               }
             end,
+            actions = {
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                vim.fn.setreg("+", selected[1])
+                return actions.resume(selected, opts)
+              end,
+            },
           },
           document_symbols = {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_doc_symbols"),
+                ["--header"] = "C-y: copy location",
               }
             end,
+            actions = {
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                vim.fn.setreg("+", selected[1])
+                return actions.resume(selected, opts)
+              end,
+            },
           },
           workspace_symbols = {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("lsp_workspace_symbols"),
+                ["--header"] = "C-y: copy location",
               }
             end,
+            actions = {
+              ["ctrl-y"] = function(selected, opts)
+                if not selected or #selected == 0 then return end
+                vim.fn.setreg("+", selected[1])
+                return actions.resume(selected, opts)
+              end,
+            },
           },
         },
 

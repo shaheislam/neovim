@@ -52,8 +52,6 @@ return {
         },
       })
 
-      -- mini.pairs: Auto-close brackets, quotes, etc.
-      require("mini.pairs").setup()
 
       -- ===== Navigation Modules =====
 

@@ -31,11 +31,11 @@ require("lazy").setup({
     { import = "plugins" },
   },
   defaults = {
-    lazy = false, -- plugins load on startup by default
-    version = false, -- use latest git commit
+    lazy = false,                            -- plugins load on startup by default
+    version = false,                         -- use latest git commit
   },
   install = { colorscheme = { "habamax" } }, -- fallback colorscheme
-  checker = { enabled = false }, -- disable automatic update checks
+  checker = { enabled = false },             -- disable automatic update checks
   performance = {
     rtp = {
       disabled_plugins = {

@@ -2,21 +2,24 @@
 -- Multiple themes for fzf-lua colorscheme picker
 
 return {
-  -- OneDark (default theme)
+  -- OneDark
   {
     "navarasu/onedark.nvim",
     lazy = false,
-    priority = 1000,
+    priority = 996,
     opts = {
       style = 'dark',
       transparent = true,
       term_colors = true,
       ending_tildes = false,
+      code_style = {
+        comments = 'italic',
+        keywords = 'italic',
+        functions = 'italic',
+        strings = 'none',
+        variables = 'none'
+      },
     },
-    config = function(_, opts)
-      require("onedark").setup(opts)
-      vim.cmd([[colorscheme onedark]])
-    end,
   },
 
   -- Catppuccin Mocha
@@ -58,12 +61,12 @@ return {
     },
   },
 
-  -- Rose Pine
+  -- Rose Pine (default theme)
   {
     "rose-pine/neovim",
     name = "rose-pine",
     lazy = false,
-    priority = 996,
+    priority = 1000,
     opts = {
       variant = "main",
       dark_variant = "main",
@@ -71,6 +74,10 @@ return {
         transparency = true,
       },
     },
+    config = function(_, opts)
+      require("rose-pine").setup(opts)
+      vim.cmd([[colorscheme rose-pine]])
+    end,
   },
 
   -- Nightfox

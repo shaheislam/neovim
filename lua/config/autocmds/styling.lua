@@ -90,8 +90,12 @@ local function apply_consistent_styles()
 
   -- Blink Plugins - Dynamic theme-aware colors via highlight linking
   local blink_highlights = {
-    -- Blink Indent: Link to operator colors (cyan/teal in most themes)
-    BlinkIndentScope = { link = "@operator" },
+    -- Blink Indent: Rose Pine rainbow palette
+    BlinkIndent = { fg = "#6e6a86" },              -- Rose Pine muted (subtle static guides)
+    BlinkIndentOrange = { fg = "#ebbcba" },        -- Rose Pine "rose" color
+    BlinkIndentViolet = { fg = "#c4a7e7" },        -- Rose Pine "iris" (purple)
+    BlinkIndentBlue = { fg = "#31748f" },          -- Rose Pine "pine" (blue/teal)
+    BlinkIndentScope = { fg = "#9ccfd8" },         -- Rose Pine "foam" (cyan) fallback
 
     -- Blink Pairs: Rainbow bracket colors from semantic groups
     BlinkPairsOrange = { link = "@number" },           -- Orange from numbers

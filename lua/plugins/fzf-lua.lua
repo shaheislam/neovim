@@ -178,15 +178,27 @@ return {
             -- Normalize the path (resolve .., ., etc.)
             filepath = vim.fn.fnamemodify(filepath, ":p")
 
-            -- Open the file (BufEnter autocmd will handle buffer display)
-            local cmd = "edit"
-            if file.line and file.line > 0 then
-              cmd = cmd .. " +" .. file.line
+            -- Open the file using safer API calls instead of string concatenation
+            local success, err = pcall(function()
+              -- Open the file using vim.cmd.edit for proper path handling
+              vim.cmd.edit(filepath)
+
+              -- Position cursor if line/col specified
+              if file.line and file.line > 0 then
+                local line = file.line
+                local col = (file.col and file.col > 0) and (file.col - 1) or 0
+                -- Use API to set cursor position (col is 0-indexed)
+                vim.api.nvim_win_set_cursor(0, {line, col})
+              end
+            end)
+
+            if not success then
+              vim.notify(
+                "Failed to open file: " .. vim.fn.fnamemodify(filepath, ":t") .. "\n" ..
+                "Error: " .. tostring(err),
+                vim.log.levels.WARN
+              )
             end
-            if file.col and file.col > 0 then
-              cmd = cmd .. " -c 'normal! " .. file.col .. "|'"
-            end
-            vim.cmd(cmd .. " " .. vim.fn.fnameescape(filepath))
           end
         end
       end

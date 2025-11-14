@@ -1646,8 +1646,11 @@ return {
               ["default"] = function(selected)
                 if not selected or #selected == 0 then return end
 
-                local branch = selected[1]:match("^[^%s]+")
-                if not branch then return end
+                local branch = selected[1]:match("^%s*(%S+)")
+                if not branch then
+                  vim.notify("Could not extract branch name from: " .. selected[1], vim.log.levels.WARN)
+                  return
+                end
 
                 -- Check for uncommitted changes
                 local has_changes = vim.fn.system("bash -c 'git status --porcelain'"):match("%S")

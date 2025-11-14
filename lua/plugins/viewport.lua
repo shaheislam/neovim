@@ -32,6 +32,9 @@ return {
       })
 
       -- Keymaps
+      vim.keymap.set('n', '<C-z>', function()
+        require('viewport.actions').toggle_maximize()
+      end, { desc = "Toggle maximize current window" })
       vim.keymap.set('n', '<leader>wv', viewport.start_resize_mode, { desc = "Viewport Resize Mode" })
       vim.keymap.set('n', '<leader>wn', viewport.start_navigate_mode, { desc = "Viewport Navigate Mode" })
       vim.keymap.set('n', '<leader>ws', viewport.start_select_mode, { desc = "Viewport Select Mode" })

@@ -15,11 +15,6 @@ keymap("n", "<C-Down>", ":resize -2<CR>", { desc = "Decrease window height" })
 keymap("n", "<C-Left>", ":vertical resize -2<CR>", { desc = "Decrease window width" })
 keymap("n", "<C-Right>", ":vertical resize +2<CR>", { desc = "Increase window width" })
 
--- Toggle window zoom (maximize/restore)
-keymap("n", "<C-z>", function()
-  require('mini.misc').zoom()
-end, { desc = "Toggle zoom window" })
-
 -- Move lines up/down
 keymap("v", "J", ":m '>+1<CR>gv=gv", { desc = "Move line down" })
 keymap("v", "K", ":m '<-2<CR>gv=gv", { desc = "Move line up" })

@@ -70,6 +70,10 @@ vim.api.nvim_create_autocmd("TextYankPost", {
 
 -- Transparent floating windows for all themes
 local function set_transparent_floats()
+  -- Explicitly make Normal background transparent
+  vim.api.nvim_set_hl(0, "Normal", { bg = "NONE" })
+  vim.api.nvim_set_hl(0, "NormalNC", { bg = "NONE" })
+
   -- Get the Normal highlight to use as base (should be transparent)
   local normal_hl = vim.api.nvim_get_hl(0, { name = "Normal" })
 
@@ -87,6 +91,12 @@ local function set_transparent_floats()
   vim.api.nvim_set_hl(0, "WhichKey", { link = "Normal" })
   vim.api.nvim_set_hl(0, "WhichKeyFloat", { link = "Normal" })
   vim.api.nvim_set_hl(0, "WhichKeyBorder", { link = "Normal" })
+
+  -- Make blink.cmp menus transparent
+  vim.api.nvim_set_hl(0, "BlinkCmpMenu", { link = "Normal" })
+  vim.api.nvim_set_hl(0, "BlinkCmpMenuBorder", { link = "Normal" })
+  vim.api.nvim_set_hl(0, "BlinkCmpDoc", { link = "Normal" })
+  vim.api.nvim_set_hl(0, "BlinkCmpDocBorder", { link = "Normal" })
 
   -- Optional: Make diagnostic floating windows specifically transparent
   vim.api.nvim_set_hl(0, "DiagnosticFloatingError", { link = "DiagnosticError" })

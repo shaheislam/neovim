@@ -190,6 +190,11 @@ return {
                 enableCodeLens = true,
                 autoSearchPaths = true,
                 useLibraryCodeForTypes = true,
+                -- Enable inlay hints for type information
+                inlayHints = {
+                  variableTypes = true,
+                  functionReturnTypes = true,
+                },
               },
             },
           },
@@ -234,12 +239,18 @@ return {
 
         -- Docker
         dockerls = {
-          cmd = get_lsp_cmd("docker-langserver"),
+          cmd = function()
+            local cmd = get_lsp_cmd("docker-langserver")
+            return cmd and { cmd[1], "--stdio" } or nil
+          end,
           capabilities = capabilities,
         },
 
         docker_compose_language_service = {
-          cmd = get_lsp_cmd("docker-compose-langserver"),
+          cmd = function()
+            local cmd = get_lsp_cmd("docker-compose-langserver")
+            return cmd and { cmd[1], "--stdio" } or nil
+          end,
           capabilities = capabilities,
         },
 
@@ -251,13 +262,19 @@ return {
 
         -- YAML
         yamlls = {
-          cmd = get_lsp_cmd("yaml-language-server"),
+          cmd = function()
+            local cmd = get_lsp_cmd("yaml-language-server")
+            return cmd and { cmd[1], "--stdio" } or nil
+          end,
           capabilities = capabilities,
         },
 
         -- JSON
         jsonls = {
-          cmd = get_lsp_cmd("vscode-json-language-server"),
+          cmd = function()
+            local cmd = get_lsp_cmd("vscode-json-language-server")
+            return cmd and { cmd[1], "--stdio" } or nil
+          end,
           capabilities = capabilities,
         },
 
@@ -309,7 +326,10 @@ return {
 
         -- TOML
         taplo = {
-          cmd = get_lsp_cmd("taplo"),
+          cmd = function()
+            local cmd = get_lsp_cmd("taplo")
+            return cmd and { cmd[1], "lsp", "stdio" } or nil
+          end,
           capabilities = capabilities,
         },
 

@@ -449,11 +449,11 @@ return {
 						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
 						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
 
-						-- Conflict resolution (3-way merge)
-						{ "n", "<leader>co", actions.conflict_choose("ours"), { desc = "Choose OURS" } },
-						{ "n", "<leader>ct", actions.conflict_choose("theirs"), { desc = "Choose THEIRS" } },
-						{ "n", "<leader>cb", actions.conflict_choose("base"), { desc = "Choose BASE" } },
-						{ "n", "<leader>ca", actions.conflict_choose("all"), { desc = "Choose ALL" } },
+						-- Conflict resolution (3-way merge) - buffer-local, no leader key
+						{ "n", "co", actions.conflict_choose("ours"), { desc = "Choose OURS" } },
+						{ "n", "ct", actions.conflict_choose("theirs"), { desc = "Choose THEIRS" } },
+						{ "n", "cb", actions.conflict_choose("base"), { desc = "Choose BASE" } },
+						{ "n", "ca", actions.conflict_choose("all"), { desc = "Choose ALL" } },
 						{ "n", "dx", actions.conflict_choose("none"), { desc = "Delete conflict region" } },
 
 						-- Navigate between conflicts

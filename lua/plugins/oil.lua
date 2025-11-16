@@ -46,6 +46,23 @@ return {
           end,
           desc = "Live grep in Oil directory",
         },
+        -- Path yanking (similar to fzf-lua <C-y>)
+        ["<C-y>"] = {
+          function()
+            local oil = require("oil")
+            local entry = oil.get_cursor_entry()
+            local dir = oil.get_current_dir()
+
+            if entry and dir then
+              local full_path = dir .. entry.name
+              local abs_path = vim.fn.fnamemodify(full_path, ":p")
+
+              vim.fn.setreg("+", abs_path)
+              vim.notify("Copied: " .. abs_path, vim.log.levels.INFO)
+            end
+          end,
+          desc = "Yank absolute path of entry under cursor",
+        },
       },
     },
     keys = {

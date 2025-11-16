@@ -371,7 +371,200 @@ return {
 		end,
 	},
 
-	-- Git conflict resolution with visual markers
+	-- Diffview for comprehensive git diff and merge conflict resolution
+	{
+		"sindrets/diffview.nvim",
+		dependencies = { "nvim-lua/plenary.nvim" },
+		cmd = { "DiffviewOpen", "DiffviewFileHistory", "DiffviewClose", "DiffviewToggleFiles", "DiffviewFocusFiles" },
+		keys = {
+			{ "<leader>gd", "<cmd>DiffviewOpen<cr>", desc = "Open Diffview (review changes)" },
+			{ "<leader>gh", "<cmd>DiffviewFileHistory %<cr>", desc = "File History" },
+			{ "<leader>gH", "<cmd>DiffviewFileHistory<cr>", desc = "Repository History" },
+			{ "<leader>gm", "<cmd>DiffviewOpen<cr>", desc = "Open Diffview (merge conflicts)" },
+			{ "<leader>gq", "<cmd>DiffviewClose<cr>", desc = "Close Diffview" },
+		},
+		config = function()
+			local actions = require("diffview.actions")
+
+			require("diffview").setup({
+				diff_binaries = false, -- Show diffs for binaries
+				enhanced_diff_hl = true, -- Better syntax highlighting in diffs
+				git_cmd = { "git" },
+				hg_cmd = { "hg" },
+				use_icons = true, -- File icons in file panel
+				show_help_hints = true, -- Show hint popups in file panel
+				watch_index = true, -- Update views on index changes
+
+				-- File panel configuration
+				file_panel = {
+					listing_style = "tree", -- tree or list
+					tree_options = {
+						flatten_dirs = true, -- Flatten single-child directories
+						folder_statuses = "only_folded", -- show_folded, never_folded, only_folded
+					},
+					win_config = {
+						position = "left",
+						width = 35,
+						win_opts = {},
+					},
+				},
+
+				-- File history panel configuration
+				file_history_panel = {
+					log_options = {
+						git = {
+							single_file = {
+								diff_merges = "combined",
+							},
+							multi_file = {
+								diff_merges = "first-parent",
+							},
+						},
+					},
+					win_config = {
+						position = "bottom",
+						height = 16,
+						win_opts = {},
+					},
+				},
+
+				-- Merge conflict layout (3-way or 4-way diff)
+				default_args = {
+					DiffviewOpen = {},
+					DiffviewFileHistory = {},
+				},
+
+				-- Keymaps for diffview windows
+				keymaps = {
+					disable_defaults = false, -- Keep default keymaps
+					view = {
+						-- Navigation
+						{ "n", "<tab>", actions.select_next_entry, { desc = "Next file" } },
+						{ "n", "<s-tab>", actions.select_prev_entry, { desc = "Previous file" } },
+						{ "n", "gf", actions.goto_file_edit, { desc = "Go to file" } },
+						{ "n", "<C-w><C-f>", actions.goto_file_split, { desc = "Go to file (split)" } },
+						{ "n", "<C-w>gf", actions.goto_file_tab, { desc = "Go to file (tab)" } },
+
+						-- Focus file panel
+						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
+						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
+
+						-- Conflict resolution (3-way merge)
+						{ "n", "<leader>co", actions.conflict_choose("ours"), { desc = "Choose OURS" } },
+						{ "n", "<leader>ct", actions.conflict_choose("theirs"), { desc = "Choose THEIRS" } },
+						{ "n", "<leader>cb", actions.conflict_choose("base"), { desc = "Choose BASE" } },
+						{ "n", "<leader>ca", actions.conflict_choose("all"), { desc = "Choose ALL" } },
+						{ "n", "dx", actions.conflict_choose("none"), { desc = "Delete conflict region" } },
+
+						-- Navigate between conflicts
+						{ "n", "[x", actions.prev_conflict, { desc = "Previous conflict" } },
+						{ "n", "]x", actions.next_conflict, { desc = "Next conflict" } },
+					},
+					file_panel = {
+						-- Navigation
+						{ "n", "j", actions.next_entry, { desc = "Next entry" } },
+						{ "n", "<down>", actions.next_entry, { desc = "Next entry" } },
+						{ "n", "k", actions.prev_entry, { desc = "Previous entry" } },
+						{ "n", "<up>", actions.prev_entry, { desc = "Previous entry" } },
+
+						-- Selection
+						{ "n", "<cr>", actions.select_entry, { desc = "Open diff" } },
+						{ "n", "o", actions.select_entry, { desc = "Open diff" } },
+						{ "n", "l", actions.select_entry, { desc = "Open diff" } },
+						{ "n", "<2-LeftMouse>", actions.select_entry, { desc = "Open diff" } },
+
+						-- Focus/toggle
+						{ "n", "-", actions.toggle_stage_entry, { desc = "Stage/unstage file" } },
+						{ "n", "S", actions.stage_all, { desc = "Stage all" } },
+						{ "n", "U", actions.unstage_all, { desc = "Unstage all" } },
+
+						-- File operations
+						{ "n", "R", actions.refresh_files, { desc = "Refresh files" } },
+						{ "n", "L", actions.open_commit_log, { desc = "Open commit log" } },
+
+						-- Focus diff view
+						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
+						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
+
+						-- Tree options
+						{ "n", "i", actions.listing_style, { desc = "Toggle listing style" } },
+						{ "n", "f", actions.toggle_flatten_dirs, { desc = "Toggle flatten dirs" } },
+
+						-- Go to file
+						{ "n", "gf", actions.goto_file_edit, { desc = "Go to file" } },
+						{ "n", "<C-w><C-f>", actions.goto_file_split, { desc = "Go to file (split)" } },
+						{ "n", "<C-w>gf", actions.goto_file_tab, { desc = "Go to file (tab)" } },
+					},
+					file_history_panel = {
+						-- Navigation
+						{ "n", "g!", actions.options, { desc = "Options" } },
+						{ "n", "<C-A-d>", actions.open_in_diffview, { desc = "Open in diffview" } },
+
+						-- Entry selection
+						{ "n", "<cr>", actions.select_entry, { desc = "Open diff" } },
+						{ "n", "o", actions.select_entry, { desc = "Open diff" } },
+						{ "n", "<2-LeftMouse>", actions.select_entry, { desc = "Open diff" } },
+
+						-- Copy info
+						{ "n", "y", actions.copy_hash, { desc = "Copy commit hash" } },
+
+						-- Focus/toggle
+						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
+						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
+					},
+					option_panel = {
+						{ "n", "<tab>", actions.select_entry, { desc = "Select option" } },
+						{ "n", "q", actions.close, { desc = "Close panel" } },
+					},
+				},
+
+				-- View configuration
+				view = {
+					-- Available layouts:
+					-- 'diff1_plain' - Simple diff with no file panel
+					-- 'diff2_horizontal' - Two panes horizontally
+					-- 'diff2_vertical' - Two panes vertically
+					-- 'diff3_horizontal' - Three panes horizontally (useful for merge conflicts)
+					-- 'diff3_vertical' - Three panes vertically
+					-- 'diff3_mixed' - Mixed layout
+					-- 'diff4_mixed' - Four panes (for complex merges with BASE)
+
+					default = {
+						-- Layout depends on context:
+						-- Normal diff: 'diff2_horizontal'
+						-- Merge conflict: 'diff3_horizontal'
+						layout = "diff2_horizontal",
+						disable_diagnostics = false,
+						winbar_info = true,
+					},
+					merge_tool = {
+						-- Layout for merge conflicts
+						layout = "diff3_horizontal",
+						disable_diagnostics = true,
+						winbar_info = true,
+					},
+					file_history = {
+						layout = "diff2_horizontal",
+						disable_diagnostics = false,
+						winbar_info = true,
+					},
+				},
+
+				-- Highlight configuration
+				hooks = {
+					-- Called after the view is opened
+					diff_buf_read = function()
+						-- Set local options for diff buffers
+						vim.opt_local.wrap = false
+						vim.opt_local.list = false
+						vim.opt_local.colorcolumn = { 80 }
+					end,
+				},
+			})
+		end,
+	},
+
+	-- Git conflict resolution with visual markers (lightweight, inline)
 	{
 		"akinsho/git-conflict.nvim",
 		version = "*",

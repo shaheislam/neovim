@@ -4,7 +4,10 @@
 return {
   {
     "saghen/blink.cmp",
-    dependencies = "rafamadriz/friendly-snippets",
+    dependencies = {
+      "rafamadriz/friendly-snippets",
+      "Kaiser-Yang/blink-cmp-git",
+    },
     version = "v0.*",
     event = { "InsertEnter", "CmdlineEnter" },
     opts = {
@@ -16,7 +19,16 @@ return {
 
       -- Sources
       sources = {
-        default = { "lsp", "path", "snippets", "buffer" },
+        default = { "lsp", "path", "snippets", "buffer", "git" },
+        providers = {
+          git = {
+            module = "blink-cmp-git",
+            name = "Git",
+            enabled = function()
+              return vim.tbl_contains({ "gitcommit", "markdown", "octo" }, vim.bo.filetype)
+            end,
+          },
+        },
       },
 
       -- Command-line completion

@@ -1,7 +1,7 @@
 -- Noice.nvim configuration to ensure text fits in message window
 return {
   "folke/noice.nvim",
-  enabled = false, -- Disabled: using traditional Neovim message history instead
+  enabled = true, -- Using split view for message history (no popups)
   event = "VeryLazy",
   dependencies = {
     "MunifTanjim/nui.nvim",
@@ -260,14 +260,14 @@ return {
       end,
     })
 
-    -- Auto-dismiss messages on cursor movement (when not in persistent mode)
-    vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
-      callback = function()
-        if not vim.g.noice_persistent_messages then
-          require("noice").cmd("dismiss")
-        end
-      end,
-    })
+    -- Auto-dismiss disabled: messages persist in split view
+    -- vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+    --   callback = function()
+    --     if not vim.g.noice_persistent_messages then
+    --       require("noice").cmd("dismiss")
+    --     end
+    --   end,
+    -- })
 
     -- Map Esc to dismiss messages in normal mode
     -- Using defer to ensure it runs after LazyVim keymaps are loaded
@@ -393,21 +393,19 @@ return {
     },
     -- Notification configuration
     notify = {
-      enabled = true,
-      view = "notify", -- Use notify view for better popup notifications
+      enabled = false, -- Disabled: using split view instead of popups
     },
-    -- Smart move - messages disappear on cursor move when not in persistent mode
+    -- Smart move - disabled to keep messages persistent
     smart_move = {
-      enabled = true, -- Enable auto-hiding on cursor move
-      excluded_filetypes = { "cmp_menu", "cmp_docs" },  -- Removed "notify" to enable smart_move for notifications
+      enabled = false, -- Disabled: keep messages visible
     },
     -- Message configuration
     messages = {
       enabled = true,
-      view = "notify",  -- Use notify view (corner) for most messages
-      view_error = "notify",  -- Use notify for errors
-      view_warn = "notify",  -- Use notify for warnings
-      view_history = "split",  -- Keep split buffer for history when explicitly requested
+      view = "split",  -- Use split view at bottom for all messages
+      view_error = "split",  -- Errors in split
+      view_warn = "split",  -- Warnings in split
+      view_history = "split",  -- History in split
       view_search = "virtualtext",
     },
     -- Presets
@@ -498,12 +496,12 @@ return {
       --   },
       --   opts = { skip = true },
       -- },
-      -- Show messages in notify view (corner notifications)
+      -- Show messages in split view (bottom messages)
       {
         filter = {
           event = "msg_show",
         },
-        view = "notify",  -- Use notify view for corner notifications
+        view = "split",  -- Use split view at bottom for all messages
       },
       -- Route LSP progress to notify (less intrusive)
       {

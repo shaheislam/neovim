@@ -634,18 +634,6 @@ return {
 					vim.wo.cursorline = true
 					vim.wo.statusline = " Git " -- Minimal status line
 
-					-- Capture buffer content and send to message history
-					vim.defer_fn(function()
-						if vim.api.nvim_buf_is_valid(args.buf) then
-							local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-							local content = table.concat(lines, "\n")
-							-- Echo to messages for persistence
-							if #content > 0 then
-								print(content)
-							end
-						end
-					end, 100)
-
 					-- Buffer-local keymaps for Ivy-style navigation
 					local opts = { buffer = args.buf, silent = true }
 					vim.keymap.set("n", "q", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Close" }))

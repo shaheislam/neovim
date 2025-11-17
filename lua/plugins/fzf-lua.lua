@@ -2231,14 +2231,16 @@ return {
       { "<leader>fv", function() require("fzf-lua").grep_visual() end, mode = "v", desc = "Grep visual selection" },
 
       -- Git pickers
+      { "<leader>gg", function() require("fzf-lua").git_status() end, desc = "Git status" },
+      { "<leader>gl", function() require("fzf-lua").git_commits() end, desc = "Git commits" },
+      { "<leader>gb", function() require("fzf-lua").git_branches() end, desc = "Git branches" },
+      { "<leader>gf", function() require("fzf-lua").git_files() end, desc = "Git files" },
       { "<leader>gC", function() require("fzf-lua").git_bcommits() end, desc = "Git buffer commits" },
-      { "<leader>gb", function() require("fzf-lua").git_branches() end, desc = "Git branches (with stash)" },
       { "<leader>gs", function() require("fzf-lua").git_stash() end, desc = "Git stash" },
       {
         "<leader>gx",
         function()
           require("fzf-lua").live_grep({
-            search = "^<{7} |^={7}|^>{7}",
             prompt = "Git Conflicts> ",
             rg_opts = "--column --line-number --no-heading --color=always"
           })

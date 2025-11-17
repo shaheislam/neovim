@@ -1,6 +1,7 @@
 -- Noice.nvim configuration to ensure text fits in message window
 return {
   "folke/noice.nvim",
+  enabled = false, -- Disabled: using traditional Neovim message history instead
   event = "VeryLazy",
   dependencies = {
     "MunifTanjim/nui.nvim",

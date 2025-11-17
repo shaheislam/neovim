@@ -564,31 +564,6 @@ return {
 		end,
 	},
 
-	-- Git conflict resolution with visual markers (lightweight, inline)
-	{
-		"akinsho/git-conflict.nvim",
-		version = "*",
-		config = function()
-			require("git-conflict").setup({
-				default_mappings = true, -- Enable default keymaps
-				default_commands = true, -- Enable default commands
-				disable_diagnostics = false, -- Show diagnostics during conflict resolution
-				list_opener = "copen", -- Command to open list of conflicts
-				highlights = { -- Visual conflict markers
-					incoming = "DiffAdd",
-					current = "DiffText",
-				},
-			})
-
-			-- Custom keymaps (in addition to defaults)
-			vim.keymap.set("n", "<leader>gco", "<cmd>GitConflictChooseOurs<cr>", { desc = "Choose our version" })
-			vim.keymap.set("n", "<leader>gct", "<cmd>GitConflictChooseTheirs<cr>", { desc = "Choose their version" })
-			vim.keymap.set("n", "<leader>gcb", "<cmd>GitConflictChooseBoth<cr>", { desc = "Choose both versions" })
-			vim.keymap.set("n", "<leader>gcn", "<cmd>GitConflictChooseNone<cr>", { desc = "Choose neither version" })
-			vim.keymap.set("n", "<leader>gcl", "<cmd>GitConflictListQf<cr>", { desc = "List conflicts in quickfix" })
-		end,
-	},
-
 	-- Fugitive for comprehensive Git integration
 	{
 		"tpope/vim-fugitive",
@@ -620,6 +595,57 @@ return {
 			},
 			{ "<leader>gB", "<cmd>GBrowse<cr>", desc = "Open in GitHub/GitLab" },
 		},
+		init = function()
+			-- Command-line abbreviations for Git commands (init runs before plugin loads)
+			vim.cmd([[
+				" Base command
+				cnoreabbrev <expr> G getcmdtype() == ':' && getcmdline() == 'G' ? 'Git' : 'G'
+
+				" User-requested abbreviations
+				cnoreabbrev <expr> gst getcmdtype() == ':' && getcmdline() == 'gst' ? 'Git status' : 'gst'
+				cnoreabbrev <expr> gco getcmdtype() == ':' && getcmdline() == 'gco' ? 'Git checkout' : 'gco'
+				cnoreabbrev <expr> gpo getcmdtype() == ':' && getcmdline() == 'gpo' ? 'Git push origin' : 'gpo'
+				cnoreabbrev <expr> gpof getcmdtype() == ':' && getcmdline() == 'gpof' ? 'Git push origin --force-with-lease' : 'gpof'
+				cnoreabbrev <expr> gll getcmdtype() == ':' && getcmdline() == 'gll' ? 'Git pull' : 'gll'
+
+				" Basic operations
+				cnoreabbrev <expr> ga getcmdtype() == ':' && getcmdline() == 'ga' ? 'Git add' : 'ga'
+				cnoreabbrev <expr> gaa getcmdtype() == ':' && getcmdline() == 'gaa' ? 'Git add --all' : 'gaa'
+				cnoreabbrev <expr> gc getcmdtype() == ':' && getcmdline() == 'gc' ? 'Git commit' : 'gc'
+				cnoreabbrev <expr> gca getcmdtype() == ':' && getcmdline() == 'gca' ? 'Git commit --amend' : 'gca'
+				cnoreabbrev <expr> gcm getcmdtype() == ':' && getcmdline() == 'gcm' ? 'Git commit -m' : 'gcm'
+
+				" Viewing changes
+				cnoreabbrev <expr> gd getcmdtype() == ':' && getcmdline() == 'gd' ? 'Git diff' : 'gd'
+				cnoreabbrev <expr> gds getcmdtype() == ':' && getcmdline() == 'gds' ? 'Git diff --staged' : 'gds'
+				cnoreabbrev <expr> gl getcmdtype() == ':' && getcmdline() == 'gl' ? 'Git log' : 'gl'
+				cnoreabbrev <expr> glo getcmdtype() == ':' && getcmdline() == 'glo' ? 'Git log --oneline -20' : 'glo'
+				cnoreabbrev <expr> glg getcmdtype() == ':' && getcmdline() == 'glg' ? 'Git log --graph --oneline' : 'glg'
+
+				" Branch operations
+				cnoreabbrev <expr> gb getcmdtype() == ':' && getcmdline() == 'gb' ? 'Git branch' : 'gb'
+				cnoreabbrev <expr> gbd getcmdtype() == ':' && getcmdline() == 'gbd' ? 'Git branch -d' : 'gbd'
+				cnoreabbrev <expr> gbD getcmdtype() == ':' && getcmdline() == 'gbD' ? 'Git branch -D' : 'gbD'
+				cnoreabbrev <expr> gsw getcmdtype() == ':' && getcmdline() == 'gsw' ? 'Git switch' : 'gsw'
+
+				" Push/Pull operations
+				cnoreabbrev <expr> gp getcmdtype() == ':' && getcmdline() == 'gp' ? 'Git push' : 'gp'
+				cnoreabbrev <expr> gpf getcmdtype() == ':' && getcmdline() == 'gpf' ? 'Git push --force-with-lease' : 'gpf'
+				cnoreabbrev <expr> gpu getcmdtype() == ':' && getcmdline() == 'gpu' ? 'Git push -u origin HEAD' : 'gpu'
+
+				" Advanced operations
+				cnoreabbrev <expr> gf getcmdtype() == ':' && getcmdline() == 'gf' ? 'Git fetch' : 'gf'
+				cnoreabbrev <expr> gfa getcmdtype() == ':' && getcmdline() == 'gfa' ? 'Git fetch --all' : 'gfa'
+				cnoreabbrev <expr> gm getcmdtype() == ':' && getcmdline() == 'gm' ? 'Git merge' : 'gm'
+				cnoreabbrev <expr> gr getcmdtype() == ':' && getcmdline() == 'gr' ? 'Git rebase' : 'gr'
+				cnoreabbrev <expr> gri getcmdtype() == ':' && getcmdline() == 'gri' ? 'Git rebase -i' : 'gri'
+				cnoreabbrev <expr> gsh getcmdtype() == ':' && getcmdline() == 'gsh' ? 'Git stash' : 'gsh'
+				cnoreabbrev <expr> gshp getcmdtype() == ':' && getcmdline() == 'gshp' ? 'Git stash pop' : 'gshp'
+				cnoreabbrev <expr> gcp getcmdtype() == ':' && getcmdline() == 'gcp' ? 'Git cherry-pick' : 'gcp'
+				cnoreabbrev <expr> grh getcmdtype() == ':' && getcmdline() == 'grh' ? 'Git reset HEAD' : 'grh'
+				cnoreabbrev <expr> grhh getcmdtype() == ':' && getcmdline() == 'grhh' ? 'Git reset --hard HEAD' : 'grhh'
+			]])
+		end,
 		config = function()
 			-- Configure Ivy-style appearance for fugitive buffers
 			vim.api.nvim_create_autocmd("FileType", {
@@ -660,11 +686,6 @@ return {
 				end,
 				group = vim.api.nvim_create_augroup("GitCommitStyle", { clear = true }),
 			})
-
-			-- Command-line abbreviation: :G expands to :Git when at start of command line
-			vim.cmd([[
-				cnoreabbrev <expr> G getcmdtype() == ':' && getcmdline() == 'G' ? 'Git' : 'G'
-			]])
 		end,
 	},
 }

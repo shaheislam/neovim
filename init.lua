@@ -49,5 +49,5 @@ require("lazy").setup({
   },
 })
 
--- Status message
-vim.notify("nvim-mini loaded - ready for plugin migration", vim.log.levels.INFO)
+-- Status message (removed - no longer needed)
+-- vim.notify("nvim-mini loaded - ready for plugin migration", vim.log.levels.INFO)

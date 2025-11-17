@@ -281,6 +281,28 @@ return {
         end)
       end, { desc = "Clear Highlight and Dismiss Noice Messages", silent = true })
     end, 100)
+
+    -- Auto-detect and apply syntax highlighting to noice buffers
+    vim.api.nvim_create_autocmd("FileType", {
+      pattern = "noice",
+      callback = function(args)
+        vim.defer_fn(function()
+          if not vim.api.nvim_buf_is_valid(args.buf) then return end
+
+          -- Get buffer content
+          local lines = vim.api.nvim_buf_get_lines(args.buf, 0, 20, false)
+          local content = table.concat(lines, "\n"):lower()
+
+          -- Detect content type and set filetype
+          if content:match("on branch") or content:match("changes not staged") or
+             content:match("modified:") or content:match("untracked files") then
+            vim.bo[args.buf].filetype = "git"
+            vim.bo[args.buf].syntax = "git"
+          end
+        end, 50)
+      end,
+      group = vim.api.nvim_create_augroup("NoiceSyntaxHighlight", { clear = true }),
+    })
   end,
   opts = {
     -- Cmdline configuration

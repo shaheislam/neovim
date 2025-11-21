@@ -329,7 +329,7 @@ return {
         },
       },
       messages = {
-        view = "split",  -- Use split buffer instead of floating window
+        view = "notify",  -- Use notify instead of split buffer
       },
       split = {
         backend = "split",
@@ -424,17 +424,17 @@ return {
     -- Message configuration
     messages = {
       enabled = true,
-      view = "split",  -- Use split view at bottom for all messages
-      view_error = "split",  -- Errors in split
-      view_warn = "split",  -- Warnings in split
-      view_history = "split",  -- History in split
+      view = "notify",  -- Use notify for all messages (corner popups)
+      view_error = "notify",  -- Errors as notifications
+      view_warn = "notify",  -- Warnings as notifications
+      view_history = "split",  -- History in split (for <leader>mh)
       view_search = "virtualtext",
     },
     -- Presets
     presets = {
       bottom_search = true, -- Use bottom search position
       command_palette = true, -- Position cmdline and popupmenu together
-      long_message_to_split = true, -- Long messages will be sent to a split
+      long_message_to_split = false, -- Long messages will use notifications
       inc_rename = false, -- Disable inc-rename preset
       lsp_doc_border = true, -- Add border to hover docs and signature help
     },
@@ -474,6 +474,7 @@ return {
           event = "msg_show",
           any = {
             { find = "^%d+L, %d+B" },  -- File write messages
+            { find = "written$" },  -- File save messages like "TODO.md" 144L, 7352B written
             { find = "; after #%d+" },  -- Undo messages
             { find = "; before #%d+" }, -- Redo messages
             { find = "^%d+ changes?;" }, -- More undo/redo messages
@@ -534,12 +535,12 @@ return {
       --   },
       --   opts = { skip = true },
       -- },
-      -- Show messages in split view (bottom messages)
+      -- Show messages as notifications (corner popups)
       {
         filter = {
           event = "msg_show",
         },
-        view = "split",  -- Use split view at bottom for all messages
+        view = "notify",  -- Use notify view for all messages (corner popups)
       },
       -- Route LSP progress to notify (less intrusive)
       {

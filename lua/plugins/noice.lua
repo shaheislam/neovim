@@ -440,6 +440,22 @@ return {
     },
     -- Routes to handle specific message types
     routes = {
+      -- Skip LSP loading messages and deprecation warnings
+      {
+        filter = {
+          any = {
+            { find = "Using Nix%-provided" },
+            { find = "Using system Nix" },
+            { find = "LSP .* not available from Nix" },
+            { find = "LSPs not available from Nix" },
+            { find = "vim%.lsp%.buf_get_clients.*deprecated" },
+            { find = "Run \":checkhealth vim%.deprecated\"" },
+            { find = "%-%-  ?More  ?%-%-" },  -- Skip "-- More --" pagination messages
+            { find = "Press ENTER or type command to continue" },  -- Skip press enter messages
+          },
+        },
+        opts = { skip = true },
+      },
       -- Skip presence.nvim notifications (all events)
       {
         filter = {

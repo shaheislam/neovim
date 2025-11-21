@@ -23,19 +23,19 @@ local function get_lsp_cmd(nix_cmd)
   -- If in Nix shell or Nix LSP is enabled, prefer Nix
   if in_nix_shell or nix_lsp_enabled then
     if command_exists(nix_cmd) then
-      vim.notify("Using Nix-provided " .. nix_cmd, vim.log.levels.DEBUG)
+      -- vim.notify("Using Nix-provided " .. nix_cmd, vim.log.levels.DEBUG)
       return { nix_cmd }
     end
   end
 
   -- Check system-wide Nix installation
   if command_exists(nix_cmd) then
-    vim.notify("Using system Nix " .. nix_cmd, vim.log.levels.DEBUG)
+    -- vim.notify("Using system Nix " .. nix_cmd, vim.log.levels.DEBUG)
     return { nix_cmd }
   end
 
   -- LSP not found - return nil to prevent starting
-  vim.notify("LSP " .. nix_cmd .. " not available from Nix", vim.log.levels.DEBUG)
+  -- vim.notify("LSP " .. nix_cmd .. " not available from Nix", vim.log.levels.DEBUG)
   return nil
 end
 
@@ -416,13 +416,14 @@ return {
       end
 
       -- Show summary of disabled servers at DEBUG level (reduce noise)
-      if #disabled_servers > 0 then
-        vim.notify(
-          string.format("LSPs not available from Nix: %s", table.concat(disabled_servers, ", ")),
-          vim.log.levels.DEBUG,
-          { title = "Nix LSP Status" }
-        )
-      end
+      -- Commented out to reduce message noise
+      -- if #disabled_servers > 0 then
+      --   vim.notify(
+      --     string.format("LSPs not available from Nix: %s", table.concat(disabled_servers, ", ")),
+      --     vim.log.levels.DEBUG,
+      --     { title = "Nix LSP Status" }
+      --   )
+      -- end
 
       -- LSP Keymaps (set on LspAttach)
       vim.api.nvim_create_autocmd("LspAttach", {

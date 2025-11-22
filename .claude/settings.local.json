@@ -17,7 +17,25 @@
       "Bash(printf:*)",
       "Bash(tmux display-message:*)",
       "Bash(cat:*)",
-      "Bash(tmux show-options:*)"
+      "Bash(tmux show-options:*)",
+      "Bash(fish:*)",
+      "Bash(chmod:*)",
+      "Bash(grep:*)",
+      "Bash(functions)",
+      "Bash(kubectl get deployments:*)",
+      "Bash(kubectl config:*)",
+      "Bash(functions:*)",
+      "WebSearch",
+      "Bash(set)",
+      "Bash(bind:*)",
+      "Bash(complete:*)",
+      "Read(//opt/homebrew/share/fish/completions/**)",
+      "Bash(compgen -c)",
+      "Read(//Users/shaheislam/.ssh/**)",
+      "Bash(xargs:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/shaheislam/dotfiles/"
     ]
   },
   "disabledMcpjsonServers": [

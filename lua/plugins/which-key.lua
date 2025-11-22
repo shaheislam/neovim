@@ -44,6 +44,7 @@ return {
 			-- Define key groups (leader key mappings)
 			wk.add({
 				-- Core groups
+				{ "<leader>c", group = "code/lsp" },
 				{ "<leader>f", group = "find/file" },
 				{ "<leader>g", group = "git" },
 				{ "<leader>h", group = "git hunks" },
@@ -52,6 +53,17 @@ return {
 				{ "<leader>w", group = "window/viewport" },
 				{ "<leader>e", desc = "Open File Browser" },
 				{ "<leader>m", group = "markdown" },
+
+				-- Code/LSP operations
+				{ "<leader>ca", desc = "Code Action" },
+				{ "<leader>cd", desc = "Buffer Diagnostics" },
+				{ "<leader>cD", desc = "Workspace Diagnostics" },
+				{ "<leader>cl", desc = "Run Code Lens" },
+				{ "<leader>cL", desc = "Refresh Code Lens" },
+				{ "<leader>cr", desc = "Rename" },
+				{ "<leader>cs", desc = "Show LSP status" },
+				{ "<leader>ct", desc = "Toggle buffer's LSP" },
+				{ "<leader>cT", desc = "Toggle ALL LSPs" },
 
 				-- Session management
 				{ "<leader>sl", desc = "List Sessions" },

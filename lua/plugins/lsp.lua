@@ -415,6 +415,66 @@ return {
         vim.lsp.enable(enabled_servers)
       end
 
+      -- Global LSP toggle state
+      _G.lsp_enabled = true
+      _G.enabled_lsp_servers = enabled_servers  -- Store the list of Nix-provided servers
+
+      -- Toggle all LSPs on/off
+      _G.toggle_all_lsp = function()
+        if _G.lsp_enabled then
+          -- Disable all LSPs
+          vim.lsp.enable(_G.enabled_lsp_servers, false)
+          _G.lsp_enabled = false
+          vim.notify("All LSPs disabled", vim.log.levels.INFO)
+        else
+          -- Re-enable all LSPs
+          vim.lsp.enable(_G.enabled_lsp_servers, true)
+          _G.lsp_enabled = true
+          vim.notify("All LSPs enabled", vim.log.levels.INFO)
+        end
+      end
+
+      -- Toggle specific LSP
+      _G.toggle_lsp = function(server_name)
+        local clients = vim.lsp.get_clients({ name = server_name })
+        if #clients > 0 then
+          vim.lsp.enable(server_name, false)
+          vim.notify(string.format("LSP '%s' disabled", server_name), vim.log.levels.INFO)
+        else
+          vim.lsp.enable(server_name, true)
+          vim.notify(string.format("LSP '%s' enabled", server_name), vim.log.levels.INFO)
+        end
+      end
+
+      -- Show LSP status
+      _G.lsp_status = function()
+        local clients = vim.lsp.get_clients()
+        if #clients == 0 then
+          vim.notify("No active LSP clients", vim.log.levels.INFO)
+          return
+        end
+
+        local status = {}
+        for _, client in ipairs(clients) do
+          table.insert(status, string.format("%s (id: %d)", client.name, client.id))
+        end
+
+        vim.notify(
+          string.format("Active LSPs (%d):\n%s", #clients, table.concat(status, "\n")),
+          vim.log.levels.INFO,
+          { title = "LSP Status" }
+        )
+
+        -- Also show available Nix LSPs
+        if #_G.enabled_lsp_servers > 0 then
+          vim.notify(
+            string.format("Available Nix LSPs: %s", table.concat(_G.enabled_lsp_servers, ", ")),
+            vim.log.levels.INFO,
+            { title = "Nix LSPs" }
+          )
+        end
+      end
+
       -- Show summary of disabled servers at DEBUG level (reduce noise)
       -- Commented out to reduce message noise
       -- if #disabled_servers > 0 then
@@ -480,6 +540,18 @@ return {
           -- Symbols
           map("n", "<leader>ss", "<cmd>FzfLua lsp_document_symbols<cr>", "Document Symbols")
           map("n", "<leader>sS", "<cmd>FzfLua lsp_workspace_symbols<cr>", "Workspace Symbols")
+
+          -- LSP Toggle controls
+          map("n", "<leader>cT", function() _G.toggle_all_lsp() end, "Toggle ALL LSPs")
+          map("n", "<leader>ct", function()
+            local buf_clients = vim.lsp.get_clients({ bufnr = event.buf })
+            if #buf_clients > 0 then
+              _G.toggle_lsp(buf_clients[1].name)
+            else
+              vim.notify("No LSP attached to this buffer", vim.log.levels.WARN)
+            end
+          end, "Toggle buffer's LSP")
+          map("n", "<leader>cs", function() _G.lsp_status() end, "Show LSP status")
         end,
       })
     end,

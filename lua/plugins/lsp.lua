@@ -2,40 +2,29 @@
 -- Prioritizes Nix-provided LSPs (no Mason fallback)
 -- This allows per-project LSP versioning via Nix flakes
 
--- Helper function to check if a command exists
-local function command_exists(cmd)
+-- Helper function to get the full path of a command
+-- Returns the full path if found, nil otherwise
+local function get_command_path(cmd)
   local handle = io.popen("command -v " .. cmd .. " 2>/dev/null")
   if handle then
     local result = handle:read("*a")
     handle:close()
-    return result ~= ""
+    -- Trim whitespace/newlines and return full path
+    result = result:gsub("^%s+", ""):gsub("%s+$", "")
+    if result ~= "" then
+      return result
+    end
   end
-  return false
+  return nil
 end
 
 -- Helper function to get command path for LSP
--- Only checks Nix-provided tools (no Mason fallback)
+-- Returns full path to ensure vim.lsp can find the binary
 local function get_lsp_cmd(nix_cmd)
-  -- Check if we're in a Nix environment
-  local in_nix_shell = os.getenv("IN_NIX_SHELL") ~= nil
-  local nix_lsp_enabled = os.getenv("NIX_LSP_ENABLED") == "true"
-
-  -- If in Nix shell or Nix LSP is enabled, prefer Nix
-  if in_nix_shell or nix_lsp_enabled then
-    if command_exists(nix_cmd) then
-      -- vim.notify("Using Nix-provided " .. nix_cmd, vim.log.levels.DEBUG)
-      return { nix_cmd }
-    end
+  local full_path = get_command_path(nix_cmd)
+  if full_path then
+    return { full_path }
   end
-
-  -- Check system-wide Nix installation
-  if command_exists(nix_cmd) then
-    -- vim.notify("Using system Nix " .. nix_cmd, vim.log.levels.DEBUG)
-    return { nix_cmd }
-  end
-
-  -- LSP not found - return nil to prevent starting
-  -- vim.notify("LSP " .. nix_cmd .. " not available from Nix", vim.log.levels.DEBUG)
   return nil
 end
 
@@ -274,7 +263,10 @@ return {
 
         -- Terraform
         terraformls = {
-          cmd = get_lsp_cmd("terraform-ls"),
+          cmd = function()
+            local path = get_command_path("terraform-ls")
+            return path and { path, "serve" } or nil
+          end,
           capabilities = capabilities,
         },
 

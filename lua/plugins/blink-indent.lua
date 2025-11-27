@@ -4,7 +4,7 @@
 return {
   {
     "saghen/blink.indent",
-    event = { "BufReadPost", "BufNewFile" },
+    event = "VeryLazy",
     opts = {
       -- Disable static guides (non-active indent lines)
       static = {

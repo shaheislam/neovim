@@ -39,11 +39,37 @@ local function get_lsp_cmd(nix_cmd)
   return nil
 end
 
+-- Helper function to build Kubernetes schema filename from kind + apiVersion
+-- Maps K8s resources to their specific schema files in yannh/kubernetes-json-schema
+-- Example: kind=Deployment, apiVersion=apps/v1 -> deployment-apps-v1.json
+local function build_k8s_schema_filename(kind, api_version)
+  -- Normalize kind to lowercase
+  local kind_lower = kind:lower()
+
+  -- Parse apiVersion: "apps/v1" -> group="apps", version="v1"
+  -- Or "v1" -> group=nil, version="v1"
+  local group, version = api_version:match("([%w%.]+)/(%w+)")
+  if not group then
+    version = api_version -- Just "v1"
+  end
+
+  -- Build filename based on group presence
+  if group then
+    -- Remove ".k8s.io" suffix and dots from group name
+    -- networking.k8s.io -> networking
+    -- rbac.authorization.k8s.io -> rbac-authorization
+    group = group:gsub("%.k8s%.io$", ""):gsub("%.", "-")
+    return string.format("%s-%s-%s.json", kind_lower, group, version)
+  else
+    return string.format("%s-%s.json", kind_lower, version)
+  end
+end
+
 return {
   -- nvim-lspconfig: Official LSP configuration plugin
   {
     "neovim/nvim-lspconfig",
-    event = { "BufReadPre", "BufNewFile" },
+    lazy = false, -- Load immediately to ensure LSP works when opening files via fzf
     dependencies = {
       -- Optional: nvim-cmp for completion (if you add it later)
       -- Optional: which-key for LSP keymap help
@@ -260,13 +286,37 @@ return {
           capabilities = capabilities,
         },
 
-        -- YAML
+        -- YAML with Kubernetes schema support
         yamlls = {
           cmd = function()
             local cmd = get_lsp_cmd("yaml-language-server")
             return cmd and { cmd[1], "--stdio" } or nil
           end,
           capabilities = capabilities,
+          settings = {
+            redhat = { telemetry = { enabled = false } },
+            yaml = {
+              validate = true,
+              completion = true,
+              hover = true,
+              format = { enable = true },
+              schemas = {
+                -- Kubernetes: Uses resource-specific schemas via auto-modelines
+                -- (see autocmd below that detects kind/apiVersion)
+                -- GitHub Actions
+                ["https://json.schemastore.org/github-workflow.json"] = ".github/workflows/*",
+                -- Docker Compose
+                ["https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json"] = {
+                  "docker-compose*.yml",
+                  "docker-compose*.yaml",
+                  "compose*.yml",
+                  "compose*.yaml",
+                },
+                -- Ansible
+                ["https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json"] = "ansible/**/*.yml",
+              },
+            },
+          },
         },
 
         -- JSON
@@ -484,6 +534,61 @@ return {
       --     { title = "Nix LSP Status" }
       --   )
       -- end
+
+      -- Auto-insert yaml-language-server modeline with resource-specific K8s schema
+      -- Detects kind: and apiVersion: to generate the correct schema URL
+      -- This provides proper field validation (unlike all.json which has oneOf issues)
+      vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "TextChanged" }, {
+        group = vim.api.nvim_create_augroup("yaml_k8s_modeline", { clear = true }),
+        callback = function()
+          local bufnr = vim.api.nvim_get_current_buf()
+
+          -- Check if buffer is YAML (by filetype or by checking content)
+          local ft = vim.bo[bufnr].filetype
+          if ft ~= "yaml" and ft ~= "" then
+            return
+          end
+
+          local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 30, false)
+          local content = table.concat(lines, "\n")
+
+          -- Skip if already has modeline
+          if content:match("yaml%-language%-server:") then
+            return
+          end
+
+          -- Extract apiVersion and kind from content
+          local api_version = content:match("apiVersion:%s*([%w%.%/]+)")
+          local kind = content:match("kind:%s*(%w+)")
+
+          -- Both apiVersion and kind are required for K8s resources
+          if not api_version or not kind then
+            return
+          end
+
+          -- Build resource-specific schema filename
+          local schema_file = build_k8s_schema_filename(kind, api_version)
+          if not schema_file then
+            return
+          end
+
+          local schema_url = "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.31.0-standalone-strict/" .. schema_file
+
+          vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, {
+            "# yaml-language-server: $schema=" .. schema_url
+          })
+
+          -- Set filetype to yaml if not already set (for scratch buffers)
+          if ft == "" then
+            vim.bo[bufnr].filetype = "yaml"
+          end
+
+          -- Restart yamlls to pick up the modeline
+          vim.defer_fn(function()
+            vim.cmd("LspRestart yamlls")
+          end, 100)
+        end,
+      })
 
       -- LSP Keymaps (set on LspAttach)
       vim.api.nvim_create_autocmd("LspAttach", {

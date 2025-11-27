@@ -1124,6 +1124,7 @@ return {
             ["ctrl-f"] = "preview-up",        -- Scroll up (line by line)
             ["ctrl-d"] = "preview-down",      -- Scroll down (line by line)
             ["ctrl-b"] = "preview-page-up",   -- Page up
+            ["ctrl-/"] = "toggle-preview",    -- Toggle preview on/off
             -- ["ctrl-u"] is now free for other uses
           },
         },

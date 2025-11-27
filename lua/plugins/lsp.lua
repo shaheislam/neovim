@@ -39,30 +39,48 @@ local function get_lsp_cmd(nix_cmd)
   return nil
 end
 
--- Helper function to build Kubernetes schema filename from kind + apiVersion
--- Maps K8s resources to their specific schema files in yannh/kubernetes-json-schema
--- Example: kind=Deployment, apiVersion=apps/v1 -> deployment-apps-v1.json
-local function build_k8s_schema_filename(kind, api_version)
-  -- Normalize kind to lowercase
+-- CRD apiVersion groups that use datreeio/CRDs-catalog for schemas
+local CRD_GROUPS = {
+  ["argoproj.io"] = true,           -- Argo CD, Workflows, Rollouts
+  ["cert-manager.io"] = true,       -- Cert-Manager
+  ["monitoring.coreos.com"] = true, -- Prometheus Operator
+  ["networking.istio.io"] = true,   -- Istio networking
+  ["security.istio.io"] = true,     -- Istio security
+  ["telemetry.istio.io"] = true,    -- Istio telemetry
+}
+
+-- Get Kubernetes schema URL based on kind + apiVersion
+-- Routes to yannh/kubernetes-json-schema for core K8s resources
+-- Routes to datreeio/CRDs-catalog for CRDs (Argo, Cert-Manager, Prometheus, Istio)
+local function get_k8s_schema_url(kind, api_version)
   local kind_lower = kind:lower()
+  local group, version = api_version:match("([%w%.%-]+)/(%w+)")
 
-  -- Parse apiVersion: "apps/v1" -> group="apps", version="v1"
-  -- Or "v1" -> group=nil, version="v1"
-  local group, version = api_version:match("([%w%.]+)/(%w+)")
   if not group then
-    version = api_version -- Just "v1"
+    -- Core API (v1) - use yannh
+    version = api_version
+    return string.format(
+      "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.31.0-standalone-strict/%s-%s.json",
+      kind_lower, version
+    )
   end
 
-  -- Build filename based on group presence
-  if group then
-    -- Remove ".k8s.io" suffix and dots from group name
-    -- networking.k8s.io -> networking
-    -- rbac.authorization.k8s.io -> rbac-authorization
-    group = group:gsub("%.k8s%.io$", ""):gsub("%.", "-")
-    return string.format("%s-%s-%s.json", kind_lower, group, version)
-  else
-    return string.format("%s-%s.json", kind_lower, version)
+  -- Check if it's a CRD - route to datreeio/CRDs-catalog
+  if CRD_GROUPS[group] then
+    -- datreeio format: {group}/{kind}_{version}.json
+    return string.format(
+      "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/%s/%s_%s.json",
+      group, kind_lower, version
+    )
   end
+
+  -- Standard K8s resource with group (apps, batch, networking.k8s.io, etc.)
+  -- Remove ".k8s.io" suffix and convert dots to dashes for yannh format
+  local group_clean = group:gsub("%.k8s%.io$", ""):gsub("%.", "-")
+  return string.format(
+    "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.31.0-standalone-strict/%s-%s-%s.json",
+    kind_lower, group_clean, version
+  )
 end
 
 return {
@@ -535,9 +553,10 @@ return {
       --   )
       -- end
 
-      -- Auto-insert yaml-language-server modeline with resource-specific K8s schema
-      -- Detects kind: and apiVersion: to generate the correct schema URL
-      -- This provides proper field validation (unlike all.json which has oneOf issues)
+      -- Auto-insert yaml-language-server modeline with resource-specific K8s/CRD schema
+      -- Detects kind: and apiVersion: to route to correct schema source:
+      -- - Core K8s (v1, apps, batch, etc.) → yannh/kubernetes-json-schema
+      -- - CRDs (Argo, Cert-Manager, Prometheus, Istio) → datreeio/CRDs-catalog
       vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "TextChanged" }, {
         group = vim.api.nvim_create_augroup("yaml_k8s_modeline", { clear = true }),
         callback = function()
@@ -566,13 +585,11 @@ return {
             return
           end
 
-          -- Build resource-specific schema filename
-          local schema_file = build_k8s_schema_filename(kind, api_version)
-          if not schema_file then
+          -- Get schema URL (routes to yannh for core K8s, datreeio for CRDs)
+          local schema_url = get_k8s_schema_url(kind, api_version)
+          if not schema_url then
             return
           end
-
-          local schema_url = "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.31.0-standalone-strict/" .. schema_file
 
           vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, {
             "# yaml-language-server: $schema=" .. schema_url

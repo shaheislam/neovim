@@ -483,6 +483,10 @@ return {
         vim.lsp.enable(enabled_servers)
       end
 
+      -- Explicitly disable conflicting LSP servers from lspconfig defaults
+      -- terraform_lsp conflicts with terraformls (HashiCorp's official terraform-ls)
+      vim.lsp.enable("terraform_lsp", false)
+
       -- Global LSP toggle state
       _G.lsp_enabled = true
       _G.enabled_lsp_servers = enabled_servers  -- Store the list of Nix-provided servers

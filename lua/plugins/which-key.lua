@@ -123,6 +123,9 @@ return {
 
 				-- Window management
 				{ "<C-z>", desc = "Toggle Zoom Window" },
+
+				-- Oil path yanking (C-y followed by l/s/g)
+				{ "<C-y>", group = "yank path", mode = "n" },
 			})
 		end,
 	},

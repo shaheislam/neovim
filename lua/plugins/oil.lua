@@ -46,22 +46,59 @@ return {
           end,
           desc = "Live grep in Oil directory",
         },
-        -- Path yanking (similar to fzf-lua <C-y>)
-        ["<C-y>"] = {
+        -- Path yanking with multiple formats (C-y + l/s/g)
+        ["<C-y>l"] = {
+          function()
+            local oil = require("oil")
+            local entry = oil.get_cursor_entry()
+            if entry then
+              vim.fn.setreg("+", entry.name)
+              vim.notify("Copied: " .. entry.name, vim.log.levels.INFO)
+            end
+          end,
+          desc = "Yank filename",
+        },
+        ["<C-y>s"] = {
           function()
             local oil = require("oil")
             local entry = oil.get_cursor_entry()
             local dir = oil.get_current_dir()
-
             if entry and dir then
-              local full_path = dir .. entry.name
-              local abs_path = vim.fn.fnamemodify(full_path, ":p")
-
-              vim.fn.setreg("+", abs_path)
-              vim.notify("Copied: " .. abs_path, vim.log.levels.INFO)
+              local full_path = vim.fn.fnamemodify(dir .. entry.name, ":p")
+              -- Find git root
+              local git_dir = vim.fs.find(".git", { path = dir, upward = true })[1]
+              if git_dir then
+                local git_root = vim.fn.fnamemodify(git_dir, ":h")
+                local rel_path = full_path:sub(#git_root + 2) -- +2 to skip trailing /
+                vim.fn.setreg("+", rel_path)
+                vim.notify("Copied (git): " .. rel_path, vim.log.levels.INFO)
+              else
+                vim.fn.setreg("+", full_path)
+                vim.notify("No git root, copied: " .. full_path, vim.log.levels.WARN)
+              end
             end
           end,
-          desc = "Yank absolute path of entry under cursor",
+          desc = "Yank path from git root",
+        },
+        ["<C-y>g"] = {
+          function()
+            local oil = require("oil")
+            local entry = oil.get_cursor_entry()
+            local dir = oil.get_current_dir()
+            if entry and dir then
+              local full_path = vim.fn.fnamemodify(dir .. entry.name, ":p")
+              local work_dir = vim.fn.expand("~/work/")
+              if full_path:find(work_dir, 1, true) == 1 then
+                local rel_path = full_path:sub(#work_dir + 1)
+                vim.fn.setreg("+", rel_path)
+                vim.notify("Copied (global): " .. rel_path, vim.log.levels.INFO)
+              else
+                vim.fn.setreg("+", full_path)
+                vim.notify("Not in ~/work, copied: " .. full_path, vim.log.levels.WARN)
+              end
+            end
+          end,
+          desc = "Yank path from ~/work",
         },
       },
     },

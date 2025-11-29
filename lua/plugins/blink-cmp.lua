@@ -27,6 +27,16 @@ return {
             enabled = function()
               return vim.tbl_contains({ "gitcommit", "markdown", "octo" }, vim.bo.filetype)
             end,
+            opts = {
+              git_centers = {
+                github = {
+                  -- Suppress errors for repos with non-standard SSH remotes (e.g., github.com-alias)
+                  issue = { on_error = function() return true end },
+                  pull_request = { on_error = function() return true end },
+                  mention = { on_error = function() return true end },
+                },
+              },
+            },
           },
         },
       },

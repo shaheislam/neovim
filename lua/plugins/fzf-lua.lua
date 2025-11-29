@@ -2250,14 +2250,39 @@ return {
       },
 
       -- Unified DiffviewOpen picker with type switching (like CLI fzf-git)
-      -- Ctrl+H = commits, Ctrl+B = branches, Ctrl+W = worktrees
+      -- Supports cross-picker selection: select a branch, switch to commits, select a commit
       {
         "<leader>gD",
         function()
           local fzf = require("fzf-lua")
+          local selected_refs = {}  -- Persists across picker switches
 
-          -- Helper to open Diffview with optional file filter
-          local function open_with_filter(refs)
+          -- Dynamic header showing current selection
+          local function get_header()
+            local base = "CTRL-H (commits) ╱ CTRL-B (branches) ╱ CTRL-W (worktrees) ╱ CTRL-X (clear)"
+            if #selected_refs == 0 then
+              return base .. "\nSelect 1-2 refs to compare"
+            elseif #selected_refs == 1 then
+              return base .. "\n✓ " .. selected_refs[1] .. " (select another or Enter to confirm)"
+            else
+              return base .. "\n✓ " .. selected_refs[1] .. ".." .. selected_refs[2]
+            end
+          end
+
+          -- Add ref to selection (avoids duplicates, max 2)
+          local function add_ref(ref)
+            for _, r in ipairs(selected_refs) do
+              if r == ref then return end
+            end
+            table.insert(selected_refs, ref)
+            if #selected_refs > 2 then
+              table.remove(selected_refs, 1)
+            end
+          end
+
+          -- Open Diffview with optional file filter
+          local function open_with_filter()
+            local refs = selected_refs
             local range_str
             if #refs == 1 then
               range_str = refs[1]
@@ -2272,18 +2297,16 @@ return {
               or string.format("git diff --name-only %s %s", refs[2], refs[1])
             local files = vim.fn.systemlist(diff_cmd)
 
-            -- Always show file picker (even if empty - user can Enter or Ctrl+A to open all)
             local has_files = #files > 0
 
             fzf.fzf_exec(has_files and files or { "-- No files found, Enter to open diff --" }, {
               prompt = "Filter files (Tab=multi, Enter=open, Ctrl-A=all)> ",
               fzf_opts = { ["--multi"] = true },
               actions = {
-                ["default"] = function(selected)
-                  -- Filter out placeholder message and check for real file selections
+                ["default"] = function(sel)
                   local real_paths = {}
-                  if selected then
-                    for _, path in ipairs(selected) do
+                  if sel then
+                    for _, path in ipairs(sel) do
                       if not path:match("^-- ") then
                         table.insert(real_paths, vim.fn.shellescape(path))
                       end
@@ -2305,31 +2328,43 @@ return {
           -- Forward declaration for recursive calls
           local diffview_picker
           diffview_picker = function(picker_type)
-            local header = "CTRL-H (commits) ╱ CTRL-B (branches) ╱ CTRL-W (worktrees)"
-
-            -- Common actions for switching picker types (vim.schedule ensures proper picker close/open sequencing)
+            -- Common actions for switching picker types
             local switch_actions = {
               ["ctrl-h"] = function() vim.schedule(function() diffview_picker("commits") end) end,
               ["ctrl-b"] = function() vim.schedule(function() diffview_picker("branches") end) end,
               ["ctrl-w"] = function() vim.schedule(function() diffview_picker("worktrees") end) end,
+              ["ctrl-x"] = function()
+                selected_refs = {}
+                vim.schedule(function() diffview_picker(picker_type) end)
+              end,
             }
 
             if picker_type == "commits" then
               fzf.git_commits({
                 prompt = "Diffview Commits> ",
                 fzf_opts = {
-                  ["--multi"] = true,
-                  ["--header"] = header,
+                  ["--header"] = get_header(),
                 },
                 actions = vim.tbl_extend("force", switch_actions, {
                   ["default"] = function(selected)
-                    if not selected or #selected == 0 then return end
-                    local refs = {}
+                    if not selected or #selected == 0 then
+                      -- No new selection - if we have refs, proceed
+                      if #selected_refs >= 1 then
+                        open_with_filter()
+                      end
+                      return
+                    end
+                    -- Add selected ref(s)
                     for _, item in ipairs(selected) do
                       local hash = item:match("[a-f0-9]+")
-                      if hash then table.insert(refs, hash) end
+                      if hash then add_ref(hash) end
                     end
-                    open_with_filter(refs)
+                    -- Auto-proceed if we have 2 refs, otherwise re-open picker
+                    if #selected_refs >= 2 then
+                      open_with_filter()
+                    else
+                      vim.schedule(function() diffview_picker("commits") end)
+                    end
                   end,
                 }),
               })
@@ -2338,18 +2373,25 @@ return {
               fzf.git_branches({
                 prompt = "Diffview Branches> ",
                 fzf_opts = {
-                  ["--multi"] = true,
-                  ["--header"] = header,
+                  ["--header"] = get_header(),
                 },
                 actions = vim.tbl_extend("force", switch_actions, {
                   ["default"] = function(selected)
-                    if not selected or #selected == 0 then return end
-                    local refs = {}
+                    if not selected or #selected == 0 then
+                      if #selected_refs >= 1 then
+                        open_with_filter()
+                      end
+                      return
+                    end
                     for _, item in ipairs(selected) do
                       local branch = item:gsub("^%s*%*?%s*", ""):match("^%S+")
-                      if branch then table.insert(refs, branch) end
+                      if branch then add_ref(branch) end
                     end
-                    open_with_filter(refs)
+                    if #selected_refs >= 2 then
+                      open_with_filter()
+                    else
+                      vim.schedule(function() diffview_picker("branches") end)
+                    end
                   end,
                 }),
               })
@@ -2359,19 +2401,25 @@ return {
               fzf.fzf_exec(worktrees, {
                 prompt = "Diffview Worktrees> ",
                 fzf_opts = {
-                  ["--multi"] = true,
-                  ["--header"] = header,
+                  ["--header"] = get_header(),
                 },
                 actions = vim.tbl_extend("force", switch_actions, {
                   ["default"] = function(selected)
-                    if not selected or #selected == 0 then return end
-                    local refs = {}
-                    for _, item in ipairs(selected) do
-                      -- Worktree format: /path/to/worktree  abc1234 [branch-name]
-                      local branch = item:match("%[(.-)%]")
-                      if branch then table.insert(refs, branch) end
+                    if not selected or #selected == 0 then
+                      if #selected_refs >= 1 then
+                        open_with_filter()
+                      end
+                      return
                     end
-                    open_with_filter(refs)
+                    for _, item in ipairs(selected) do
+                      local branch = item:match("%[(.-)%]")
+                      if branch then add_ref(branch) end
+                    end
+                    if #selected_refs >= 2 then
+                      open_with_filter()
+                    else
+                      vim.schedule(function() diffview_picker("worktrees") end)
+                    end
                   end,
                 }),
               })
@@ -2381,7 +2429,7 @@ return {
           -- Start with commits picker
           diffview_picker("commits")
         end,
-        desc = "Diffview picker (Ctrl-H/B/W to switch)",
+        desc = "Diffview picker (cross-picker selection, Ctrl-H/B/W to switch)",
       },
 
       -- Undo history

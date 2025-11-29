@@ -2250,29 +2250,70 @@ return {
       },
 
       -- DiffviewOpen pickers (multi-select with Tab, confirm with Enter)
+      -- Flow: Pick ref(s) → Pick files to filter → Open Diffview
       {
         "<leader>gD",
         function()
+          -- Helper to open Diffview with optional file filter
+          local function open_with_filter(refs)
+            local range_str
+            if #refs == 1 then
+              range_str = refs[1]
+            elseif #refs >= 2 then
+              range_str = refs[2] .. ".." .. refs[1]
+            else
+              return
+            end
+
+            -- Get list of changed files for the selection
+            -- Single ref: files changed IN that commit (not vs working tree)
+            -- Range: files changed between the two refs
+            local diff_cmd = #refs == 1
+              and string.format("git diff-tree --no-commit-id --name-only -r %s", refs[1])
+              or string.format("git diff --name-only %s %s", refs[2], refs[1])
+            local files = vim.fn.systemlist(diff_cmd)
+
+            if #files == 0 then
+              vim.cmd("DiffviewOpen " .. range_str)
+              return
+            end
+
+            -- Show file picker for filtering
+            require("fzf-lua").fzf_exec(files, {
+              prompt = "Filter files (Tab=multi, Enter=confirm, Esc=all)> ",
+              fzf_opts = { ["--multi"] = true },
+              actions = {
+                ["default"] = function(selected)
+                  if selected and #selected > 0 then
+                    -- Quote each path in case of spaces
+                    local quoted_paths = {}
+                    for _, path in ipairs(selected) do
+                      table.insert(quoted_paths, vim.fn.shellescape(path))
+                    end
+                    vim.cmd("DiffviewOpen " .. range_str .. " -- " .. table.concat(quoted_paths, " "))
+                  else
+                    vim.cmd("DiffviewOpen " .. range_str)
+                  end
+                end,
+                ["esc"] = function()
+                  vim.cmd("DiffviewOpen " .. range_str)
+                end,
+              },
+            })
+          end
+
           require("fzf-lua").git_commits({
             prompt = "Diffview Commits (Tab=multi, Enter=confirm)> ",
             fzf_opts = { ["--multi"] = true },
             actions = {
               ["default"] = function(selected)
                 if not selected or #selected == 0 then return end
-
-                -- Extract commit hashes
                 local refs = {}
                 for _, item in ipairs(selected) do
                   local hash = item:match("[a-f0-9]+")
                   if hash then table.insert(refs, hash) end
                 end
-
-                if #refs == 1 then
-                  vim.cmd("DiffviewOpen " .. refs[1])
-                elseif #refs >= 2 then
-                  -- Compare first two selected (oldest..newest order)
-                  vim.cmd("DiffviewOpen " .. refs[2] .. ".." .. refs[1])
-                end
+                open_with_filter(refs)
               end,
             },
           })
@@ -2282,25 +2323,66 @@ return {
       {
         "<leader>gB",
         function()
+          -- Helper to open Diffview with optional file filter
+          local function open_with_filter(refs)
+            local range_str
+            if #refs == 1 then
+              range_str = refs[1]
+            elseif #refs >= 2 then
+              range_str = refs[2] .. ".." .. refs[1]
+            else
+              return
+            end
+
+            -- Get list of changed files for the selection
+            -- Single ref: files changed IN that commit (not vs working tree)
+            -- Range: files changed between the two refs
+            local diff_cmd = #refs == 1
+              and string.format("git diff-tree --no-commit-id --name-only -r %s", refs[1])
+              or string.format("git diff --name-only %s %s", refs[2], refs[1])
+            local files = vim.fn.systemlist(diff_cmd)
+
+            if #files == 0 then
+              vim.cmd("DiffviewOpen " .. range_str)
+              return
+            end
+
+            -- Show file picker for filtering
+            require("fzf-lua").fzf_exec(files, {
+              prompt = "Filter files (Tab=multi, Enter=confirm, Esc=all)> ",
+              fzf_opts = { ["--multi"] = true },
+              actions = {
+                ["default"] = function(selected)
+                  if selected and #selected > 0 then
+                    -- Quote each path in case of spaces
+                    local quoted_paths = {}
+                    for _, path in ipairs(selected) do
+                      table.insert(quoted_paths, vim.fn.shellescape(path))
+                    end
+                    vim.cmd("DiffviewOpen " .. range_str .. " -- " .. table.concat(quoted_paths, " "))
+                  else
+                    vim.cmd("DiffviewOpen " .. range_str)
+                  end
+                end,
+                ["esc"] = function()
+                  vim.cmd("DiffviewOpen " .. range_str)
+                end,
+              },
+            })
+          end
+
           require("fzf-lua").git_branches({
             prompt = "Diffview Branches (Tab=multi, Enter=confirm)> ",
             fzf_opts = { ["--multi"] = true },
             actions = {
               ["default"] = function(selected)
                 if not selected or #selected == 0 then return end
-
-                -- Extract branch names
                 local refs = {}
                 for _, item in ipairs(selected) do
                   local branch = item:gsub("^%s*%*?%s*", ""):match("^%S+")
                   if branch then table.insert(refs, branch) end
                 end
-
-                if #refs == 1 then
-                  vim.cmd("DiffviewOpen " .. refs[1])
-                elseif #refs >= 2 then
-                  vim.cmd("DiffviewOpen " .. refs[2] .. ".." .. refs[1])
-                end
+                open_with_filter(refs)
               end,
             },
           })

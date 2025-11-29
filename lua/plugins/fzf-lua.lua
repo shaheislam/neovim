@@ -2307,11 +2307,11 @@ return {
           diffview_picker = function(picker_type)
             local header = "CTRL-H (commits) ╱ CTRL-B (branches) ╱ CTRL-W (worktrees)"
 
-            -- Common actions for switching picker types
+            -- Common actions for switching picker types (vim.schedule ensures proper picker close/open sequencing)
             local switch_actions = {
-              ["ctrl-h"] = function() diffview_picker("commits") end,
-              ["ctrl-b"] = function() diffview_picker("branches") end,
-              ["ctrl-w"] = function() diffview_picker("worktrees") end,
+              ["ctrl-h"] = function() vim.schedule(function() diffview_picker("commits") end) end,
+              ["ctrl-b"] = function() vim.schedule(function() diffview_picker("branches") end) end,
+              ["ctrl-w"] = function() vim.schedule(function() diffview_picker("worktrees") end) end,
             }
 
             if picker_type == "commits" then

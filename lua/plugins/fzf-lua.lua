@@ -2249,6 +2249,65 @@ return {
         desc = "Find Git Conflicts"
       },
 
+      -- DiffviewOpen pickers (multi-select with Tab, confirm with Enter)
+      {
+        "<leader>gD",
+        function()
+          require("fzf-lua").git_commits({
+            prompt = "Diffview Commits (Tab=multi, Enter=confirm)> ",
+            fzf_opts = { ["--multi"] = true },
+            actions = {
+              ["default"] = function(selected)
+                if not selected or #selected == 0 then return end
+
+                -- Extract commit hashes
+                local refs = {}
+                for _, item in ipairs(selected) do
+                  local hash = item:match("[a-f0-9]+")
+                  if hash then table.insert(refs, hash) end
+                end
+
+                if #refs == 1 then
+                  vim.cmd("DiffviewOpen " .. refs[1])
+                elseif #refs >= 2 then
+                  -- Compare first two selected (oldest..newest order)
+                  vim.cmd("DiffviewOpen " .. refs[2] .. ".." .. refs[1])
+                end
+              end,
+            },
+          })
+        end,
+        desc = "Diffview commit picker (multi-select)",
+      },
+      {
+        "<leader>gB",
+        function()
+          require("fzf-lua").git_branches({
+            prompt = "Diffview Branches (Tab=multi, Enter=confirm)> ",
+            fzf_opts = { ["--multi"] = true },
+            actions = {
+              ["default"] = function(selected)
+                if not selected or #selected == 0 then return end
+
+                -- Extract branch names
+                local refs = {}
+                for _, item in ipairs(selected) do
+                  local branch = item:gsub("^%s*%*?%s*", ""):match("^%S+")
+                  if branch then table.insert(refs, branch) end
+                end
+
+                if #refs == 1 then
+                  vim.cmd("DiffviewOpen " .. refs[1])
+                elseif #refs >= 2 then
+                  vim.cmd("DiffviewOpen " .. refs[2] .. ".." .. refs[1])
+                end
+              end,
+            },
+          })
+        end,
+        desc = "Diffview branch picker (multi-select)",
+      },
+
       -- Undo history
       { "<leader>fu", function() require("fzf-lua").changes() end, desc = "Undo History" },
 

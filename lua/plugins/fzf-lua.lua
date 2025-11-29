@@ -2280,7 +2280,7 @@ return {
 
             -- Show file picker for filtering
             require("fzf-lua").fzf_exec(files, {
-              prompt = "Filter files (Tab=multi, Enter=confirm, Esc=all)> ",
+              prompt = "Filter files (Tab=multi, Enter=open, Ctrl-A=all)> ",
               fzf_opts = { ["--multi"] = true },
               actions = {
                 ["default"] = function(selected)
@@ -2292,10 +2292,12 @@ return {
                     end
                     vim.cmd("DiffviewOpen " .. range_str .. " -- " .. table.concat(quoted_paths, " "))
                   else
+                    -- No selection, open all files
                     vim.cmd("DiffviewOpen " .. range_str)
                   end
                 end,
-                ["esc"] = function()
+                ["ctrl-a"] = function()
+                  -- Explicit "open all files" action
                   vim.cmd("DiffviewOpen " .. range_str)
                 end,
               },
@@ -2349,7 +2351,7 @@ return {
 
             -- Show file picker for filtering
             require("fzf-lua").fzf_exec(files, {
-              prompt = "Filter files (Tab=multi, Enter=confirm, Esc=all)> ",
+              prompt = "Filter files (Tab=multi, Enter=open, Ctrl-A=all)> ",
               fzf_opts = { ["--multi"] = true },
               actions = {
                 ["default"] = function(selected)
@@ -2361,10 +2363,12 @@ return {
                     end
                     vim.cmd("DiffviewOpen " .. range_str .. " -- " .. table.concat(quoted_paths, " "))
                   else
+                    -- No selection, open all files
                     vim.cmd("DiffviewOpen " .. range_str)
                   end
                 end,
-                ["esc"] = function()
+                ["ctrl-a"] = function()
+                  -- Explicit "open all files" action
                   vim.cmd("DiffviewOpen " .. range_str)
                 end,
               },

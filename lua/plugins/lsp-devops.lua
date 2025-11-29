@@ -35,6 +35,8 @@ return {
           [".*kubernetes.*%.ya?ml"] = "yaml",
           [".*%.tf"] = "terraform",
           [".*%.tfvars"] = "terraform",
+          -- GitHub Actions workflows
+          [".*%.github/workflows/.*%.ya?ml"] = "yaml.github",
         },
       })
     end,

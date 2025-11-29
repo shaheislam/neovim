@@ -382,6 +382,46 @@ return {
 			{ "<leader>gH", "<cmd>DiffviewFileHistory<cr>", desc = "Repository History" },
 			{ "<leader>gm", "<cmd>DiffviewOpen<cr>", desc = "Open Diffview (merge conflicts)" },
 			{ "<leader>gq", "<cmd>DiffviewClose<cr>", desc = "Close Diffview" },
+			{
+				"<leader>gD",
+				function()
+					-- Use fzf-lua to pick two commits and open DiffviewOpen
+					local fzf = require("fzf-lua")
+					local base_commit = nil
+
+					-- Pick first commit (base)
+					fzf.git_commits({
+						prompt = "Select BASE commit (older)> ",
+						actions = {
+							["default"] = function(selected)
+								if selected and #selected > 0 then
+									-- Extract commit hash from selection
+									base_commit = selected[1]:match("^(%x+)")
+									if base_commit then
+										-- Pick second commit (compare)
+										vim.schedule(function()
+											fzf.git_commits({
+												prompt = "Select COMPARE commit (newer)> ",
+												actions = {
+													["default"] = function(selected2)
+														if selected2 and #selected2 > 0 then
+															local compare_commit = selected2[1]:match("^(%x+)")
+															if compare_commit then
+																vim.cmd("DiffviewOpen " .. base_commit .. ".." .. compare_commit)
+															end
+														end
+													end,
+												},
+											})
+										end)
+									end
+								end
+							end,
+						},
+					})
+				end,
+				desc = "Compare commits (fzf picker)",
+			},
 		},
 		config = function()
 			local actions = require("diffview.actions")

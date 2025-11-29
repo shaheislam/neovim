@@ -1,5 +1,5 @@
 -- nvim-lint configuration
--- Integrates external linters (helm lint, actionlint, kube-linter, tfsec, semgrep, gitleaks)
+-- Integrates external linters (helm lint, actionlint, kube-linter, tfsec)
 -- alongside LSP diagnostics
 
 return {
@@ -15,29 +15,30 @@ return {
       ["yaml.github"] = { "actionlint" },
       terraform = { "tfsec" },
 
-      -- Semgrep for code security (on-save)
-      python = { "semgrep" },
-      javascript = { "semgrep" },
-      typescript = { "semgrep" },
-      javascriptreact = { "semgrep" },
-      typescriptreact = { "semgrep" },
-      go = { "semgrep" },
-      ruby = { "semgrep" },
-      java = { "semgrep" },
-      c = { "semgrep" },
-      cpp = { "semgrep" },
-      rust = { "semgrep" },
+      -- Semgrep for code security (disabled - nvim-lint has no built-in semgrep support)
+      -- Run semgrep manually via CLI: semgrep --config auto .
+      -- python = { "semgrep" },
+      -- javascript = { "semgrep" },
+      -- typescript = { "semgrep" },
+      -- javascriptreact = { "semgrep" },
+      -- typescriptreact = { "semgrep" },
+      -- go = { "semgrep" },
+      -- ruby = { "semgrep" },
+      -- java = { "semgrep" },
+      -- c = { "semgrep" },
+      -- cpp = { "semgrep" },
+      -- rust = { "semgrep" },
 
       -- Kubernetes best practices (manual trigger recommended - overlaps with yamlls)
       -- kubernetes = { "kube_linter" },
     }
 
-    -- Lint on save (includes gitleaks for all files)
+    -- Lint on save
     vim.api.nvim_create_autocmd({ "BufWritePost" }, {
       group = vim.api.nvim_create_augroup("nvim-lint", { clear = true }),
       callback = function()
         lint.try_lint()
-        lint.try_lint("gitleaks") -- Run on all files for secrets detection
+        -- lint.try_lint("gitleaks") -- Disabled: nvim-lint has no built-in gitleaks support. Run via CLI: gitleaks detect
       end,
     })
 

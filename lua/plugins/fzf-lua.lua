@@ -2256,16 +2256,18 @@ return {
         function()
           local fzf = require("fzf-lua")
           local selected_refs = {}  -- Persists across picker switches
+          local git_cwd = nil       -- Worktree context (nil = current directory)
 
-          -- Dynamic header showing current selection
+          -- Dynamic header showing current selection and worktree context
           local function get_header()
             local base = "CTRL-H (commits) ╱ CTRL-B (branches) ╱ CTRL-W (worktrees) ╱ CTRL-X (clear)"
+            local context = git_cwd and (" [" .. vim.fn.fnamemodify(git_cwd, ":t") .. "]") or ""
             if #selected_refs == 0 then
-              return base .. "\nSelect 1-2 refs to compare"
+              return base .. "\n" .. context .. " Select 1-2 refs to compare"
             elseif #selected_refs == 1 then
-              return base .. "\n✓ " .. selected_refs[1] .. " (select another or Enter to confirm)"
+              return base .. "\n" .. context .. " ✓ " .. selected_refs[1] .. " (select another or Enter)"
             else
-              return base .. "\n✓ " .. selected_refs[1] .. ".." .. selected_refs[2]
+              return base .. "\n" .. context .. " ✓ " .. selected_refs[1] .. ".." .. selected_refs[2]
             end
           end
 
@@ -2335,12 +2337,14 @@ return {
               ["ctrl-w"] = function() vim.schedule(function() diffview_picker("worktrees") end) end,
               ["ctrl-x"] = function()
                 selected_refs = {}
+                git_cwd = nil  -- Reset worktree context
                 vim.schedule(function() diffview_picker(picker_type) end)
               end,
             }
 
             if picker_type == "commits" then
               fzf.git_commits({
+                cwd = git_cwd,  -- Run git from worktree context
                 prompt = "Diffview Commits> ",
                 fzf_opts = {
                   ["--header"] = get_header(),
@@ -2371,6 +2375,7 @@ return {
 
             elseif picker_type == "branches" then
               fzf.git_branches({
+                cwd = git_cwd,  -- Run git from worktree context
                 prompt = "Diffview Branches> ",
                 fzf_opts = {
                   ["--header"] = get_header(),
@@ -2411,14 +2416,13 @@ return {
                       end
                       return
                     end
-                    for _, item in ipairs(selected) do
-                      local branch = item:match("%[(.-)%]")
-                      if branch then add_ref(branch) end
-                    end
-                    if #selected_refs >= 2 then
-                      open_with_filter()
-                    else
-                      vim.schedule(function() diffview_picker("worktrees") end)
+                    -- Extract worktree path and set as git context
+                    local item = selected[1]
+                    local worktree_path = item:match("^(%S+)")
+                    if worktree_path then
+                      git_cwd = worktree_path
+                      -- Switch to commits picker from this worktree context
+                      vim.schedule(function() diffview_picker("commits") end)
                     end
                   end,
                 }),

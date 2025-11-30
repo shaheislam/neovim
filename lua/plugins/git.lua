@@ -428,10 +428,10 @@ return {
 					},
 				},
 
-				-- Merge conflict layout (3-way or 4-way diff)
+				-- Default args for common workflows
 				default_args = {
-					DiffviewOpen = {},
-					DiffviewFileHistory = {},
+					DiffviewOpen = { "--imply-local" }, -- LSP works in range diffs
+					DiffviewFileHistory = { "--follow" }, -- Follow file renames
 				},
 
 				-- Keymaps for diffview windows
@@ -441,20 +441,30 @@ return {
 						-- Navigation
 						{ "n", "<tab>", actions.select_next_entry, { desc = "Next file" } },
 						{ "n", "<s-tab>", actions.select_prev_entry, { desc = "Previous file" } },
+						{ "n", "[F", actions.select_first_entry, { desc = "First file" } },
+						{ "n", "]F", actions.select_last_entry, { desc = "Last file" } },
 						{ "n", "gf", actions.goto_file_edit, { desc = "Go to file" } },
 						{ "n", "<C-w><C-f>", actions.goto_file_split, { desc = "Go to file (split)" } },
 						{ "n", "<C-w>gf", actions.goto_file_tab, { desc = "Go to file (tab)" } },
 
-						-- Focus file panel
+						-- Layout and panels
+						{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
 						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
 						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
 
-						-- Conflict resolution (3-way merge) - buffer-local, no leader key
+						-- Conflict resolution (single hunk)
 						{ "n", "co", actions.conflict_choose("ours"), { desc = "Choose OURS" } },
 						{ "n", "ct", actions.conflict_choose("theirs"), { desc = "Choose THEIRS" } },
 						{ "n", "cb", actions.conflict_choose("base"), { desc = "Choose BASE" } },
 						{ "n", "ca", actions.conflict_choose("all"), { desc = "Choose ALL" } },
 						{ "n", "dx", actions.conflict_choose("none"), { desc = "Delete conflict region" } },
+
+						-- Conflict resolution (whole file)
+						{ "n", "<leader>cO", actions.conflict_choose_all("ours"), { desc = "Choose OURS (whole file)" } },
+						{ "n", "<leader>cT", actions.conflict_choose_all("theirs"), { desc = "Choose THEIRS (whole file)" } },
+						{ "n", "<leader>cB", actions.conflict_choose_all("base"), { desc = "Choose BASE (whole file)" } },
+						{ "n", "<leader>cA", actions.conflict_choose_all("all"), { desc = "Choose ALL (whole file)" } },
+						{ "n", "dX", actions.conflict_choose_all("none"), { desc = "Delete all conflicts" } },
 
 						-- Navigate between conflicts
 						{ "n", "[x", actions.prev_conflict, { desc = "Previous conflict" } },
@@ -482,7 +492,8 @@ return {
 						{ "n", "R", actions.refresh_files, { desc = "Refresh files" } },
 						{ "n", "L", actions.open_commit_log, { desc = "Open commit log" } },
 
-						-- Focus diff view
+						-- Layout and panels
+						{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
 						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
 						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
 
@@ -494,6 +505,13 @@ return {
 						{ "n", "gf", actions.goto_file_edit, { desc = "Go to file" } },
 						{ "n", "<C-w><C-f>", actions.goto_file_split, { desc = "Go to file (split)" } },
 						{ "n", "<C-w>gf", actions.goto_file_tab, { desc = "Go to file (tab)" } },
+
+						-- Conflict resolution (whole file)
+						{ "n", "<leader>cO", actions.conflict_choose_all("ours"), { desc = "Choose OURS (whole file)" } },
+						{ "n", "<leader>cT", actions.conflict_choose_all("theirs"), { desc = "Choose THEIRS (whole file)" } },
+						{ "n", "<leader>cB", actions.conflict_choose_all("base"), { desc = "Choose BASE (whole file)" } },
+						{ "n", "<leader>cA", actions.conflict_choose_all("all"), { desc = "Choose ALL (whole file)" } },
+						{ "n", "dX", actions.conflict_choose_all("none"), { desc = "Delete all conflicts" } },
 					},
 					file_history_panel = {
 						-- Navigation
@@ -508,7 +526,8 @@ return {
 						-- Copy info
 						{ "n", "y", actions.copy_hash, { desc = "Copy commit hash" } },
 
-						-- Focus/toggle
+						-- Layout and panels
+						{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
 						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
 						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
 					},

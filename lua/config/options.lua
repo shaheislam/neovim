@@ -38,6 +38,7 @@ opt.cursorline = true
 opt.scrolloff = 8
 opt.sidescrolloff = 8
 opt.wrap = false
+opt.fillchars:append({ diff = "╱" }) -- Diagonal lines for deleted diff regions
 
 -- Splits
 opt.splitbelow = true

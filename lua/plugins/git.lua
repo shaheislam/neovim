@@ -27,6 +27,9 @@ local function compare_clipboard()
 end
 
 local function compare_clipboard_selection()
+	-- Exit visual mode to set the '< and '> marks
+	vim.cmd('normal! "vy') -- Also yanks selection to register v as backup
+
 	-- Get clipboard content
 	local clipboard = vim.fn.getreg("+")
 	if clipboard == "" then
@@ -34,10 +37,15 @@ local function compare_clipboard_selection()
 		return
 	end
 
-	-- Get visual selection
+	-- Get visual selection using the now-set marks
 	local start_pos = vim.fn.getpos("'<")
 	local end_pos = vim.fn.getpos("'>")
 	local lines = vim.api.nvim_buf_get_lines(0, start_pos[2] - 1, end_pos[2], false)
+
+	if #lines == 0 then
+		vim.notify("No selection captured", vim.log.levels.WARN)
+		return
+	end
 
 	-- Store current filetype
 	local ft = vim.bo.filetype

@@ -32,7 +32,8 @@
       "Read(//opt/homebrew/share/fish/completions/**)",
       "Bash(compgen -c)",
       "Read(//Users/shaheislam/.ssh/**)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "WebFetch(domain:www.naseraleisa.com)"
     ],
     "additionalDirectories": [
       "/Users/shaheislam/dotfiles/"

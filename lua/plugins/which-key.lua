@@ -94,6 +94,7 @@ return {
 				{ "<leader>gl", desc = "Git Log" },
 				{ "<leader>gf", desc = "Git Files" },
 				{ "<leader>go", desc = "Open commit in DiffView" },
+				{ "<leader>gK", desc = "Compare clipboard" },
 
 				-- Window/viewport operations
 				{ "<leader>wv", desc = "Viewport Resize Mode" },
@@ -111,6 +112,8 @@ return {
 				{ "<leader>hB", desc = "Toggle blame line" },
 				{ "<leader>hd", desc = "Diff this" },
 				{ "<leader>ht", desc = "Toggle deleted" },
+				{ "<leader>hw", desc = "Toggle word diff" },
+				{ "<leader>hL", desc = "Toggle line highlight" },
 
 				-- Bracket mappings (navigation)
 				{ "]q", desc = "Next quickfix item" },

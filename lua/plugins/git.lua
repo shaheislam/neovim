@@ -1,4 +1,69 @@
 -- Git integration for nvim-mini
+
+-- Clipboard diff utilities
+local function compare_clipboard()
+	-- Get clipboard content
+	local clipboard = vim.fn.getreg("+")
+	if clipboard == "" then
+		vim.notify("Clipboard is empty", vim.log.levels.WARN)
+		return
+	end
+
+	-- Store current filetype for syntax highlighting
+	local ft = vim.bo.filetype
+
+	-- Create vertical split with clipboard content
+	vim.cmd("vnew")
+	local buf = vim.api.nvim_get_current_buf()
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(clipboard, "\n"))
+	vim.bo[buf].buftype = "nofile"
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].filetype = ft
+	vim.cmd("diffthis")
+
+	-- Go back to original window and enable diff
+	vim.cmd("wincmd p")
+	vim.cmd("diffthis")
+end
+
+local function compare_clipboard_selection()
+	-- Get clipboard content
+	local clipboard = vim.fn.getreg("+")
+	if clipboard == "" then
+		vim.notify("Clipboard is empty", vim.log.levels.WARN)
+		return
+	end
+
+	-- Get visual selection
+	local start_pos = vim.fn.getpos("'<")
+	local end_pos = vim.fn.getpos("'>")
+	local lines = vim.api.nvim_buf_get_lines(0, start_pos[2] - 1, end_pos[2], false)
+
+	-- Store current filetype
+	local ft = vim.bo.filetype
+
+	-- Create new tab with two splits
+	vim.cmd("tabnew")
+	local buf1 = vim.api.nvim_get_current_buf()
+	vim.api.nvim_buf_set_lines(buf1, 0, -1, false, lines)
+	vim.bo[buf1].buftype = "nofile"
+	vim.bo[buf1].bufhidden = "wipe"
+	vim.bo[buf1].filetype = ft
+	vim.cmd("diffthis")
+
+	vim.cmd("vnew")
+	local buf2 = vim.api.nvim_get_current_buf()
+	vim.api.nvim_buf_set_lines(buf2, 0, -1, false, vim.split(clipboard, "\n"))
+	vim.bo[buf2].buftype = "nofile"
+	vim.bo[buf2].bufhidden = "wipe"
+	vim.bo[buf2].filetype = ft
+	vim.cmd("diffthis")
+end
+
+-- Clipboard diff keymaps
+vim.keymap.set("n", "<leader>gK", compare_clipboard, { desc = "Compare clipboard vs buffer" })
+vim.keymap.set("v", "<leader>gK", compare_clipboard_selection, { desc = "Compare clipboard vs selection" })
+
 return {
 	-- Gitsigns for visual git indicators and inline operations
 	{
@@ -199,6 +264,10 @@ return {
 
 					-- Show deleted lines as virtual text
 					map("n", "<leader>ht", gs.toggle_deleted, { desc = "Toggle deleted" })
+
+					-- Visual diff toggles
+					map("n", "<leader>hw", gs.toggle_word_diff, { desc = "Toggle word diff" })
+					map("n", "<leader>hL", gs.toggle_linehl, { desc = "Toggle line highlight" })
 
 					-- Yank deleted lines from current hunk
 					map("n", "<leader>hy", function()

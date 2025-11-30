@@ -391,6 +391,28 @@ return {
 			{ "<leader>gh", "<cmd>DiffviewFileHistory %<cr>", desc = "File History" },
 			{ "<leader>gH", "<cmd>DiffviewFileHistory<cr>", desc = "Repository History" },
 			{ "<leader>gm", "<cmd>DiffviewOpen<cr>", desc = "Open Diffview (merge conflicts)" },
+			-- Line evolution tracing - normal mode (single line)
+			{
+				"<leader>gL",
+				function()
+					local line = vim.fn.line(".")
+					local file = vim.fn.expand("%")
+					vim.cmd(string.format("DiffviewFileHistory -L%d,%d:%s", line, line, file))
+				end,
+				desc = "Line history (cursor)",
+			},
+			-- Line evolution tracing - visual mode (range)
+			{
+				"<leader>gL",
+				function()
+					local start_line = vim.fn.line("'<")
+					local end_line = vim.fn.line("'>")
+					local file = vim.fn.expand("%")
+					vim.cmd(string.format("DiffviewFileHistory -L%d,%d:%s", start_line, end_line, file))
+				end,
+				mode = "v",
+				desc = "Line history (selection)",
+			},
 		},
 		config = function()
 			local actions = require("diffview.actions")

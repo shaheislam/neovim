@@ -2260,7 +2260,7 @@ return {
 
           -- Dynamic header showing current selection and worktree context
           local function get_header()
-            local base = "CTRL-H (commits) ╱ CTRL-B (branches) ╱ CTRL-W (worktrees) ╱ CTRL-X (clear)"
+            local base = "CTRL-H (commits) ╱ CTRL-B (branches) ╱ CTRL-S (stashes) ╱ CTRL-W (worktrees) ╱ CTRL-X (clear)"
             local context = git_cwd and (" [" .. vim.fn.fnamemodify(git_cwd, ":t") .. "]") or ""
             if #selected_refs == 0 then
               return base .. "\n" .. context .. " Select 1-2 refs to compare"
@@ -2334,6 +2334,7 @@ return {
             local switch_actions = {
               ["ctrl-h"] = function() vim.schedule(function() diffview_picker("commits") end) end,
               ["ctrl-b"] = function() vim.schedule(function() diffview_picker("branches") end) end,
+              ["ctrl-s"] = function() vim.schedule(function() diffview_picker("stashes") end) end,
               ["ctrl-w"] = function() vim.schedule(function() diffview_picker("worktrees") end) end,
               ["ctrl-x"] = function()
                 selected_refs = {}
@@ -2423,6 +2424,33 @@ return {
                       git_cwd = worktree_path
                       -- Switch to commits picker from this worktree context
                       vim.schedule(function() diffview_picker("commits") end)
+                    end
+                  end,
+                }),
+              })
+
+            elseif picker_type == "stashes" then
+              fzf.git_stash({
+                cwd = git_cwd,
+                prompt = "Diffview Stashes> ",
+                fzf_opts = {
+                  ["--header"] = get_header(),
+                },
+                actions = vim.tbl_extend("force", switch_actions, {
+                  ["default"] = function(selected)
+                    if not selected or #selected == 0 then
+                      if #selected_refs >= 1 then
+                        open_with_filter()
+                      end
+                      return
+                    end
+                    -- Extract stash ref (e.g., stash@{0})
+                    local stash_ref = selected[1]:match("^(%S+)")
+                    if stash_ref then add_ref(stash_ref) end
+                    if #selected_refs >= 2 then
+                      open_with_filter()
+                    else
+                      vim.schedule(function() diffview_picker("stashes") end)
                     end
                   end,
                 }),

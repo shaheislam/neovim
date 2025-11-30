@@ -2257,10 +2257,11 @@ return {
           local fzf = require("fzf-lua")
           local selected_refs = {}  -- Persists across picker switches
           local git_cwd = nil       -- Worktree context (nil = current directory)
+          local preview_hidden = false  -- Persists preview toggle state
 
           -- Dynamic header showing current selection and worktree context
           local function get_header()
-            local base = "CTRL-H (commits) ╱ CTRL-B (branches) ╱ CTRL-S (stashes) ╱ CTRL-W (worktrees) ╱ CTRL-X (clear)"
+            local base = "CTRL-H (commits) ╱ CTRL-B (branches) ╱ CTRL-S (stashes) ╱ CTRL-W (worktrees) ╱ CTRL-X (clear) ╱ CTRL-/ (preview)"
             local context = git_cwd and (" [" .. vim.fn.fnamemodify(git_cwd, ":t") .. "]") or ""
             if #selected_refs == 0 then
               return base .. "\n" .. context .. " Select 1-2 refs to compare"
@@ -2336,6 +2337,10 @@ return {
               ["ctrl-b"] = function() vim.schedule(function() diffview_picker("branches") end) end,
               ["ctrl-s"] = function() vim.schedule(function() diffview_picker("stashes") end) end,
               ["ctrl-w"] = function() vim.schedule(function() diffview_picker("worktrees") end) end,
+              ["ctrl-/"] = function()
+                preview_hidden = not preview_hidden
+                vim.schedule(function() diffview_picker(picker_type) end)
+              end,
               ["ctrl-x"] = function()
                 selected_refs = {}
                 git_cwd = nil  -- Reset worktree context
@@ -2350,6 +2355,7 @@ return {
                 fzf_opts = {
                   ["--header"] = get_header(),
                 },
+                winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
                 actions = vim.tbl_extend("force", switch_actions, {
                   ["default"] = function(selected)
                     if not selected or #selected == 0 then
@@ -2381,6 +2387,7 @@ return {
                 fzf_opts = {
                   ["--header"] = get_header(),
                 },
+                winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
                 actions = vim.tbl_extend("force", switch_actions, {
                   ["default"] = function(selected)
                     if not selected or #selected == 0 then
@@ -2409,6 +2416,7 @@ return {
                 fzf_opts = {
                   ["--header"] = get_header(),
                 },
+                winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
                 actions = vim.tbl_extend("force", switch_actions, {
                   ["default"] = function(selected)
                     if not selected or #selected == 0 then
@@ -2436,6 +2444,7 @@ return {
                 fzf_opts = {
                   ["--header"] = get_header(),
                 },
+                winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
                 actions = vim.tbl_extend("force", switch_actions, {
                   ["default"] = function(selected)
                     if not selected or #selected == 0 then

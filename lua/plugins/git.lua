@@ -160,6 +160,28 @@ return {
 					end, { desc = "Blame line (full)" })
 					map("n", "<leader>hB", gs.toggle_current_line_blame, { desc = "Toggle blame line" })
 					map("n", "<leader>hv", gs.blame, { desc = "Blame buffer (full)" })
+
+					-- Open blame commit in DiffView
+					map("n", "<leader>go", function()
+						local blame = vim.b.gitsigns_blame_line_dict
+						if not blame then
+							vim.notify(
+								"No blame info available. Enable current_line_blame or run :Gitsigns blame_line first",
+								vim.log.levels.WARN
+							)
+							return
+						end
+
+						-- Handle uncommitted changes (boundary)
+						if blame.sha == nil or blame.sha:match("^0+$") then
+							vim.notify("Line not yet committed", vim.log.levels.INFO)
+							return
+						end
+
+						-- Open the commit in DiffView using ^! syntax (single commit diff)
+						vim.cmd("DiffviewOpen " .. blame.sha .. "^!")
+					end, { desc = "Open blame commit in DiffView" })
+
 					-- Advanced diff features
 					map("n", "<leader>hd", gs.diffthis, { desc = "Diff this" })
 					map("n", "<leader>hD", function()

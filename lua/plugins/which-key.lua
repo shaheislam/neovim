@@ -93,6 +93,7 @@ return {
 				{ "<leader>gd", desc = "Toggle Diffview" },
 				{ "<leader>gl", desc = "Git Log" },
 				{ "<leader>gf", desc = "Git Files" },
+				{ "<leader>go", desc = "Open commit in DiffView" },
 
 				-- Window/viewport operations
 				{ "<leader>wv", desc = "Viewport Resize Mode" },

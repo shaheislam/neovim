@@ -21,6 +21,12 @@ local function compare_clipboard()
 	vim.bo[buf].filetype = ft
 	vim.cmd("diffthis")
 
+	-- Add q to close the diff (closes scratch buffer and turns off diff in original)
+	vim.keymap.set("n", "q", function()
+		vim.cmd("diffoff!")
+		vim.cmd("close")
+	end, { buffer = buf, desc = "Close diff" })
+
 	-- Go back to original window and enable diff
 	vim.cmd("wincmd p")
 	vim.cmd("diffthis")
@@ -66,6 +72,10 @@ local function compare_clipboard_selection()
 	vim.bo[buf2].bufhidden = "wipe"
 	vim.bo[buf2].filetype = ft
 	vim.cmd("diffthis")
+
+	-- Add q to close the diff tab (works from either buffer)
+	vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf1, desc = "Close diff" })
+	vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf2, desc = "Close diff" })
 end
 
 -- Clipboard diff keymaps

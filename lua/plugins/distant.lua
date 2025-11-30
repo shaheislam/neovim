@@ -2,7 +2,7 @@ return {
   {
     "chipsenkbeil/distant.nvim",
     branch = "v0.3",  -- v0.3 branch is compatible with distant 0.20.x
-    lazy = false,     -- Load immediately for proper initialization
+    lazy = true,      -- Load on command or keymap
     config = function()
       -- Setup with proper configuration for distant 0.20.x
       local ok, distant = pcall(require, "distant")

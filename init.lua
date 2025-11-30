@@ -1,6 +1,9 @@
 -- Minimal Neovim Configuration (nvim-mini)
 -- A clean slate for selective plugin migration from LazyVim
 
+-- Enable faster Lua module loading (Neovim 0.9+)
+if vim.loader then vim.loader.enable() end
+
 -- Set leader key before lazy.nvim loads
 vim.g.mapleader = " "
 vim.g.maplocalleader = "\\"

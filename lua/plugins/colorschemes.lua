@@ -5,7 +5,7 @@ return {
   -- OneDark
   {
     "navarasu/onedark.nvim",
-    lazy = false,
+    lazy = true,
     priority = 996,
     opts = {
       style = 'dark',
@@ -26,7 +26,7 @@ return {
   {
     "catppuccin/nvim",
     name = "catppuccin",
-    lazy = false,
+    lazy = true,
     priority = 999,
     opts = {
       flavour = "mocha",
@@ -41,7 +41,7 @@ return {
   -- Tokyo Night Storm
   {
     "folke/tokyonight.nvim",
-    lazy = false,
+    lazy = true,
     priority = 998,
     opts = {
       style = "storm",
@@ -53,7 +53,7 @@ return {
   -- Kanagawa
   {
     "rebelot/kanagawa.nvim",
-    lazy = false,
+    lazy = true,
     priority = 997,
     opts = {
       transparent = true,
@@ -83,7 +83,7 @@ return {
   -- Nightfox
   {
     "EdenEast/nightfox.nvim",
-    lazy = false,
+    lazy = true,
     priority = 995,
     opts = {
       options = {
@@ -96,7 +96,7 @@ return {
   -- GitHub Theme
   {
     "projekt0n/github-nvim-theme",
-    lazy = false,
+    lazy = true,
     priority = 992,
     config = function()
       require("github-theme").setup({
@@ -111,7 +111,7 @@ return {
   -- Gruvbox Material
   {
     "sainnhe/gruvbox-material",
-    lazy = false,
+    lazy = true,
     priority = 994,
     config = function()
       vim.g.gruvbox_material_background = "medium"
@@ -122,7 +122,7 @@ return {
   -- Everforest
   {
     "sainnhe/everforest",
-    lazy = false,
+    lazy = true,
     priority = 993,
     config = function()
       vim.g.everforest_background = "medium"
@@ -134,7 +134,7 @@ return {
   -- Nord
   {
     "shaunsingh/nord.nvim",
-    lazy = false,
+    lazy = true,
     priority = 990,
     config = function()
       vim.g.nord_contrast = true
@@ -146,7 +146,7 @@ return {
   -- Cyberdream
   {
     "scottmckendry/cyberdream.nvim",
-    lazy = false,
+    lazy = true,
     priority = 991,
     opts = {
       transparent = true,

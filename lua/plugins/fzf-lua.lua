@@ -2384,6 +2384,7 @@ return {
               fzf.git_branches({
                 cwd = git_cwd,  -- Run git from worktree context
                 prompt = "Diffview Branches> ",
+                _headers = false,
                 fzf_opts = {
                   ["--header"] = get_header(),
                 },

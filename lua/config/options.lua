@@ -40,6 +40,17 @@ opt.sidescrolloff = 8
 opt.wrap = false
 opt.fillchars:append({ diff = "╱" }) -- Diagonal lines for deleted diff regions
 
+-- Diff options for better diff visualization
+opt.diffopt = {
+  "internal",           -- Use internal diff library
+  "filler",             -- Show filler lines for sync
+  "closeoff",           -- Exit diff mode when window closes
+  "context:12",         -- 12 lines of context (default: 6)
+  "algorithm:histogram", -- Better than default "myers"
+  "linematch:200",      -- Match lines within blocks (key improvement)
+  "indent-heuristic",   -- Smarter indentation handling
+}
+
 -- Splits
 opt.splitbelow = true
 opt.splitright = true

@@ -461,6 +461,8 @@ return {
 				end,
 				desc = "PR preview (vs base)",
 			},
+			-- Staged changes only
+			{ "<leader>gS", "<cmd>DiffviewOpen --staged<cr>", desc = "Staged changes" },
 		},
 		config = function()
 			local actions = require("diffview.actions")

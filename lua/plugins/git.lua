@@ -413,6 +413,54 @@ return {
 				mode = "v",
 				desc = "Line history (selection)",
 			},
+			-- PR Review - compare current branch against base (with picker if multiple)
+			{
+				"<leader>gP",
+				function()
+					local function get_available_bases()
+						local candidates = {
+							"origin/main",
+							"origin/master",
+							"origin/develop",
+							"origin/dev",
+							"origin/staging",
+							"origin/production",
+							"origin/prod",
+							"origin/release",
+							"origin/trunk",
+						}
+						local available = {}
+						for _, branch in ipairs(candidates) do
+							vim.fn.system("git rev-parse --verify " .. branch .. " 2>/dev/null")
+							if vim.v.shell_error == 0 then
+								table.insert(available, branch)
+							end
+						end
+						return available
+					end
+
+					local function open_diff(base)
+						vim.cmd("DiffviewOpen " .. base .. "...HEAD")
+					end
+
+					local bases = get_available_bases()
+
+					if #bases == 0 then
+						vim.notify("No base branches found (main/master/develop/staging)", vim.log.levels.ERROR)
+					elseif #bases == 1 then
+						open_diff(bases[1])
+					else
+						vim.ui.select(bases, {
+							prompt = "Compare against:",
+						}, function(choice)
+							if choice then
+								open_diff(choice)
+							end
+						end)
+					end
+				end,
+				desc = "PR preview (vs base)",
+			},
 		},
 		config = function()
 			local actions = require("diffview.actions")
@@ -629,14 +677,6 @@ return {
 					vim.cmd("Git push")
 				end,
 				desc = "Git push",
-			},
-			{
-				"<leader>gP",
-				function()
-					vim.cmd("belowright 15split")
-					vim.cmd("Git pull")
-				end,
-				desc = "Git pull",
 			},
 			{
 				"<leader>gc",

@@ -460,6 +460,7 @@ return {
 						{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
 						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
 						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
+						{ "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close Diffview" } },
 
 						-- Conflict resolution (single hunk)
 						{ "n", "co", actions.conflict_choose("ours"), { desc = "Choose OURS" } },
@@ -505,6 +506,7 @@ return {
 						{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
 						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
 						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
+						{ "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close Diffview" } },
 
 						-- Tree options
 						{ "n", "i", actions.listing_style, { desc = "Toggle listing style" } },
@@ -539,6 +541,7 @@ return {
 						{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
 						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
 						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
+						{ "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close Diffview" } },
 					},
 					option_panel = {
 						{ "n", "<tab>", actions.select_entry, { desc = "Select option" } },

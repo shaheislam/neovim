@@ -90,7 +90,7 @@ return {
 				{ "<leader>gg", desc = "Git Status" },
 				{ "<leader>gb", desc = "Git Branches" },
 				{ "<leader>gc", desc = "Git Commit (create)" },
-				{ "<leader>gd", desc = "Git Diff" },
+				{ "<leader>gd", desc = "Toggle Diffview" },
 				{ "<leader>gl", desc = "Git Log" },
 				{ "<leader>gf", desc = "Git Files" },
 

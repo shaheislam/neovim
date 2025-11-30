@@ -377,11 +377,20 @@ return {
 		dependencies = { "nvim-lua/plenary.nvim" },
 		cmd = { "DiffviewOpen", "DiffviewFileHistory", "DiffviewClose", "DiffviewToggleFiles", "DiffviewFocusFiles" },
 		keys = {
-			{ "<leader>gd", "<cmd>DiffviewOpen<cr>", desc = "Open Diffview (review changes)" },
+			{
+				"<leader>gd",
+				function()
+					if next(require("diffview.lib").views) == nil then
+						vim.cmd("DiffviewOpen")
+					else
+						vim.cmd("DiffviewClose")
+					end
+				end,
+				desc = "Toggle Diffview",
+			},
 			{ "<leader>gh", "<cmd>DiffviewFileHistory %<cr>", desc = "File History" },
 			{ "<leader>gH", "<cmd>DiffviewFileHistory<cr>", desc = "Repository History" },
 			{ "<leader>gm", "<cmd>DiffviewOpen<cr>", desc = "Open Diffview (merge conflicts)" },
-			{ "<leader>gq", "<cmd>DiffviewClose<cr>", desc = "Close Diffview" },
 		},
 		config = function()
 			local actions = require("diffview.actions")

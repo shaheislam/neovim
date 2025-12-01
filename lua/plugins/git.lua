@@ -593,6 +593,13 @@ return {
 				show_help_hints = true, -- Show hint popups in file panel
 				watch_index = true, -- Update views on index changes
 
+				-- Signs in file panel
+				signs = {
+					fold_closed = "",
+					fold_open = "",
+					done = "✓",
+				},
+
 				-- File panel configuration
 				file_panel = {
 					listing_style = "tree", -- tree or list
@@ -628,7 +635,7 @@ return {
 
 				-- Default args for common workflows
 				default_args = {
-					DiffviewOpen = { "--imply-local" }, -- LSP works in range diffs
+					DiffviewOpen = { "--imply-local", "--diff-algorithm=histogram" }, -- LSP works in range diffs
 					DiffviewFileHistory = { "--follow" }, -- Follow file renames
 				},
 
@@ -684,6 +691,7 @@ return {
 
 						-- Focus/toggle
 						{ "n", "-", actions.toggle_stage_entry, { desc = "Stage/unstage file" } },
+						{ "n", "s", actions.toggle_stage_entry, { desc = "Stage/unstage file" } },
 						{ "n", "S", actions.stage_all, { desc = "Stage all" } },
 						{ "n", "U", actions.unstage_all, { desc = "Unstage all" } },
 
@@ -770,9 +778,16 @@ return {
 					},
 				},
 
-				-- Highlight configuration
+				-- Lifecycle and buffer hooks
 				hooks = {
-					-- Called after the view is opened
+					-- Called when diffview is opened
+					view_opened = function(view)
+						vim.notify("Diffview opened", vim.log.levels.DEBUG)
+					end,
+					-- Called when diffview is closed
+					view_closed = function(view)
+						vim.notify("Diffview closed", vim.log.levels.DEBUG)
+					end,
 					diff_buf_read = function(bufnr)
 						-- Set local options for diff buffers
 						vim.opt_local.wrap = false

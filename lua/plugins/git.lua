@@ -701,7 +701,7 @@ return {
 
 						-- Layout and panels
 						{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
-						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
+						{ "n", "<leader>e", actions.focus_entry, { desc = "Focus diff entry" } },
 						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
 						{ "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close Diffview" } },
 
@@ -736,7 +736,7 @@ return {
 
 						-- Layout and panels
 						{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
-						{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
+						{ "n", "<leader>e", actions.focus_entry, { desc = "Focus diff entry" } },
 						{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
 						{ "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close Diffview" } },
 					},

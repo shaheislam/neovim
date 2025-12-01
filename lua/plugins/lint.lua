@@ -38,7 +38,6 @@ return {
       group = vim.api.nvim_create_augroup("nvim-lint", { clear = true }),
       callback = function()
         lint.try_lint()
-        -- lint.try_lint("gitleaks") -- Disabled: nvim-lint has no built-in gitleaks support. Run via CLI: gitleaks detect
       end,
     })
 

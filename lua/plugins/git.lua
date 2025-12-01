@@ -9,23 +9,31 @@ local function compare_clipboard()
 		return
 	end
 
-	-- Store current filetype for syntax highlighting
+	-- Store current filetype and buffer for syntax highlighting
 	local ft = vim.bo.filetype
+	local original_buf = vim.api.nvim_get_current_buf()
 
 	-- Create vertical split with clipboard content
 	vim.cmd("vnew")
-	local buf = vim.api.nvim_get_current_buf()
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(clipboard, "\n"))
-	vim.bo[buf].buftype = "nofile"
-	vim.bo[buf].bufhidden = "wipe"
-	vim.bo[buf].filetype = ft
+	local scratch_buf = vim.api.nvim_get_current_buf()
+	vim.api.nvim_buf_set_lines(scratch_buf, 0, -1, false, vim.split(clipboard, "\n"))
+	vim.bo[scratch_buf].buftype = "nofile"
+	vim.bo[scratch_buf].bufhidden = "wipe"
+	vim.bo[scratch_buf].filetype = ft
 	vim.cmd("diffthis")
 
-	-- Add q to close the diff (closes scratch buffer and turns off diff in original)
-	vim.keymap.set("n", "q", function()
+	-- Function to close the diff (works from either buffer)
+	local function close_diff()
 		vim.cmd("diffoff!")
-		vim.cmd("close")
-	end, { buffer = buf, desc = "Close diff" })
+		-- Close scratch buffer if it exists
+		if vim.api.nvim_buf_is_valid(scratch_buf) then
+			vim.cmd("bwipeout " .. scratch_buf)
+		end
+	end
+
+	-- Add q to close the diff on BOTH buffers
+	vim.keymap.set("n", "q", close_diff, { buffer = scratch_buf, desc = "Close diff" })
+	vim.keymap.set("n", "q", close_diff, { buffer = original_buf, desc = "Close diff" })
 
 	-- Go back to original window and enable diff
 	vim.cmd("wincmd p")
@@ -765,11 +773,16 @@ return {
 				-- Highlight configuration
 				hooks = {
 					-- Called after the view is opened
-					diff_buf_read = function()
+					diff_buf_read = function(bufnr)
 						-- Set local options for diff buffers
 						vim.opt_local.wrap = false
 						vim.opt_local.list = false
 						vim.opt_local.colorcolumn = { 80 }
+						-- Ensure q closes diffview in ALL diff buffers (including index)
+						vim.keymap.set("n", "q", "<cmd>DiffviewClose<cr>", {
+							buffer = bufnr,
+							desc = "Close Diffview",
+						})
 					end,
 				},
 			})

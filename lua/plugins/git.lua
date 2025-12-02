@@ -163,6 +163,25 @@ local function is_git_repo()
 	return result:match("true") ~= nil
 end
 
+-- Get the currently highlighted file path from Diffview's file panel
+local function get_diffview_current_file()
+	local ok, lib = pcall(require, "diffview.lib")
+	if not ok then
+		return nil
+	end
+
+	local view = lib.get_current_view()
+	if not view then
+		return nil
+	end
+
+	local file = view:infer_cur_file()
+	if file and file.path then
+		return file.path
+	end
+	return nil
+end
+
 -- Get list of commits (file-scoped or repo-scoped)
 local function get_commit_list(file_path)
 	local cmd
@@ -214,7 +233,10 @@ local function open_commit_diff(sha, file_path)
 
 	-- Update state
 	commit_cycle_state.current_sha = sha
-	commit_cycle_state.file_path = file_path
+	-- Only update file_path if we're doing file-scoped navigation (not nil)
+	if file_path then
+		commit_cycle_state.file_path = file_path
+	end
 
 	-- Open new Diffview (sha^! means compare sha to its parent)
 	vim.cmd("DiffviewOpen " .. sha .. "^!")
@@ -244,9 +266,13 @@ local function cycle_commit(direction, file_scoped)
 	local file_path = nil
 	if file_scoped then
 		local current_file = vim.fn.expand("%:p")
-		-- If in Diffview, use the stored file path
-		if current_file == "" or current_file:match("^diffview://") then
-			file_path = commit_cycle_state.file_path
+		-- If in Diffview, get the highlighted file from file panel
+		if current_file == "" or current_file:match("^diffview://") or vim.bo.filetype == "DiffviewFiles" then
+			file_path = get_diffview_current_file()
+			-- Fall back to stored path if no file highlighted
+			if not file_path then
+				file_path = commit_cycle_state.file_path
+			end
 		else
 			file_path = current_file
 		end

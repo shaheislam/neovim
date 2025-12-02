@@ -90,6 +90,194 @@ end
 vim.keymap.set("n", "<leader>gK", compare_clipboard, { desc = "Compare clipboard vs buffer" })
 vim.keymap.set("v", "<leader>gK", compare_clipboard_selection, { desc = "Compare clipboard vs selection" })
 
+-- ============================================================================
+-- Commit Cycling - Navigate through commit history in Diffview
+-- ============================================================================
+
+-- State for tracking current position in commit history
+local commit_cycle_state = {
+	current_sha = nil, -- Current commit being viewed
+	file_path = nil, -- File path for file-scoped navigation
+}
+
+-- Buffer for commit info display
+local commit_info_bufnr = nil
+
+-- Show commit info in a split buffer below Diffview
+local function show_commit_info_buffer(from_sha, from_msg, to_sha, to_msg)
+	-- Create buffer if it doesn't exist or was deleted
+	if not commit_info_bufnr or not vim.api.nvim_buf_is_valid(commit_info_bufnr) then
+		commit_info_bufnr = vim.api.nvim_create_buf(false, true) -- nofile, scratch
+		vim.bo[commit_info_bufnr].buftype = "nofile"
+		vim.bo[commit_info_bufnr].bufhidden = "hide"
+		vim.bo[commit_info_bufnr].swapfile = false
+		vim.api.nvim_buf_set_name(commit_info_bufnr, "Commit Info")
+	end
+
+	-- Set content
+	local lines = {
+		"FROM: " .. from_sha:sub(1, 7) .. " - " .. from_msg,
+		"TO:   " .. to_sha:sub(1, 7) .. " - " .. to_msg,
+	}
+	vim.api.nvim_buf_set_lines(commit_info_bufnr, 0, -1, false, lines)
+
+	-- Find or create window for the buffer
+	local win_exists = false
+	for _, win in ipairs(vim.api.nvim_list_wins()) do
+		if vim.api.nvim_win_get_buf(win) == commit_info_bufnr then
+			win_exists = true
+			break
+		end
+	end
+
+	if not win_exists then
+		-- Create horizontal split at bottom (2 lines height)
+		vim.cmd("botright split")
+		vim.api.nvim_win_set_buf(0, commit_info_bufnr)
+		vim.api.nvim_win_set_height(0, 2)
+		vim.wo[0].number = false
+		vim.wo[0].relativenumber = false
+		vim.wo[0].signcolumn = "no"
+		vim.wo[0].cursorline = false
+		vim.wo[0].winfixheight = true
+		-- Return to previous window (Diffview)
+		vim.cmd("wincmd p")
+	end
+end
+
+-- Close the commit info window if open
+local function close_commit_info_window()
+	if commit_info_bufnr and vim.api.nvim_buf_is_valid(commit_info_bufnr) then
+		for _, win in ipairs(vim.api.nvim_list_wins()) do
+			if vim.api.nvim_win_get_buf(win) == commit_info_bufnr then
+				vim.api.nvim_win_close(win, true)
+				break
+			end
+		end
+	end
+end
+
+-- Check if in a git repository
+local function is_git_repo()
+	local result = vim.fn.system("git rev-parse --is-inside-work-tree 2>/dev/null")
+	return result:match("true") ~= nil
+end
+
+-- Get list of commits (file-scoped or repo-scoped)
+local function get_commit_list(file_path)
+	local cmd
+	if file_path then
+		cmd = string.format("git log --format=%%H --follow -- %s", vim.fn.shellescape(file_path))
+	else
+		cmd = "git log --format=%H"
+	end
+	local output = vim.fn.system(cmd)
+	local commits = {}
+	for sha in output:gmatch("%x+") do
+		if #sha == 40 then -- Full SHA length
+			table.insert(commits, sha)
+		end
+	end
+	return commits
+end
+
+-- Get adjacent commit in history
+local function get_adjacent_commit(current_sha, direction, file_path)
+	local commits = get_commit_list(file_path)
+	if #commits == 0 then
+		return nil
+	end
+
+	-- If no current commit, start from HEAD
+	if not current_sha then
+		return direction == "prev" and commits[1] or nil
+	end
+
+	-- Find current position and get adjacent
+	for i, sha in ipairs(commits) do
+		-- Match by prefix (short or full SHA)
+		if sha:sub(1, #current_sha) == current_sha or current_sha:sub(1, #sha) == sha then
+			if direction == "next" then
+				return commits[i - 1] -- Newer commit (earlier in list)
+			else
+				return commits[i + 1] -- Older commit (later in list)
+			end
+		end
+	end
+	return nil
+end
+
+-- Open Diffview for a single commit (comparing to its parent)
+local function open_commit_diff(sha, file_path)
+	-- Close existing Diffview if open
+	pcall(vim.cmd, "DiffviewClose")
+
+	-- Update state
+	commit_cycle_state.current_sha = sha
+	commit_cycle_state.file_path = file_path
+
+	-- Open new Diffview (sha^! means compare sha to its parent)
+	vim.cmd("DiffviewOpen " .. sha .. "^!")
+
+	-- Get commit messages for BOTH refs (parent and current)
+	local parent_sha = vim.fn.system("git rev-parse " .. sha .. "^ 2>/dev/null"):gsub("%s+", "")
+	local parent_msg = vim.fn.system("git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
+	local current_msg = vim.fn.system("git log -1 --format=%s " .. sha):gsub("\n", "")
+
+	-- Handle root commit (no parent) - show in split buffer
+	if parent_sha == "" or parent_sha:match("^fatal") then
+		show_commit_info_buffer("(none)", "(root commit)", sha, current_msg)
+	else
+		-- Show both refs in split buffer below
+		show_commit_info_buffer(parent_sha, parent_msg, sha, current_msg)
+	end
+end
+
+-- Main cycle function
+local function cycle_commit(direction, file_scoped)
+	if not is_git_repo() then
+		vim.notify("Not in a git repository", vim.log.levels.WARN)
+		return
+	end
+
+	-- Get file path if file-scoped, handling Diffview buffers
+	local file_path = nil
+	if file_scoped then
+		local current_file = vim.fn.expand("%:p")
+		-- If in Diffview, use the stored file path
+		if current_file == "" or current_file:match("^diffview://") then
+			file_path = commit_cycle_state.file_path
+		else
+			file_path = current_file
+		end
+	end
+
+	local current = commit_cycle_state.current_sha
+	local next_sha = get_adjacent_commit(current, direction, file_path)
+
+	if not next_sha then
+		local msg = direction == "next" and "Already at latest commit" or "Already at oldest commit"
+		vim.notify(msg, vim.log.levels.INFO)
+		return
+	end
+
+	open_commit_diff(next_sha, file_path)
+end
+
+-- Global keymaps for commit cycling (work from any buffer)
+vim.keymap.set("n", "]r", function()
+	cycle_commit("next", true)
+end, { desc = "Next commit (file)" })
+vim.keymap.set("n", "[r", function()
+	cycle_commit("prev", true)
+end, { desc = "Prev commit (file)" })
+vim.keymap.set("n", "]R", function()
+	cycle_commit("next", false)
+end, { desc = "Next commit (repo)" })
+vim.keymap.set("n", "[R", function()
+	cycle_commit("prev", false)
+end, { desc = "Prev commit (repo)" })
+
 return {
 	-- Gitsigns for visual git indicators and inline operations
 	{
@@ -787,6 +975,11 @@ return {
 					-- Called when diffview is closed
 					view_closed = function(view)
 						vim.notify("Diffview closed", vim.log.levels.DEBUG)
+						-- Reset commit cycling state
+						commit_cycle_state.current_sha = nil
+						commit_cycle_state.file_path = nil
+						-- Close commit info window if open
+						close_commit_info_window()
 					end,
 					diff_buf_read = function(bufnr)
 						-- Set local options for diff buffers

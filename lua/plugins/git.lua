@@ -103,6 +103,22 @@ local commit_cycle_state = {
 -- Buffer for commit info display
 local commit_info_bufnr = nil
 
+-- Commit info buffer highlight groups (Rose Pine theme)
+local function setup_commit_info_highlights()
+	vim.api.nvim_set_hl(0, "CommitInfoFrom", { fg = "#eb6f92", bold = true }) -- Rose Pine "love" (red)
+	vim.api.nvim_set_hl(0, "CommitInfoTo", { fg = "#31748f", bold = true }) -- Rose Pine "pine" (blue)
+	vim.api.nvim_set_hl(0, "CommitInfoSha", { fg = "#9ccfd8" }) -- Rose Pine "foam" (cyan)
+	vim.api.nvim_set_hl(0, "CommitInfoMsgFrom", { fg = "#ebbcba", italic = true }) -- Rose Pine "rose" (pink)
+	vim.api.nvim_set_hl(0, "CommitInfoMsgTo", { fg = "#f6c177", italic = true }) -- Rose Pine "gold" (yellow)
+end
+
+-- Set up highlights on load and colorscheme change
+setup_commit_info_highlights()
+vim.api.nvim_create_autocmd("ColorScheme", {
+	pattern = "*",
+	callback = setup_commit_info_highlights,
+})
+
 -- Show commit info in a split buffer below Diffview
 local function show_commit_info_buffer(from_sha, from_msg, to_sha, to_msg)
 	-- Create buffer if it doesn't exist or was deleted
@@ -114,12 +130,29 @@ local function show_commit_info_buffer(from_sha, from_msg, to_sha, to_msg)
 		vim.api.nvim_buf_set_name(commit_info_bufnr, "Commit Info")
 	end
 
-	-- Set content
+	-- Format content with better layout
+	local from_sha_short = from_sha:sub(1, 7)
+	local to_sha_short = to_sha:sub(1, 7)
 	local lines = {
-		"FROM: " .. from_sha:sub(1, 7) .. " - " .. from_msg,
-		"TO:   " .. to_sha:sub(1, 7) .. " - " .. to_msg,
+		"  FROM  " .. from_sha_short .. "  " .. from_msg,
+		"  TO    " .. to_sha_short .. "  " .. to_msg,
 	}
 	vim.api.nvim_buf_set_lines(commit_info_bufnr, 0, -1, false, lines)
+
+	-- Apply highlights using extmarks
+	local ns = vim.api.nvim_create_namespace("commit_info_hl")
+	vim.api.nvim_buf_clear_namespace(commit_info_bufnr, ns, 0, -1)
+
+	-- Line 0: FROM - "  FROM  abc1234  commit message"
+	--                 01234567890123456
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 2, { end_col = 6, hl_group = "CommitInfoFrom" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 8, { end_col = 8 + #from_sha_short, hl_group = "CommitInfoSha" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 8 + #from_sha_short + 2, { end_col = #lines[1], hl_group = "CommitInfoMsgFrom" })
+
+	-- Line 1: TO - "  TO    abc1234  commit message"
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 2, { end_col = 4, hl_group = "CommitInfoTo" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 8, { end_col = 8 + #to_sha_short, hl_group = "CommitInfoSha" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 8 + #to_sha_short + 2, { end_col = #lines[2], hl_group = "CommitInfoMsgTo" })
 
 	-- Find or create window for the buffer
 	local win_exists = false
@@ -140,6 +173,7 @@ local function show_commit_info_buffer(from_sha, from_msg, to_sha, to_msg)
 		vim.wo[0].signcolumn = "no"
 		vim.wo[0].cursorline = false
 		vim.wo[0].winfixheight = true
+		vim.wo[0].winhighlight = "Normal:NormalFloat" -- Use float background for subtle distinction
 		-- Return to previous window (Diffview)
 		vim.cmd("wincmd p")
 	end

@@ -145,7 +145,7 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 		vim.bo[commit_info_bufnr].buftype = "nofile"
 		vim.bo[commit_info_bufnr].bufhidden = "hide"
 		vim.bo[commit_info_bufnr].swapfile = false
-		vim.api.nvim_buf_set_name(commit_info_bufnr, "Commit Info")
+		pcall(vim.api.nvim_buf_set_name, commit_info_bufnr, "Commit Info")
 		-- Add keymap to checkout commit on Enter
 		vim.keymap.set("n", "<CR>", function()
 			local line = vim.fn.line(".")

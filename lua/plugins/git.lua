@@ -108,6 +108,7 @@ local function setup_commit_info_highlights()
 	vim.api.nvim_set_hl(0, "CommitInfoFrom", { fg = "#eb6f92", bold = true }) -- Rose Pine "love" (red)
 	vim.api.nvim_set_hl(0, "CommitInfoTo", { fg = "#31748f", bold = true }) -- Rose Pine "pine" (blue)
 	vim.api.nvim_set_hl(0, "CommitInfoSha", { fg = "#9ccfd8" }) -- Rose Pine "foam" (cyan)
+	vim.api.nvim_set_hl(0, "CommitInfoDate", { fg = "#c4a7e7" }) -- Rose Pine "iris" (purple)
 	vim.api.nvim_set_hl(0, "CommitInfoMsgFrom", { fg = "#ebbcba", italic = true }) -- Rose Pine "rose" (pink)
 	vim.api.nvim_set_hl(0, "CommitInfoMsgTo", { fg = "#ebbcba", italic = true }) -- Rose Pine "rose" (pink)
 end
@@ -120,7 +121,7 @@ vim.api.nvim_create_autocmd("ColorScheme", {
 })
 
 -- Show commit info in a split buffer below Diffview
-local function show_commit_info_buffer(from_sha, from_msg, to_sha, to_msg)
+local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to_msg, to_date)
 	-- Create buffer if it doesn't exist or was deleted
 	if not commit_info_bufnr or not vim.api.nvim_buf_is_valid(commit_info_bufnr) then
 		commit_info_bufnr = vim.api.nvim_create_buf(false, true) -- nofile, scratch
@@ -134,8 +135,8 @@ local function show_commit_info_buffer(from_sha, from_msg, to_sha, to_msg)
 	local from_sha_short = from_sha:sub(1, 7)
 	local to_sha_short = to_sha:sub(1, 7)
 	local lines = {
-		"  FROM  " .. from_sha_short .. "  " .. from_msg,
-		"  TO    " .. to_sha_short .. "  " .. to_msg,
+		"  FROM  " .. from_sha_short .. "  " .. from_date .. "  " .. from_msg,
+		"  TO    " .. to_sha_short .. "  " .. to_date .. "  " .. to_msg,
 	}
 	vim.api.nvim_buf_set_lines(commit_info_bufnr, 0, -1, false, lines)
 
@@ -143,16 +144,23 @@ local function show_commit_info_buffer(from_sha, from_msg, to_sha, to_msg)
 	local ns = vim.api.nvim_create_namespace("commit_info_hl")
 	vim.api.nvim_buf_clear_namespace(commit_info_bufnr, ns, 0, -1)
 
-	-- Line 0: FROM - "  FROM  abc1234  commit message"
-	--                 01234567890123456
+	-- Line 0: FROM - "  FROM  abc1234  2025-12-01 10:30:15 +0000  commit message"
+	local from_date_start = 8 + #from_sha_short + 2
+	local from_date_end = from_date_start + #from_date
+	local from_msg_start = from_date_end + 2
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 2, { end_col = 6, hl_group = "CommitInfoFrom" })
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 8, { end_col = 8 + #from_sha_short, hl_group = "CommitInfoSha" })
-	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 8 + #from_sha_short + 2, { end_col = #lines[1], hl_group = "CommitInfoMsgFrom" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, from_date_start, { end_col = from_date_end, hl_group = "CommitInfoDate" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, from_msg_start, { end_col = #lines[1], hl_group = "CommitInfoMsgFrom" })
 
-	-- Line 1: TO - "  TO    abc1234  commit message"
+	-- Line 1: TO - "  TO    abc1234  2025-12-01 10:30:15 +0000  commit message"
+	local to_date_start = 8 + #to_sha_short + 2
+	local to_date_end = to_date_start + #to_date
+	local to_msg_start = to_date_end + 2
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 2, { end_col = 4, hl_group = "CommitInfoTo" })
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 8, { end_col = 8 + #to_sha_short, hl_group = "CommitInfoSha" })
-	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 8 + #to_sha_short + 2, { end_col = #lines[2], hl_group = "CommitInfoMsgTo" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, to_date_start, { end_col = to_date_end, hl_group = "CommitInfoDate" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, to_msg_start, { end_col = #lines[2], hl_group = "CommitInfoMsgTo" })
 
 	-- Find or create window for the buffer
 	local win_exists = false
@@ -275,17 +283,19 @@ local function open_commit_diff(sha, file_path)
 	-- Open new Diffview (sha^! means compare sha to its parent)
 	vim.cmd("DiffviewOpen " .. sha .. "^!")
 
-	-- Get commit messages for BOTH refs (parent and current)
+	-- Get commit messages and dates for BOTH refs (parent and current)
 	local parent_sha = vim.fn.system("git rev-parse " .. sha .. "^ 2>/dev/null"):gsub("%s+", "")
 	local parent_msg = vim.fn.system("git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
+	local parent_date = vim.fn.system("git log -1 --format=%ci " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
 	local current_msg = vim.fn.system("git log -1 --format=%s " .. sha):gsub("\n", "")
+	local current_date = vim.fn.system("git log -1 --format=%ci " .. sha):gsub("\n", "")
 
 	-- Handle root commit (no parent) - show in split buffer
 	if parent_sha == "" or parent_sha:match("^fatal") then
-		show_commit_info_buffer("(none)", "(root commit)", sha, current_msg)
+		show_commit_info_buffer("(none)", "(root commit)", "", sha, current_msg, current_date)
 	else
 		-- Show both refs in split buffer below
-		show_commit_info_buffer(parent_sha, parent_msg, sha, current_msg)
+		show_commit_info_buffer(parent_sha, parent_msg, parent_date, sha, current_msg, current_date)
 	end
 end
 

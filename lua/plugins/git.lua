@@ -98,6 +98,8 @@ vim.keymap.set("v", "<leader>gK", compare_clipboard_selection, { desc = "Compare
 local commit_cycle_state = {
 	current_sha = nil, -- Current commit being viewed
 	file_path = nil, -- File path for file-scoped navigation
+	from_sha = nil, -- Parent commit SHA (FROM)
+	to_sha = nil, -- Current commit SHA (TO)
 }
 
 -- Buffer for commit info display
@@ -120,6 +122,21 @@ vim.api.nvim_create_autocmd("ColorScheme", {
 	callback = setup_commit_info_highlights,
 })
 
+-- Checkout to FROM or TO commit
+local function checkout_commit(which)
+	local sha = which == "from" and commit_cycle_state.from_sha or commit_cycle_state.to_sha
+	if not sha then
+		vim.notify("No " .. which:upper() .. " commit to checkout", vim.log.levels.WARN)
+		return
+	end
+	local result = vim.fn.system("git checkout " .. sha .. " 2>&1")
+	if vim.v.shell_error == 0 then
+		vim.notify("Checked out to " .. sha:sub(1, 7), vim.log.levels.INFO)
+	else
+		vim.notify("Checkout failed: " .. result, vim.log.levels.ERROR)
+	end
+end
+
 -- Show commit info in a split buffer below Diffview
 local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to_msg, to_date)
 	-- Create buffer if it doesn't exist or was deleted
@@ -129,6 +146,11 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 		vim.bo[commit_info_bufnr].bufhidden = "hide"
 		vim.bo[commit_info_bufnr].swapfile = false
 		vim.api.nvim_buf_set_name(commit_info_bufnr, "Commit Info")
+		-- Add keymap to checkout commit on Enter
+		vim.keymap.set("n", "<CR>", function()
+			local line = vim.fn.line(".")
+			checkout_commit(line == 1 and "from" or "to")
+		end, { buffer = commit_info_bufnr, desc = "Checkout this commit" })
 	end
 
 	-- Format content with better layout
@@ -290,11 +312,13 @@ local function open_commit_diff(sha, file_path)
 	local current_msg = vim.fn.system("git log -1 --format=%s " .. sha):gsub("\n", "")
 	local current_date = vim.fn.system("git log -1 --format=%ci " .. sha):gsub("\n", "")
 
-	-- Handle root commit (no parent) - show in split buffer
+	-- Store SHAs for checkout functionality
+	commit_cycle_state.to_sha = sha
 	if parent_sha == "" or parent_sha:match("^fatal") then
+		commit_cycle_state.from_sha = nil
 		show_commit_info_buffer("(none)", "(root commit)", "", sha, current_msg, current_date)
 	else
-		-- Show both refs in split buffer below
+		commit_cycle_state.from_sha = parent_sha
 		show_commit_info_buffer(parent_sha, parent_msg, parent_date, sha, current_msg, current_date)
 	end
 end
@@ -347,6 +371,14 @@ end, { desc = "Next commit (repo)" })
 vim.keymap.set("n", "[R", function()
 	cycle_commit("prev", false)
 end, { desc = "Prev commit (repo)" })
+
+-- Keymaps for checking out FROM/TO commits
+vim.keymap.set("n", "gco", function()
+	checkout_commit("to")
+end, { desc = "Checkout TO commit" })
+vim.keymap.set("n", "gcO", function()
+	checkout_commit("from")
+end, { desc = "Checkout FROM commit" })
 
 return {
 	-- Gitsigns for visual git indicators and inline operations
@@ -1048,6 +1080,8 @@ return {
 						-- Reset commit cycling state
 						commit_cycle_state.current_sha = nil
 						commit_cycle_state.file_path = nil
+						commit_cycle_state.from_sha = nil
+						commit_cycle_state.to_sha = nil
 						-- Close commit info window if open
 						close_commit_info_window()
 					end,

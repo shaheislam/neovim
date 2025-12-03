@@ -129,7 +129,7 @@ local function checkout_commit(which)
 		vim.notify("No " .. which:upper() .. " commit to checkout", vim.log.levels.WARN)
 		return
 	end
-	local result = vim.fn.system("git checkout " .. sha .. " 2>&1")
+	local result = vim.fn.system("MISE_QUIET=1 git checkout " .. sha .. " 2>&1")
 	if vim.v.shell_error == 0 then
 		vim.notify("Checked out to " .. sha:sub(1, 7), vim.log.levels.INFO)
 	else
@@ -223,7 +223,7 @@ end
 
 -- Check if in a git repository
 local function is_git_repo()
-	local result = vim.fn.system("git rev-parse --is-inside-work-tree 2>/dev/null")
+	local result = vim.fn.system("MISE_QUIET=1 git rev-parse --is-inside-work-tree 2>/dev/null")
 	return result:match("true") ~= nil
 end
 
@@ -250,9 +250,9 @@ end
 local function get_commit_list(file_path)
 	local cmd
 	if file_path then
-		cmd = string.format("git log --format=%%H --follow -- %s", vim.fn.shellescape(file_path))
+		cmd = string.format("MISE_QUIET=1 git log --format=%%H --follow -- %s", vim.fn.shellescape(file_path))
 	else
-		cmd = "git log --format=%H"
+		cmd = "MISE_QUIET=1 git log --format=%H"
 	end
 	local output = vim.fn.system(cmd)
 	local commits = {}
@@ -306,11 +306,11 @@ local function open_commit_diff(sha, file_path)
 	vim.cmd("DiffviewOpen " .. sha .. "^!")
 
 	-- Get commit messages and dates for BOTH refs (parent and current)
-	local parent_sha = vim.fn.system("git rev-parse " .. sha .. "^ 2>/dev/null"):gsub("%s+", "")
-	local parent_msg = vim.fn.system("git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
-	local parent_date = vim.fn.system("git log -1 --format=%ci " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
-	local current_msg = vim.fn.system("git log -1 --format=%s " .. sha):gsub("\n", "")
-	local current_date = vim.fn.system("git log -1 --format=%ci " .. sha):gsub("\n", "")
+	local parent_sha = vim.fn.system("MISE_QUIET=1 git rev-parse " .. sha .. "^ 2>/dev/null"):gsub("%s+", "")
+	local parent_msg = vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
+	local parent_date = vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
+	local current_msg = vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. sha):gsub("\n", "")
+	local current_date = vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. sha):gsub("\n", "")
 
 	-- Store SHAs for checkout functionality
 	commit_cycle_state.to_sha = sha
@@ -838,7 +838,7 @@ return {
 						}
 						local available = {}
 						for _, branch in ipairs(candidates) do
-							vim.fn.system("git rev-parse --verify " .. branch .. " 2>/dev/null")
+							vim.fn.system("MISE_QUIET=1 git rev-parse --verify " .. branch .. " 2>/dev/null")
 							if vim.v.shell_error == 0 then
 								table.insert(available, branch)
 							end

@@ -189,6 +189,11 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 			local line = vim.fn.line(".")
 			checkout_commit(line == 1 and "from" or "to")
 		end, { buffer = commit_info_bufnr, desc = "Checkout this commit" })
+		-- Add keymap to close Diffview with q
+		vim.keymap.set("n", "q", "<cmd>DiffviewClose<cr>", {
+			buffer = commit_info_bufnr,
+			desc = "Close Diffview",
+		})
 	end
 
 	-- Format content with better layout

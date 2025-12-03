@@ -151,8 +151,6 @@ local function setup_commit_info_highlights()
 	vim.api.nvim_set_hl(0, "CommitInfoTo", { fg = "#31748f", bold = true }) -- Rose Pine "pine" (blue)
 	vim.api.nvim_set_hl(0, "CommitInfoSha", { fg = "#9ccfd8" }) -- Rose Pine "foam" (cyan)
 	vim.api.nvim_set_hl(0, "CommitInfoDate", { fg = "#c4a7e7" }) -- Rose Pine "iris" (purple)
-	vim.api.nvim_set_hl(0, "CommitInfoMsgFrom", { fg = "#ebbcba", italic = true }) -- Rose Pine "rose" (pink)
-	vim.api.nvim_set_hl(0, "CommitInfoMsgTo", { fg = "#ebbcba", italic = true }) -- Rose Pine "rose" (pink)
 end
 
 -- Set up highlights on load and colorscheme change

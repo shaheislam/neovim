@@ -100,10 +100,50 @@ local commit_cycle_state = {
 	file_path = nil, -- File path for file-scoped navigation
 	from_sha = nil, -- Parent commit SHA (FROM)
 	to_sha = nil, -- Current commit SHA (TO)
+	sha_colors = {}, -- Map: SHA -> color index (for persistent colors)
+	next_color_idx = 1, -- Next color to assign from palette
+	is_cycling = false, -- Flag to preserve color state during cycling
 }
 
 -- Buffer for commit info display
 local commit_info_bufnr = nil
+
+-- Color palette for persistent commit colors (Rose Pine theme)
+local commit_colors = {
+	"#ebbcba", -- Rose Pine "rose" (pink)
+	"#f6c177", -- Rose Pine "gold" (yellow/amber)
+	"#9ccfd8", -- Rose Pine "foam" (cyan/blue)
+	"#31748f", -- Rose Pine "pine" (teal)
+	"#c4a7e7", -- Rose Pine "iris" (purple)
+	"#eb6f92", -- Rose Pine "love" (red)
+}
+
+-- Get or assign a persistent color for a commit SHA
+local function get_commit_color(sha)
+	if not sha then
+		return commit_colors[1]
+	end
+
+	-- Check if already assigned
+	if commit_cycle_state.sha_colors[sha] then
+		return commit_colors[commit_cycle_state.sha_colors[sha]]
+	end
+
+	-- Assign next color from palette
+	local idx = commit_cycle_state.next_color_idx
+	commit_cycle_state.sha_colors[sha] = idx
+	commit_cycle_state.next_color_idx = (idx % #commit_colors) + 1
+
+	return commit_colors[idx]
+end
+
+-- Create or get highlight group for a commit SHA
+local function get_commit_hl_group(sha)
+	local color = get_commit_color(sha)
+	local hl_name = "CommitMsg_" .. sha:sub(1, 7)
+	vim.api.nvim_set_hl(0, hl_name, { fg = color, italic = true })
+	return hl_name
+end
 
 -- Commit info buffer highlight groups (Rose Pine theme)
 local function setup_commit_info_highlights()
@@ -170,10 +210,14 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 	local from_date_start = 8 + #from_sha_short + 2
 	local from_date_end = from_date_start + #from_date
 	local from_msg_start = from_date_end + 2
+	-- Get dynamic highlight groups for commit messages (persistent colors per SHA)
+	local from_msg_hl = get_commit_hl_group(from_sha)
+	local to_msg_hl = get_commit_hl_group(to_sha)
+
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 2, { end_col = 6, hl_group = "CommitInfoFrom" })
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 8, { end_col = 8 + #from_sha_short, hl_group = "CommitInfoSha" })
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, from_date_start, { end_col = from_date_end, hl_group = "CommitInfoDate" })
-	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, from_msg_start, { end_col = #lines[1], hl_group = "CommitInfoMsgFrom" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, from_msg_start, { end_col = #lines[1], hl_group = from_msg_hl })
 
 	-- Line 1: TO - "  TO    abc1234  2025-12-01 10:30:15 +0000  commit message"
 	local to_date_start = 8 + #to_sha_short + 2
@@ -182,7 +226,7 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 2, { end_col = 4, hl_group = "CommitInfoTo" })
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 8, { end_col = 8 + #to_sha_short, hl_group = "CommitInfoSha" })
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, to_date_start, { end_col = to_date_end, hl_group = "CommitInfoDate" })
-	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, to_msg_start, { end_col = #lines[2], hl_group = "CommitInfoMsgTo" })
+	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, to_msg_start, { end_col = #lines[2], hl_group = to_msg_hl })
 
 	-- Find or create window for the buffer
 	local win_exists = false
@@ -292,8 +336,11 @@ end
 
 -- Open Diffview for a single commit (comparing to its parent)
 local function open_commit_diff(sha, file_path)
+	-- Set flag to preserve color state during cycling
+	commit_cycle_state.is_cycling = true
 	-- Close existing Diffview if open
 	pcall(vim.cmd, "DiffviewClose")
+	commit_cycle_state.is_cycling = false
 
 	-- Update state
 	commit_cycle_state.current_sha = sha
@@ -314,11 +361,17 @@ local function open_commit_diff(sha, file_path)
 
 	-- Store SHAs for checkout functionality
 	commit_cycle_state.to_sha = sha
+
+	-- Assign colors in order: TO commit first (current), then FROM (parent)
+	-- This ensures colors persist as commits move from TO → FROM position
+	get_commit_color(sha) -- Assign color to TO commit first
+
 	if parent_sha == "" or parent_sha:match("^fatal") then
 		commit_cycle_state.from_sha = nil
 		show_commit_info_buffer("(none)", "(root commit)", "", sha, current_msg, current_date)
 	else
 		commit_cycle_state.from_sha = parent_sha
+		get_commit_color(parent_sha) -- Assign color to FROM commit second
 		show_commit_info_buffer(parent_sha, parent_msg, parent_date, sha, current_msg, current_date)
 	end
 end
@@ -1082,6 +1135,11 @@ return {
 						commit_cycle_state.file_path = nil
 						commit_cycle_state.from_sha = nil
 						commit_cycle_state.to_sha = nil
+						-- Only reset colors if user manually closed (not cycling)
+						if not commit_cycle_state.is_cycling then
+							commit_cycle_state.sha_colors = {}
+							commit_cycle_state.next_color_idx = 1
+						end
 						-- Close commit info window if open
 						close_commit_info_window()
 					end,

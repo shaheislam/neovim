@@ -13,22 +13,33 @@ opt.relativenumber = true
 -- %{v:relnum} = relative line number
 opt.statuscolumn = "%s %{v:lnum} %{v:relnum}"
 
--- Clipboard
--- Enable OSC-52 for remote sessions (SSH, containers, tmux) where system clipboard isn't available
--- OSC-52 sends clipboard data via terminal escape sequences, working across network boundaries
-if vim.env.SSH_TTY or vim.env.TMUX or vim.env.KUBERNETES_SERVICE_HOST then
-  vim.g.clipboard = {
-    name = "OSC 52",
-    copy = {
-      ["+"] = require("vim.ui.clipboard.osc52").copy("+"),
-      ["*"] = require("vim.ui.clipboard.osc52").copy("*"),
-    },
-    paste = {
-      ["+"] = require("vim.ui.clipboard.osc52").paste("+"),
-      ["*"] = require("vim.ui.clipboard.osc52").paste("*"),
-    },
-  }
+-- Clipboard - Custom OSC-52 with explicit tmux passthrough
+-- The built-in vim.ui.clipboard.osc52 doesn't wrap sequences for tmux correctly
+local function osc52_copy(lines, regtype)
+  local text = table.concat(lines, "\n")
+  local encoded = vim.base64.encode(text)
+  local osc = string.format("\027]52;c;%s\a", encoded)
+
+  -- Wrap for tmux passthrough if in tmux
+  if vim.env.TMUX then
+    osc = string.format("\027Ptmux;\027%s\027\\", osc)
+  end
+
+  io.stdout:write(osc)
+  io.stdout:flush()
 end
+
+vim.g.clipboard = {
+  name = "OSC 52 (tmux)",
+  copy = {
+    ["+"] = osc52_copy,
+    ["*"] = osc52_copy,
+  },
+  paste = {
+    ["+"] = require("vim.ui.clipboard.osc52").paste("+"),
+    ["*"] = require("vim.ui.clipboard.osc52").paste("*"),
+  },
+}
 opt.clipboard = "unnamedplus" -- Use system clipboard (+ register) for all yank/delete/paste
 
 -- Command preview

@@ -122,17 +122,22 @@ ENV VISUAL=nvim
 # Bootstrap lazy.nvim and install all plugins
 RUN nvim --headless "+Lazy! sync" +qa 2>&1 || echo "Plugin sync completed"
 
-# Download blink.pairs and blink.cmp pre-built Rust binaries for offline use
-# These plugins normally download binaries on first load - we pre-download during build
+# Fix blink.cmp/blink.pairs binaries for correct architecture
+# Lazy sync may download wrong arch when cross-compiling (e.g., building on Mac for amd64)
+# We remove any auto-downloaded binaries and checksums, then download correct ones
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then RUST_ARCH="x86_64-unknown-linux-gnu"; else RUST_ARCH="aarch64-unknown-linux-gnu"; fi && \
+    # Remove any auto-downloaded binaries and checksums from Lazy sync
+    rm -rf /root/.local/share/nvim/lazy/blink.pairs/target 2>/dev/null || true && \
+    rm -rf /root/.local/share/nvim/lazy/blink.cmp/target 2>/dev/null || true && \
+    # Download correct architecture binaries
     mkdir -p /root/.local/share/nvim/lazy/blink.pairs/target/release && \
     curl -fsSL "https://github.com/saghen/blink.pairs/releases/download/v0.4.1/${RUST_ARCH}.so" \
         -o /root/.local/share/nvim/lazy/blink.pairs/target/release/libblink_pairs.so && \
     mkdir -p /root/.local/share/nvim/lazy/blink.cmp/target/release && \
     curl -fsSL "https://github.com/saghen/blink.cmp/releases/download/v1.8.0/${RUST_ARCH}.so" \
         -o /root/.local/share/nvim/lazy/blink.cmp/target/release/libblink_cmp_fuzzy.so && \
-    echo "Blink binaries downloaded successfully"
+    echo "Blink binaries downloaded for ${ARCH}"
 
 # Install Treesitter parsers for DevOps languages
 # Use timeout to prevent hanging, parsers will install on first use if this fails

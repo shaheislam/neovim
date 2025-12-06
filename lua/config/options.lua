@@ -14,7 +14,22 @@ opt.relativenumber = true
 opt.statuscolumn = "%s %{v:lnum} %{v:relnum}"
 
 -- Clipboard
-opt.clipboard = "unnamedplus" -- System clipboard integration
+-- Enable OSC-52 for remote sessions (SSH, containers, tmux) where system clipboard isn't available
+-- OSC-52 sends clipboard data via terminal escape sequences, working across network boundaries
+if vim.env.SSH_TTY or vim.env.TMUX or vim.env.KUBERNETES_SERVICE_HOST then
+  vim.g.clipboard = {
+    name = "OSC 52",
+    copy = {
+      ["+"] = require("vim.ui.clipboard.osc52").copy("+"),
+      ["*"] = require("vim.ui.clipboard.osc52").copy("*"),
+    },
+    paste = {
+      ["+"] = require("vim.ui.clipboard.osc52").paste("+"),
+      ["*"] = require("vim.ui.clipboard.osc52").paste("*"),
+    },
+  }
+end
+opt.clipboard = "unnamedplus" -- Use system clipboard (+ register) for all yank/delete/paste
 
 -- Command preview
 opt.inccommand = "split" -- Show command preview in split window

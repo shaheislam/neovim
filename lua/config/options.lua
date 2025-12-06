@@ -25,8 +25,8 @@ local function osc52_copy(lines, regtype)
     osc = string.format("\027Ptmux;\027%s\027\\", osc)
   end
 
-  io.stdout:write(osc)
-  io.stdout:flush()
+  -- Use Neovim's channel API (channel 2 = stdout) for reliable output
+  vim.api.nvim_chan_send(2, osc)
 end
 
 vim.g.clipboard = {

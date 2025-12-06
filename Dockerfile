@@ -7,7 +7,7 @@
 
 FROM ubuntu:22.04
 
-LABEL maintainer="Shah Islam"
+LABEL maintainer="Shahe Islam"
 LABEL description="Debug container with Neovim, networking tools, and DevOps LSPs"
 
 ARG DEBIAN_FRONTEND=noninteractive

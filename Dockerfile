@@ -9,6 +9,7 @@ FROM ubuntu:22.04
 
 LABEL maintainer="Shahe Islam"
 LABEL description="Debug container with Neovim, networking tools, and DevOps LSPs"
+LABEL org.opencontainers.image.source=https://github.com/shaheislam/neovim
 
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC

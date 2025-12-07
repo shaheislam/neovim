@@ -16,9 +16,7 @@ jobs:
   build:
     name: Build and Push Multi-Arch Image
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    permissions: write-all
 
     steps:
       - name: Checkout repository

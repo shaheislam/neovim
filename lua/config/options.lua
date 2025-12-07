@@ -20,8 +20,15 @@ local function osc52_copy(lines, regtype)
   local encoded = vim.base64.encode(text)
   local osc = string.format("\027]52;c;%s\a", encoded)
 
-  -- Wrap for tmux passthrough if in tmux
-  if vim.env.TMUX then
+  -- Wrap for tmux passthrough if:
+  -- 1. In tmux directly ($TMUX set)
+  -- 2. In SSH session (likely through tmux on local machine)
+  -- 3. In Kubernetes container (kubectl exec/debug through tmux)
+  local needs_tmux_wrap = vim.env.TMUX
+    or vim.env.SSH_TTY
+    or vim.env.KUBERNETES_SERVICE_HOST
+
+  if needs_tmux_wrap then
     osc = string.format("\027Ptmux;\027%s\027\\", osc)
   end
 

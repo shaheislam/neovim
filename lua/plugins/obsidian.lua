@@ -77,17 +77,75 @@ return {
 
     callbacks = {
       enter_note = function(note)
+        local bufnr = note.bufnr
+
         -- CRITICAL: expr = true required because smart_action RETURNS a command string
         vim.keymap.set("n", "gf", require("obsidian.api").smart_action, {
-          buffer = note.bufnr,
+          buffer = bufnr,
           desc = "Follow link",
           expr = true,
         })
         vim.keymap.set("n", "<CR>", require("obsidian.api").smart_action, {
-          buffer = note.bufnr,
+          buffer = bufnr,
           desc = "Smart action",
           expr = true,
         })
+
+        -- Heading navigation (linkarzu workflow)
+        vim.keymap.set("n", "gj", function()
+          vim.fn.search("^#", "W")
+        end, { buffer = bufnr, desc = "Next heading" })
+
+        vim.keymap.set("n", "gk", function()
+          vim.fn.search("^#", "bW")
+        end, { buffer = bufnr, desc = "Previous heading" })
+
+        -- Heading-level folding (linkarzu workflow)
+        -- Setup treesitter folding for this buffer
+        vim.opt_local.foldmethod = "expr"
+        vim.opt_local.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+        vim.opt_local.foldenable = true
+        vim.opt_local.foldlevel = 99 -- Start with all open
+
+        vim.keymap.set("n", "zk", function()
+          vim.opt_local.foldlevel = 1
+        end, { buffer = bufnr, desc = "Fold to H2" })
+
+        vim.keymap.set("n", "zl", function()
+          vim.opt_local.foldlevel = 2
+        end, { buffer = bufnr, desc = "Fold to H3" })
+
+        vim.keymap.set("n", "zu", function()
+          vim.cmd("normal! zR")
+        end, { buffer = bufnr, desc = "Unfold all" })
+
+        -- Task automation: Complete and move to Completed section (linkarzu workflow)
+        vim.keymap.set("n", "<A-x>", function()
+          local line = vim.api.nvim_get_current_line()
+          local row = vim.api.nvim_win_get_cursor(0)[1]
+
+          -- Toggle checkbox if not already done
+          if line:match("%- %[ %]") then
+            line = line:gsub("%- %[ %]", "- [x]")
+          end
+
+          -- Delete current line
+          vim.api.nvim_buf_set_lines(bufnr, row - 1, row, false, {})
+
+          -- Find "## Completed" section and append
+          local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+          for i, l in ipairs(lines) do
+            if l:match("^## Completed") then
+              vim.api.nvim_buf_set_lines(bufnr, i, i, false, { line })
+              vim.notify("Task moved to Completed section", vim.log.levels.INFO)
+              return
+            end
+          end
+
+          -- If no Completed section, create one at end
+          vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, { "", "## Completed", line })
+          vim.notify("Created Completed section and moved task", vim.log.levels.INFO)
+        end, { buffer = bufnr, desc = "Complete and move task" })
       end,
     },
   },
@@ -111,6 +169,20 @@ return {
 
     -- Tasks
     { "<leader>oc", "<cmd>Obsidian toggle_checkbox<cr>", desc = "Toggle checkbox" },
+    {
+      "<leader>tt",
+      function()
+        require("fzf-lua").grep({ search = "- \\[ \\]", cwd = vim.fn.expand("~/obsidian") })
+      end,
+      desc = "Pending tasks",
+    },
+    {
+      "<leader>tc",
+      function()
+        require("fzf-lua").grep({ search = "- \\[x\\]", cwd = vim.fn.expand("~/obsidian") })
+      end,
+      desc = "Completed tasks",
+    },
 
     -- Links (visual mode)
     { "<leader>oL", "<cmd>Obsidian link<cr>", desc = "Create link", mode = "v" },

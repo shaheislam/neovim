@@ -2629,9 +2629,8 @@ return {
                   -- Tab will be handled by the fzf-lua action below
                 end,
               },
-              fzf_opts = {
-                ["--header"] = "M-g: global | M-s: git | M-l: local | Tab: drill down | Enter: cd",
-              },
+              -- Use fzf_args for header to ensure it displays (fzf_opts may be overridden)
+              fzf_args = "--header='M-g: global | M-s: git | M-l: local | Tab: drill down | Enter: cd'",
               actions = {
                 ["default"] = function(selected)
                   if not selected or #selected == 0 then return end

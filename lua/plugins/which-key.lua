@@ -53,6 +53,7 @@ return {
 				{ "<leader>w", group = "window/viewport" },
 				{ "<leader>e", desc = "Open File Browser" },
 				{ "<leader>m", group = "markdown" },
+				{ "<leader>o", group = "obsidian" },
 
 				-- Code/LSP operations
 				{ "<leader>ca", desc = "Code Action" },

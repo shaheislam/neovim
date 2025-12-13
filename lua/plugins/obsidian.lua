@@ -53,6 +53,10 @@ return {
 
     preferred_link_style = "wiki",
 
+    -- Use path-based links so completion inserts resolvable links
+    -- Without this, completion inserts slugified IDs that don't resolve
+    wiki_link_func = "use_path_only",
+
     legacy_commands = false, -- Use new command format (Obsidian xxx)
 
     callbacks = {

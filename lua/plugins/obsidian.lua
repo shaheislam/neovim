@@ -53,44 +53,45 @@ return {
 
     preferred_link_style = "wiki",
 
-    mappings = {
-      ["gf"] = {
-        action = function()
-          return require("obsidian").util.gf_passthrough()
-        end,
-        opts = { noremap = false, expr = true, buffer = true },
-      },
-      ["<cr>"] = {
-        action = function()
-          return require("obsidian").util.smart_action()
-        end,
-        opts = { buffer = true, expr = true },
-      },
+    legacy_commands = false, -- Use new command format (Obsidian xxx)
+
+    callbacks = {
+      enter_note = function(note)
+        -- Set up buffer-local keymaps for gf and Enter
+        vim.keymap.set("n", "gf", require("obsidian.api").smart_action, {
+          buffer = note.bufnr,
+          desc = "Follow link",
+        })
+        vim.keymap.set("n", "<CR>", require("obsidian.api").smart_action, {
+          buffer = note.bufnr,
+          desc = "Smart action",
+        })
+      end,
     },
   },
 
   keys = {
-    -- Daily notes
-    { "<leader>od", "<cmd>ObsidianToday<cr>", desc = "Today's note" },
-    { "<leader>oy", "<cmd>ObsidianYesterday<cr>", desc = "Yesterday's note" },
-    { "<leader>om", "<cmd>ObsidianTomorrow<cr>", desc = "Tomorrow's note" },
+    -- Daily notes (new command format)
+    { "<leader>od", "<cmd>Obsidian today<cr>", desc = "Today's note" },
+    { "<leader>oy", "<cmd>Obsidian yesterday<cr>", desc = "Yesterday's note" },
+    { "<leader>om", "<cmd>Obsidian tomorrow<cr>", desc = "Tomorrow's note" },
 
     -- Navigation
-    { "<leader>oo", "<cmd>ObsidianQuickSwitch<cr>", desc = "Quick switch" },
-    { "<leader>os", "<cmd>ObsidianSearch<cr>", desc = "Search vault" },
-    { "<leader>ob", "<cmd>ObsidianBacklinks<cr>", desc = "Backlinks" },
-    { "<leader>ol", "<cmd>ObsidianLinks<cr>", desc = "Outgoing links" },
-    { "<leader>ok", "<cmd>ObsidianTags<cr>", desc = "Search tags" },
+    { "<leader>oo", "<cmd>Obsidian quick_switch<cr>", desc = "Quick switch" },
+    { "<leader>os", "<cmd>Obsidian search<cr>", desc = "Search vault" },
+    { "<leader>ob", "<cmd>Obsidian backlinks<cr>", desc = "Backlinks" },
+    { "<leader>ol", "<cmd>Obsidian links<cr>", desc = "Outgoing links" },
+    { "<leader>ok", "<cmd>Obsidian tags<cr>", desc = "Search tags" },
 
     -- Creation
-    { "<leader>on", "<cmd>ObsidianNew<cr>", desc = "New note" },
-    { "<leader>ot", "<cmd>ObsidianTemplate<cr>", desc = "Insert template" },
+    { "<leader>on", "<cmd>Obsidian new<cr>", desc = "New note" },
+    { "<leader>ot", "<cmd>Obsidian template<cr>", desc = "Insert template" },
 
     -- Tasks
-    { "<leader>oc", "<cmd>lua require('obsidian').util.toggle_checkbox()<cr>", desc = "Toggle checkbox" },
+    { "<leader>oc", "<cmd>Obsidian toggle_checkbox<cr>", desc = "Toggle checkbox" },
 
     -- Links (visual mode)
-    { "<leader>oL", "<cmd>ObsidianLink<cr>", desc = "Create link", mode = "v" },
-    { "<leader>oN", "<cmd>ObsidianLinkNew<cr>", desc = "Link to new note", mode = "v" },
+    { "<leader>oL", "<cmd>Obsidian link<cr>", desc = "Create link", mode = "v" },
+    { "<leader>oN", "<cmd>Obsidian link_new<cr>", desc = "Link to new note", mode = "v" },
   },
 }

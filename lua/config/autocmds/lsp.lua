@@ -280,6 +280,10 @@ function M.setup()
   vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "InsertLeave" }, {
     group = augroup("semantic_tokens"),
     callback = function()
+      -- Skip markdown files (Marksman doesn't support semantic tokens)
+      if vim.bo.filetype == "markdown" then
+        return
+      end
       local clients = vim.lsp.get_clients({ bufnr = 0 })
       for _, client in pairs(clients) do
         if client.server_capabilities.semanticTokensProvider then

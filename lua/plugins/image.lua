@@ -1,6 +1,5 @@
 -- image.nvim - Display images inline in terminal
 -- WezTerm supports the kitty graphics protocol (though not fully compliant)
--- Local images work well; remote images disabled to prevent corrupt image crashes
 
 return {
   "3rd/image.nvim",
@@ -10,13 +9,14 @@ return {
   },
   opts = {
     backend = "kitty", -- WezTerm supports kitty protocol
+    processor = "magick_cli", -- Uses ImageMagick CLI (convert command)
 
     integrations = {
       markdown = {
         enabled = true,
         clear_in_insert_mode = true,
-        download_remote_images = false, -- Disabled: prevents CRC errors from corrupt remote images
-        only_render_image_at_cursor = false,
+        download_remote_images = true, -- Enable to display remote images (disable if CRC errors occur)
+        only_render_image_at_cursor = false, -- Render all images immediately (not just at cursor)
         filetypes = { "markdown" },
       },
     },

@@ -19,7 +19,7 @@ return {
 
       -- Sources
       sources = {
-        default = { "lsp", "path", "snippets", "buffer", "git" },
+        default = { "obsidian", "obsidian_new", "obsidian_tags", "lsp", "path", "snippets", "buffer", "git" },
         providers = {
           git = {
             module = "blink-cmp-git",

@@ -54,6 +54,20 @@ return {
 				{ "<leader>e", desc = "Open File Browser" },
 				{ "<leader>m", group = "markdown" },
 				{ "<leader>o", group = "obsidian" },
+				-- Obsidian subcommands
+				{ "<leader>od", desc = "Today's note" },
+				{ "<leader>oy", desc = "Yesterday's note" },
+				{ "<leader>om", desc = "Tomorrow's note" },
+				{ "<leader>oo", desc = "Quick switch" },
+				{ "<leader>os", desc = "Search vault" },
+				{ "<leader>ob", desc = "Backlinks" },
+				{ "<leader>ol", desc = "Outgoing links" },
+				{ "<leader>ok", desc = "Search tags" },
+				{ "<leader>on", desc = "New note" },
+				{ "<leader>ot", desc = "Insert template" },
+				{ "<leader>oc", desc = "Toggle checkbox" },
+				{ "<leader>oL", desc = "Create link", mode = "v" },
+				{ "<leader>oN", desc = "Link to new note", mode = "v" },
 
 				-- Code/LSP operations
 				{ "<leader>ca", desc = "Code Action" },

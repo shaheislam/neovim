@@ -53,9 +53,18 @@ return {
 
     preferred_link_style = "wiki",
 
-    -- Use path-based links so completion inserts resolvable links
-    -- Without this, completion inserts slugified IDs that don't resolve
-    wiki_link_func = "use_path_only",
+    -- Preserve original title as note ID (don't slugify)
+    -- This ensures completion inserts human-readable names that match your existing notes
+    note_id_func = function(title)
+      if title ~= nil and title ~= "" then
+        return title
+      end
+      return tostring(os.time())
+    end,
+
+    -- Use path with alias for reliable cross-folder resolution
+    -- Inserts [[DfE/Makefile Pointers|Makefile Pointers]] format
+    wiki_link_func = "prepend_note_path",
 
     legacy_commands = false, -- Use new command format (Obsidian xxx)
 

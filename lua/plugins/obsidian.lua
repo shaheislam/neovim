@@ -62,22 +62,31 @@ return {
       return tostring(os.time())
     end,
 
-    -- Use path with alias for reliable cross-folder resolution
-    -- Inserts [[DfE/Makefile Pointers|Makefile Pointers]] format
-    wiki_link_func = "prepend_note_path",
+    -- Custom wiki_link_func: path without .md extension + alias
+    -- Outputs: [[DfE/Makefile Pointers|Makefile Pointers]]
+    -- Built-in "prepend_note_path" adds .md which causes double-extension issues
+    wiki_link_func = function(opts)
+      if opts.label ~= opts.path then
+        return string.format("[[%s|%s]]", opts.path, opts.label)
+      else
+        return string.format("[[%s]]", opts.path)
+      end
+    end,
 
     legacy_commands = false, -- Use new command format (Obsidian xxx)
 
     callbacks = {
       enter_note = function(note)
-        -- Set up buffer-local keymaps for gf and Enter
+        -- CRITICAL: expr = true required because smart_action RETURNS a command string
         vim.keymap.set("n", "gf", require("obsidian.api").smart_action, {
           buffer = note.bufnr,
           desc = "Follow link",
+          expr = true,
         })
         vim.keymap.set("n", "<CR>", require("obsidian.api").smart_action, {
           buffer = note.bufnr,
           desc = "Smart action",
+          expr = true,
         })
       end,
     },

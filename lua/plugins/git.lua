@@ -1151,6 +1151,15 @@ return {
 						vim.opt_local.wrap = false
 						vim.opt_local.list = false
 						vim.opt_local.colorcolumn = { 80 }
+
+						-- Stop terraform-ls on diff buffers (it crashes on diffview:// URIs)
+						vim.defer_fn(function()
+							local clients = vim.lsp.get_clients({ bufnr = bufnr, name = "terraformls" })
+							for _, client in ipairs(clients) do
+								vim.lsp.buf_detach_client(bufnr, client.id)
+							end
+						end, 100)
+
 						-- Ensure q closes diffview in ALL diff buffers (including index)
 						vim.keymap.set("n", "q", "<cmd>DiffviewClose<cr>", {
 							buffer = bufnr,

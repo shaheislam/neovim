@@ -36,15 +36,31 @@ local function osc52_copy(lines, regtype)
   vim.api.nvim_chan_send(2, osc)
 end
 
+-- Paste function: use pbpaste on macOS, empty on remote (use Ctrl-V for terminal paste)
+local function get_paste_fn()
+  local is_remote = vim.env.SSH_TTY or vim.env.KUBERNETES_SERVICE_HOST
+  if is_remote then
+    -- Remote: return empty (user should use Ctrl-V for terminal paste)
+    return function()
+      return {}
+    end
+  else
+    -- Local macOS: use pbpaste
+    return function()
+      return vim.fn.systemlist("pbpaste")
+    end
+  end
+end
+
 vim.g.clipboard = {
-  name = "OSC 52 (tmux)",
+  name = "OSC 52 copy + smart paste",
   copy = {
     ["+"] = osc52_copy,
     ["*"] = osc52_copy,
   },
   paste = {
-    ["+"] = require("vim.ui.clipboard.osc52").paste("+"),
-    ["*"] = require("vim.ui.clipboard.osc52").paste("*"),
+    ["+"] = get_paste_fn(),
+    ["*"] = get_paste_fn(),
   },
 }
 opt.clipboard = "unnamedplus" -- Use system clipboard (+ register) for all yank/delete/paste

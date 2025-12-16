@@ -38,16 +38,20 @@ return {
     end,
   },
 
-  -- Tokyo Night Storm
+  -- Tokyo Night Storm (default theme)
   {
     "folke/tokyonight.nvim",
-    lazy = true,
-    priority = 998,
+    lazy = false,
+    priority = 1000,
     opts = {
       style = "storm",
       transparent = true,
       terminal_colors = true,
     },
+    config = function(_, opts)
+      require("tokyonight").setup(opts)
+      vim.cmd([[colorscheme tokyonight]])
+    end,
   },
 
   -- Kanagawa
@@ -61,12 +65,12 @@ return {
     },
   },
 
-  -- Rose Pine (default theme)
+  -- Rose Pine
   {
     "rose-pine/neovim",
     name = "rose-pine",
-    lazy = false,
-    priority = 1000,
+    lazy = true,
+    priority = 999,
     opts = {
       variant = "main",
       dark_variant = "main",
@@ -74,10 +78,6 @@ return {
         transparency = true,
       },
     },
-    config = function(_, opts)
-      require("rose-pine").setup(opts)
-      vim.cmd([[colorscheme rose-pine]])
-    end,
   },
 
   -- Nightfox

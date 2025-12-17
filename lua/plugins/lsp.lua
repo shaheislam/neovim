@@ -338,10 +338,14 @@ return {
           capabilities = capabilities,
         },
 
-        -- Lua
-        lua_ls = {
-          cmd = get_lsp_cmd("lua-language-server"),
+        -- Lua (emmylua_ls - Rust, 10x faster than lua-language-server)
+        -- Config via .emmyrc.json in project root for Neovim runtime support
+        -- https://github.com/EmmyLuaLs/emmylua-analyzer-rust
+        emmylua_ls = {
+          cmd = get_lsp_cmd("emmylua_ls"),
           capabilities = capabilities,
+          -- Settings are compatible with lua_ls (LuaCATS annotations)
+          -- Most config is done via .emmyrc.json in project root
           settings = {
             Lua = {
               runtime = {

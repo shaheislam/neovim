@@ -1,13 +1,12 @@
 -- Colorschemes
 -- Multiple themes for fzf-lua colorscheme picker
--- TEST: Added this comment for diff testing
 
 return {
-  -- OneDark (a classic dark theme)
+  -- OneDark
   {
     "navarasu/onedark.nvim",
     lazy = true,
-    priority = 996, -- TEST: modified this line slightly
+    priority = 996,
     opts = {
       style = 'dark',
       transparent = true,
@@ -23,7 +22,21 @@ return {
     },
   },
 
-  -- Catppuccin Mocha - DELETED FOR TESTING
+  -- Catppuccin Mocha
+  {
+    "catppuccin/nvim",
+    name = "catppuccin",
+    lazy = true,
+    priority = 999,
+    opts = {
+      flavour = "mocha",
+      transparent_background = true,
+      term_colors = true,
+    },
+    config = function(_, opts)
+      require("catppuccin").setup(opts)
+    end,
+  },
 
   -- Tokyo Night Storm (default theme)
   {
@@ -67,18 +80,18 @@ return {
     },
   },
 
-  -- Nightfox (commented out for testing)
-  -- {
-  --   "EdenEast/nightfox.nvim",
-  --   lazy = true,
-  --   priority = 995,
-  --   opts = {
-  --     options = {
-  --       transparent = true,
-  --       terminal_colors = true,
-  --     },
-  --   },
-  -- },
+  -- Nightfox
+  {
+    "EdenEast/nightfox.nvim",
+    lazy = true,
+    priority = 995,
+    opts = {
+      options = {
+        transparent = true,
+        terminal_colors = true,
+      },
+    },
+  },
 
   -- GitHub Theme
   {
@@ -139,15 +152,6 @@ return {
       transparent = true,
       hide_fillchars = true,
       borderless_telescope = true,
-      italic_comments = true, -- TEST: added new option
-      saturation = 1.0, -- TEST: added new option
     },
-  },
-
-  -- TEST: New theme added for testing
-  {
-    "nyoom-engineering/oxocarbon.nvim",
-    lazy = true,
-    priority = 985,
   },
 }

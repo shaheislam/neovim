@@ -336,6 +336,27 @@ return {
         end
       end
 
+      -- Quickfix scope action - grep only within quickfix files
+      local function create_qf_scope_action()
+        return function(_, opts)
+          local qf_list = vim.fn.getqflist()
+          if #qf_list == 0 then
+            vim.notify("Quickfix list is empty", vim.log.levels.WARN)
+            return
+          end
+
+          local query = opts.__call_opts and opts.__call_opts.query or ""
+          current_scope = "Quickfix"
+
+          vim.schedule(function()
+            require("fzf-lua").lgrep_quickfix({
+              query = query,
+              prompt = "Live Grep (Quickfix)> ",
+            })
+          end)
+        end
+      end
+
       -- History navigation actions
       local function navigate_history(direction)
         return function(_, opts)
@@ -1309,7 +1330,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("grep"),
-              ["--header"] = "C-y: copy | C-f: copy full path | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden",
+              ["--header"] = "C-y: copy | C-f: copy full path | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden | A-q: quickfix",
             }
           end,
           actions = {
@@ -1328,6 +1349,7 @@ return {
             ["alt-b"] = navigate_history(-1),
             ["alt-n"] = navigate_history(1),
             ["alt-o"] = select_directory(),
+            ["alt-q"] = create_qf_scope_action(),
             -- Advanced grep controls
             ["ctrl-g"] = { actions.grep_lgrep },
             ["ctrl-r"] = search_history_action(),  -- Search history

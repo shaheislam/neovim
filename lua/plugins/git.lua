@@ -1206,14 +1206,6 @@ return {
 				},
 			})
 
-			-- VSCode-style two-tier diff highlighting
-			-- Subtle backgrounds for entire changed lines
-			vim.api.nvim_set_hl(0, "DiffAdd", { bg = "#1a2f1a" }) -- Subtle green line
-			vim.api.nvim_set_hl(0, "DiffDelete", { bg = "#2f1a1a" }) -- Subtle red line
-			vim.api.nvim_set_hl(0, "DiffChange", { bg = "#1a2a2f" }) -- Subtle blue line
-			-- Prominent character-level highlights (stands out against line bg)
-			vim.api.nvim_set_hl(0, "DiffText", { bg = "#2d4f2d", bold = true }) -- Brighter green for changed chars
-
 			-- Arbitrary file comparison command (VSCode-style syntax)
 			vim.api.nvim_create_user_command("DiffFiles", function(opts)
 				local args = vim.split(opts.args, " ")

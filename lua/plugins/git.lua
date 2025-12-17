@@ -1205,6 +1205,38 @@ return {
 					end,
 				},
 			})
+
+			-- VSCode-style two-tier diff highlighting
+			-- Subtle backgrounds for entire changed lines
+			vim.api.nvim_set_hl(0, "DiffAdd", { bg = "#1a2f1a" }) -- Subtle green line
+			vim.api.nvim_set_hl(0, "DiffDelete", { bg = "#2f1a1a" }) -- Subtle red line
+			vim.api.nvim_set_hl(0, "DiffChange", { bg = "#1a2a2f" }) -- Subtle blue line
+			-- Prominent character-level highlights (stands out against line bg)
+			vim.api.nvim_set_hl(0, "DiffText", { bg = "#2d4f2d", bold = true }) -- Brighter green for changed chars
+
+			-- Arbitrary file comparison command (VSCode-style syntax)
+			vim.api.nvim_create_user_command("DiffFiles", function(opts)
+				local args = vim.split(opts.args, " ")
+				if #args ~= 2 then
+					vim.notify("Usage: DiffFiles <file1> <file2>", vim.log.levels.ERROR)
+					return
+				end
+				vim.cmd("tabnew " .. vim.fn.fnameescape(args[1]))
+				vim.cmd("vertical diffsplit " .. vim.fn.fnameescape(args[2]))
+			end, { nargs = "+", complete = "file", desc = "Diff two arbitrary files" })
+
+			-- Keymap for interactive file comparison
+			vim.keymap.set("n", "<leader>gF", function()
+				vim.ui.input({ prompt = "File 1: ", completion = "file" }, function(file1)
+					if file1 then
+						vim.ui.input({ prompt = "File 2: ", completion = "file" }, function(file2)
+							if file2 then
+								vim.cmd("DiffFiles " .. file1 .. " " .. file2)
+							end
+						end)
+					end
+				end)
+			end, { desc = "Diff two files" })
 		end,
 	},
 

@@ -118,6 +118,9 @@ opt.updatetime = 250
 opt.timeoutlen = 300
 opt.hidden = true
 
+-- Auto-reload files changed outside Neovim (e.g., by Claude Code)
+opt.autoread = true
+
 -- Disable intro screen to prevent flicker when auto-opening Oil
 opt.shortmess:append("I")
 

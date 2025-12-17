@@ -1129,10 +1129,47 @@ return {
 					-- Called when diffview is opened
 					view_opened = function(view)
 						vim.notify("Diffview opened", vim.log.levels.DEBUG)
+						-- Start watching .git directory for auto-refresh
+						local git_dir = vim.fn.finddir(".git", vim.fn.getcwd() .. ";")
+						if git_dir ~= "" then
+							local git_path = vim.fn.fnamemodify(git_dir, ":p")
+							local handle = vim.uv.new_fs_event()
+							if handle then
+								local debounce_timer = nil
+								handle:start(git_path, { recursive = true }, function(err, filename, events)
+									if err then return end
+									vim.schedule(function()
+										-- Debounce to avoid excessive refreshes
+										if debounce_timer then
+											debounce_timer:stop()
+										end
+										debounce_timer = vim.defer_fn(function()
+											-- Refresh diffview file list
+											local ok, lib = pcall(require, "diffview.lib")
+											if ok then
+												local current_view = lib.get_current_view()
+												if current_view and current_view.update_files then
+													current_view:update_files()
+												end
+											end
+											debounce_timer = nil
+										end, 200)
+									end)
+								end)
+								-- Store handle for cleanup
+								view._git_watcher = handle
+							end
+						end
 					end,
 					-- Called when diffview is closed
 					view_closed = function(view)
 						vim.notify("Diffview closed", vim.log.levels.DEBUG)
+						-- Stop git watcher
+						if view._git_watcher then
+							view._git_watcher:stop()
+							view._git_watcher:close()
+							view._git_watcher = nil
+						end
 						-- Reset commit cycling state
 						commit_cycle_state.current_sha = nil
 						commit_cycle_state.file_path = nil

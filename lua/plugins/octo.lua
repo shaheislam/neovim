@@ -495,24 +495,25 @@ return {
             }
           end
 
-          -- Type filter toggle actions (ctrl-* for fzf-lua consistency)
+          -- Type filter toggle actions (using alt-* to avoid terminal keycode conflicts)
+          -- NOTE: ctrl-m = Enter, ctrl-i = Tab, ctrl-s = horizontal split in fzf-lua
           -- Uses make_filter_action to preserve query and use cached data
-          actions["ctrl-a"] = make_filter_action("type", "all")
-          actions["ctrl-p"] = make_filter_action("type", "pull_request")
-          actions["ctrl-i"] = make_filter_action("type", "issue")
-          actions["ctrl-d"] = make_filter_action("type", "discussion")
+          actions["alt-a"] = make_filter_action("type", "all")
+          actions["alt-p"] = make_filter_action("type", "pull_request")
+          actions["alt-i"] = make_filter_action("type", "issue")
+          actions["alt-d"] = make_filter_action("type", "discussion")
 
           -- State filter toggle actions (for PRs)
-          actions["ctrl-s"] = make_filter_action("state", "all")
-          actions["ctrl-o"] = make_filter_action("state", "open")
-          actions["ctrl-c"] = make_filter_action("state", "closed")
-          actions["ctrl-m"] = make_filter_action("state", "merged")
+          actions["alt-s"] = make_filter_action("state", "all")
+          actions["alt-o"] = make_filter_action("state", "open")
+          actions["alt-c"] = make_filter_action("state", "closed")
+          actions["alt-m"] = make_filter_action("state", "merged")
 
           -- Build header
           local type_names = { all = "All", pull_request = "PRs", issue = "Issues", discussion = "Discussions" }
           local state_names = { all = "All", open = "Open", closed = "Closed", merged = "Merged" }
           local header = string.format(
-            "Type: %s │ State: %s │ C-a:All C-p:PRs C-i:Issues C-d:Disc │ C-s:AllState C-o:Open C-c:Closed C-m:Merged │ C-/:Preview",
+            "Type: %s │ State: %s │ M-a:All M-p:PRs M-i:Issues M-d:Disc │ M-s:AllState M-o:Open M-c:Closed M-m:Merged │ C-/:Preview",
             type_names[current_type],
             state_names[current_state]
           )

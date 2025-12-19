@@ -1138,7 +1138,10 @@ return {
         },
 
         -- Global keymaps for fzf
+        -- NOTE: keymap.fzf = fzf process --bind args (native fzf previewers)
+        --       keymap.builtin = Neovim keymaps (builtin previewers like Octo)
         keymap = {
+          -- For native fzf previewers (bat/cat/shell commands)
           fzf = {
             -- History navigation is automatically enabled when --history is set
             -- ctrl-p and ctrl-n will work by default for navigating history
@@ -1147,6 +1150,11 @@ return {
             ["ctrl-b"] = "preview-page-up",   -- Page up
             ["ctrl-/"] = "toggle-preview",    -- Toggle preview on/off
             -- ["ctrl-u"] is now free for other uses
+          },
+          -- For builtin Neovim previewers (Octo, help_tags, etc.)
+          -- NOTE: Neovim registers <C-/> as <C-_> in terminal mode
+          builtin = {
+            ["<C-_>"] = "toggle-preview",     -- Toggle preview on/off (ctrl-/)
           },
         },
 

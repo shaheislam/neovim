@@ -447,39 +447,39 @@ return {
             }
           end
 
-          -- Type filter toggle actions
+          -- Type filter toggle actions (ctrl-* for fzf-lua consistency)
           local picker = require("octo.picker")
-          actions["alt-a"] = function()
+          actions["ctrl-a"] = function()
             type_filter = "all"
             picker.notifications(opts)
           end
-          actions["alt-p"] = function()
+          actions["ctrl-p"] = function()
             type_filter = "pull_request"
             picker.notifications(opts)
           end
-          actions["alt-i"] = function()
+          actions["ctrl-i"] = function()
             type_filter = "issue"
             picker.notifications(opts)
           end
-          actions["alt-d"] = function()
+          actions["ctrl-d"] = function()
             type_filter = "discussion"
             picker.notifications(opts)
           end
 
           -- State filter toggle actions (for PRs)
-          actions["alt-s"] = function()
+          actions["ctrl-s"] = function()
             state_filter = "all"
             picker.notifications(opts)
           end
-          actions["alt-o"] = function()
+          actions["ctrl-o"] = function()
             state_filter = "open"
             picker.notifications(opts)
           end
-          actions["alt-c"] = function()
+          actions["ctrl-c"] = function()
             state_filter = "closed"
             picker.notifications(opts)
           end
-          actions["alt-m"] = function()
+          actions["ctrl-m"] = function()
             state_filter = "merged"
             picker.notifications(opts)
           end
@@ -488,7 +488,7 @@ return {
           local type_names = { all = "All", pull_request = "PRs", issue = "Issues", discussion = "Discussions" }
           local state_names = { all = "All", open = "Open", closed = "Closed", merged = "Merged" }
           local header = string.format(
-            "Type: %s │ State: %s │ M-a:All M-p:PRs M-i:Issues M-d:Disc │ M-s:AllState M-o:Open M-c:Closed M-m:Merged",
+            "Type: %s │ State: %s │ C-a:All C-p:PRs C-i:Issues C-d:Disc │ C-s:AllState C-o:Open C-c:Closed C-m:Merged │ C-/:Preview",
             type_names[current_type],
             state_names[current_state]
           )
@@ -501,6 +501,7 @@ return {
               ["--header"] = header,
               ["--info"] = "default",
             },
+            -- keymap inherits from global fzf-lua config (keymap.builtin["<C-/>"] = "toggle-preview")
             winopts = {
               title = string.format(" Notifications (%s/%s) ", type_names[current_type], state_names[current_state]),
               title_pos = "center",

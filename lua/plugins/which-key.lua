@@ -47,6 +47,7 @@ return {
 				{ "<leader>c", group = "code/lsp" },
 				{ "<leader>f", group = "find/file" },
 				{ "<leader>g", group = "git" },
+				{ "<leader>O", group = "Octo (GitHub)" },
 				{ "<leader>h", group = "git hunks" },
 				{ "<leader>q", group = "quickfix/quit" },
 				{ "<leader>s", group = "session" },
@@ -110,6 +111,21 @@ return {
 				{ "<leader>gf", desc = "Git Files" },
 				{ "<leader>go", desc = "Open commit in DiffView" },
 				{ "<leader>gK", desc = "Compare clipboard" },
+
+				-- Octo (GitHub) operations
+				{ "<leader>On", desc = "GitHub Notifications" },
+				{ "<leader>Oi", desc = "List Issues" },
+				{ "<leader>OI", desc = "Search Issues" },
+				{ "<leader>Oc", desc = "Create Issue" },
+				{ "<leader>Op", desc = "List PRs" },
+				{ "<leader>OP", desc = "Search PRs" },
+				{ "<leader>OC", desc = "Create PR" },
+				{ "<leader>Ox", desc = "Checkout PR" },
+				{ "<leader>Or", desc = "Start Review" },
+				{ "<leader>OR", desc = "Resume Review" },
+				{ "<leader>Os", desc = "Submit Review" },
+				{ "<leader>Ob", desc = "Open in Browser" },
+				{ "<leader>Oy", desc = "Copy URL" },
 
 				-- Window/viewport operations
 				{ "<leader>wv", desc = "Viewport Resize Mode" },

@@ -28,6 +28,8 @@ return {
           "notify",
           "toggleterm",
           "lazyterm",
+          "octo",
+          "octo_panel",
         },
       },
     },

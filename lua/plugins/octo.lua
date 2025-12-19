@@ -215,8 +215,9 @@ return {
       })
 
       -- ════════════════════════════════════════════════════════════════
-      -- Monkey-patch: Add notification type filtering to Octo picker
-      -- Filters: All, PRs, Issues, Discussions (toggle with alt-a/p/i/d)
+      -- Monkey-patch: Add notification filtering to Octo picker
+      -- Type filters: All, PRs, Issues, Discussions (alt-a/p/i/d)
+      -- State filters: All, Open, Closed, Merged (alt-s/o/c/m) - PRs only
       -- ════════════════════════════════════════════════════════════════
       local fzf = require("fzf-lua")
       local gh = require("octo.gh")
@@ -229,17 +230,70 @@ return {
       local octo_config = require("octo.config")
       local picker_utils = require("octo.pickers.fzf-lua.pickers.utils")
 
-      -- Persistent filter state across picker invocations
-      local notification_filter = "all" -- "all", "pull_request", "issue", "discussion"
+      -- Persistent filter states across picker invocations
+      local type_filter = "all" -- "all", "pull_request", "issue", "discussion"
+      local state_filter = "all" -- "all", "open", "closed", "merged"
+
+      -- State display helpers
+      local state_icons = {
+        open = { icon = "●", hl = "OctoGreen", label = "Open" },
+        closed = { icon = "●", hl = "OctoRed", label = "Closed" },
+        merged = { icon = "●", hl = "OctoPurple", label = "Merged" },
+      }
+
+      -- Build GraphQL query for PR states using aliases
+      local function build_pr_state_query(pr_list)
+        local parts = { "query {" }
+        for i, pr in ipairs(pr_list) do
+          local owner, name = pr.repo:match("([^/]+)/(.+)")
+          if owner and name then
+            -- Create unique alias for each PR
+            local alias = string.format("pr_%d", i)
+            table.insert(parts, string.format(
+              '  %s: repository(owner: "%s", name: "%s") { pullRequest(number: %d) { number state merged } }',
+              alias, owner, name, pr.number
+            ))
+          end
+        end
+        table.insert(parts, "}")
+        return table.concat(parts, "\n")
+      end
+
+      -- Parse GraphQL response into state map
+      local function parse_pr_states(response, pr_list)
+        local states = {}
+        if not response or not response.data then return states end
+
+        for i, pr in ipairs(pr_list) do
+          local alias = string.format("pr_%d", i)
+          local repo_data = response.data[alias]
+          if repo_data and repo_data.pullRequest then
+            local pr_data = repo_data.pullRequest
+            local key = pr.repo .. "#" .. pr.number
+            if pr_data.merged then
+              states[key] = "merged"
+            elseif pr_data.state == "OPEN" then
+              states[key] = "open"
+            else
+              states[key] = "closed"
+            end
+          end
+        end
+        return states
+      end
 
       -- Replace the notifications picker with our filtered version
       local filtered_notifications_picker = function(opts)
         opts = opts or {}
-        local filter = opts.filter or notification_filter
-        local formatted_notifications = {}
-        local cached_notification_infos = {}
+        local current_type = opts.type_filter or type_filter
+        local current_state = opts.state_filter or state_filter
 
-        local function get_contents(fzf_cb)
+        -- Phase 1: Collect all notifications
+        local all_entries = {}
+        local pr_list = {} -- PRs that need state fetching
+        local pr_states = {} -- repo#number -> state
+
+        local function collect_notifications(done_cb)
           gh.api.get({
             "/notifications",
             paginate = true,
@@ -249,122 +303,219 @@ return {
               stream_cb = function(data, err)
                 if err and not utils.is_blank(err) then
                   utils.error(err)
-                  fzf_cb()
                 elseif data then
                   local resp = vim.json.decode(data)
                   for _, notification in ipairs(resp) do
                     local entry = entry_maker.gen_from_notification(notification)
                     if entry ~= nil then
-                      -- Apply filter: skip entries that don't match current filter
-                      if filter ~= "all" and entry.kind ~= filter then
-                        goto continue
+                      table.insert(all_entries, entry)
+                      -- Track PRs for state fetching
+                      if entry.kind == "pull_request" then
+                        local number = entry.obj.subject.url:match("/(%d+)$")
+                        if number then
+                          table.insert(pr_list, {
+                            repo = entry.obj.repository.full_name,
+                            number = tonumber(number),
+                          })
+                        end
                       end
-
-                      local icons = utils.icons
-                      local unread_icon = entry.obj.unread and icons.notification[entry.kind].unread
-                        or icons.notification[entry.kind].read
-                      local unread_text = fzf.utils.ansi_from_hl(unread_icon[2], unread_icon[1])
-                      local id_text = "#" .. (entry.obj.subject.url:match("/(%d+)$") or "NA")
-                      local repo_text = fzf.utils.ansi_from_hl("Number", entry.obj.repository.full_name)
-                      local content = table.concat({ unread_text, id_text, repo_text, entry.obj.subject.title }, " ")
-                      local entry_id =
-                        table.concat({ unread_icon[1], id_text, entry.obj.repository.full_name, entry.obj.subject.title }, " ")
-                      formatted_notifications[entry_id] = entry
-                      fzf_cb(content)
                     end
-                    ::continue::
                   end
                 end
               end,
-              cb = function()
-                fzf_cb()
-              end,
+              cb = done_cb,
             },
           })
         end
 
-        -- Build actions with existing Octo actions + filter toggles
-        local cfg = octo_config.values
-        local actions = fzf_actions.common_buffer_actions(formatted_notifications)
+        -- Phase 2: Fetch PR states via GraphQL
+        local function fetch_pr_states(done_cb)
+          if #pr_list == 0 then
+            return done_cb()
+          end
 
-        -- Copy URL action
-        actions[utils.convert_vim_mapping_to_fzf(cfg.picker_config.mappings.copy_url.lhs)] = {
-          fn = function(selected)
-            octo_notifications.copy_notification_url(formatted_notifications[selected[1]].obj)
-          end,
-          reload = true,
-        }
+          local query = build_pr_state_query(pr_list)
+          local Job = require("plenary.job")
 
-        -- Mark as read action
-        if not cfg.mappings.notification.read.lhs:match("leader>") then
-          actions[utils.convert_vim_mapping_to_fzf(cfg.mappings.notification.read.lhs)] = {
+          Job:new({
+            command = "gh",
+            args = { "api", "graphql", "-f", "query=" .. query },
+            on_exit = function(j, return_val)
+              if return_val == 0 then
+                local result = table.concat(j:result(), "\n")
+                local ok, response = pcall(vim.json.decode, result)
+                if ok then
+                  pr_states = parse_pr_states(response, pr_list)
+                end
+              end
+              vim.schedule(done_cb)
+            end,
+          }):start()
+        end
+
+        -- Phase 3: Display picker with filters
+        local function display_picker()
+          local formatted_notifications = {}
+          local cached_notification_infos = {}
+          local display_items = {}
+
+          for _, entry in ipairs(all_entries) do
+            -- Apply type filter
+            if current_type ~= "all" and entry.kind ~= current_type then
+              goto continue
+            end
+
+            -- Apply state filter (PRs only)
+            local entry_state = nil
+            if entry.kind == "pull_request" then
+              local number = entry.obj.subject.url:match("/(%d+)$")
+              if number then
+                local key = entry.obj.repository.full_name .. "#" .. number
+                entry_state = pr_states[key]
+              end
+              if current_state ~= "all" and entry_state ~= current_state then
+                goto continue
+              end
+            end
+
+            -- Build display content
+            local icons = utils.icons
+            local unread_icon = entry.obj.unread and icons.notification[entry.kind].unread
+              or icons.notification[entry.kind].read
+            local unread_text = fzf.utils.ansi_from_hl(unread_icon[2], unread_icon[1])
+            local id_text = "#" .. (entry.obj.subject.url:match("/(%d+)$") or "NA")
+            local repo_text = fzf.utils.ansi_from_hl("Number", entry.obj.repository.full_name)
+
+            -- Add state indicator for PRs
+            local state_text = ""
+            local state_label = "" -- Plain text version for entry_id (must match ANSI-stripped content)
+            if entry_state and state_icons[entry_state] then
+              local si = state_icons[entry_state]
+              state_text = fzf.utils.ansi_from_hl(si.hl, "[" .. si.label .. "]") .. " "
+              state_label = "[" .. si.label .. "] "
+            end
+
+            local content = table.concat({ unread_text, state_text .. id_text, repo_text, entry.obj.subject.title }, " ")
+            -- entry_id must match content after ANSI stripping (for previewer lookup)
+            local entry_id = table.concat({ unread_icon[1], state_label .. id_text, entry.obj.repository.full_name, entry.obj.subject.title }, " ")
+
+            formatted_notifications[entry_id] = entry
+            table.insert(display_items, content)
+
+            ::continue::
+          end
+
+          -- Build actions
+          local cfg = octo_config.values
+          local actions = fzf_actions.common_buffer_actions(formatted_notifications)
+
+          -- Copy URL action
+          actions[utils.convert_vim_mapping_to_fzf(cfg.picker_config.mappings.copy_url.lhs)] = {
             fn = function(selected)
-              octo_notifications.request_read_notification(formatted_notifications[selected[1]].thread_id)
+              octo_notifications.copy_notification_url(formatted_notifications[selected[1]].obj)
             end,
             reload = true,
           }
+
+          -- Mark as read action
+          if not cfg.mappings.notification.read.lhs:match("leader>") then
+            actions[utils.convert_vim_mapping_to_fzf(cfg.mappings.notification.read.lhs)] = {
+              fn = function(selected)
+                octo_notifications.request_read_notification(formatted_notifications[selected[1]].thread_id)
+              end,
+              reload = true,
+            }
+          end
+
+          -- Mark as done action
+          if not cfg.mappings.notification.done.lhs:match("leader>") then
+            actions[utils.convert_vim_mapping_to_fzf(cfg.mappings.notification.done.lhs)] = {
+              fn = function(selected)
+                octo_notifications.delete_notification(formatted_notifications[selected[1]].thread_id)
+              end,
+              reload = true,
+            }
+          end
+
+          -- Unsubscribe action
+          if not cfg.mappings.notification.unsubscribe.lhs:match("leader>") then
+            actions[utils.convert_vim_mapping_to_fzf(cfg.mappings.notification.unsubscribe.lhs)] = {
+              fn = function(selected)
+                octo_notifications.unsubscribe_notification(formatted_notifications[selected[1]].thread_id)
+              end,
+              reload = true,
+            }
+          end
+
+          -- Type filter toggle actions
+          local picker = require("octo.picker")
+          actions["alt-a"] = function()
+            type_filter = "all"
+            picker.notifications(opts)
+          end
+          actions["alt-p"] = function()
+            type_filter = "pull_request"
+            picker.notifications(opts)
+          end
+          actions["alt-i"] = function()
+            type_filter = "issue"
+            picker.notifications(opts)
+          end
+          actions["alt-d"] = function()
+            type_filter = "discussion"
+            picker.notifications(opts)
+          end
+
+          -- State filter toggle actions (for PRs)
+          actions["alt-s"] = function()
+            state_filter = "all"
+            picker.notifications(opts)
+          end
+          actions["alt-o"] = function()
+            state_filter = "open"
+            picker.notifications(opts)
+          end
+          actions["alt-c"] = function()
+            state_filter = "closed"
+            picker.notifications(opts)
+          end
+          actions["alt-m"] = function()
+            state_filter = "merged"
+            picker.notifications(opts)
+          end
+
+          -- Build header
+          local type_names = { all = "All", pull_request = "PRs", issue = "Issues", discussion = "Discussions" }
+          local state_names = { all = "All", open = "Open", closed = "Closed", merged = "Merged" }
+          local header = string.format(
+            "Type: %s │ State: %s │ M-a:All M-p:PRs M-i:Issues M-d:Disc │ M-s:AllState M-o:Open M-c:Closed M-m:Merged",
+            type_names[current_type],
+            state_names[current_state]
+          )
+
+          fzf.fzf_exec(display_items, {
+            prompt = picker_utils.get_prompt(opts.prompt_title or ("Notifications")),
+            previewer = previewers.notifications(formatted_notifications, cached_notification_infos),
+            fzf_opts = {
+              ["--no-multi"] = "",
+              ["--header"] = header,
+              ["--info"] = "default",
+            },
+            winopts = {
+              title = string.format(" Notifications (%s/%s) ", type_names[current_type], state_names[current_state]),
+              title_pos = "center",
+            },
+            actions = actions,
+            silent = true,
+          })
         end
 
-        -- Mark as done action
-        if not cfg.mappings.notification.done.lhs:match("leader>") then
-          actions[utils.convert_vim_mapping_to_fzf(cfg.mappings.notification.done.lhs)] = {
-            fn = function(selected)
-              octo_notifications.delete_notification(formatted_notifications[selected[1]].thread_id)
-            end,
-            reload = true,
-          }
-        end
-
-        -- Unsubscribe action
-        if not cfg.mappings.notification.unsubscribe.lhs:match("leader>") then
-          actions[utils.convert_vim_mapping_to_fzf(cfg.mappings.notification.unsubscribe.lhs)] = {
-            fn = function(selected)
-              octo_notifications.unsubscribe_notification(formatted_notifications[selected[1]].thread_id)
-            end,
-            reload = true,
-          }
-        end
-
-        -- Filter toggle actions
-        local picker = require("octo.picker")
-        actions["alt-a"] = function()
-          notification_filter = "all"
-          picker.notifications(opts)
-        end
-        actions["alt-p"] = function()
-          notification_filter = "pull_request"
-          picker.notifications(opts)
-        end
-        actions["alt-i"] = function()
-          notification_filter = "issue"
-          picker.notifications(opts)
-        end
-        actions["alt-d"] = function()
-          notification_filter = "discussion"
-          picker.notifications(opts)
-        end
-
-        local filter_names = { all = "All", pull_request = "PRs", issue = "Issues", discussion = "Discussions" }
-        local header = string.format(
-          "Filter: %s │ M-a:All M-p:PRs M-i:Issues M-d:Discussions",
-          filter_names[filter]
-        )
-
-        fzf.fzf_exec(get_contents, {
-          prompt = picker_utils.get_prompt(opts.prompt_title or ("Notifications (" .. filter_names[filter] .. ")")),
-          previewer = previewers.notifications(formatted_notifications, cached_notification_infos),
-          fzf_opts = {
-            ["--no-multi"] = "",
-            ["--header"] = header,
-            ["--info"] = "default",
-          },
-          winopts = {
-            title = " Notifications ",
-            title_pos = "center",
-          },
-          actions = actions,
-          silent = true,
-        })
+        -- Execute phases sequentially
+        collect_notifications(function()
+          fetch_pr_states(function()
+            vim.schedule(display_picker)
+          end)
+        end)
       end
 
       -- KEY FIX: Patch octo.picker directly (not package.loaded)

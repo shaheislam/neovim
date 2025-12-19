@@ -1,10 +1,6 @@
 -- GitHub integration with octo.nvim
 -- Requires: gh CLI installed and authenticated (gh auth login)
 
--- Track which picker opened the current Octo buffer (for back navigation)
--- Uses vim.g for cross-function accessibility within lazy.nvim lifecycle
-vim.g.last_octo_picker = nil
-
 return {
   {
     "pwntester/octo.nvim",
@@ -19,55 +15,20 @@ return {
       -- ══════════════════════════════════════════════════════════════
       -- NOTIFICATIONS (Inbox)
       -- ══════════════════════════════════════════════════════════════
-      {
-        "<leader>On",
-        function()
-          vim.g.last_octo_picker = "notification"
-          vim.cmd("Octo notification list")
-        end,
-        desc = "Notifications (inbox)",
-      },
+      { "<leader>On", "<cmd>Octo notification list<cr>", desc = "Notifications (inbox)" },
 
       -- ══════════════════════════════════════════════════════════════
       -- ISSUES
       -- ══════════════════════════════════════════════════════════════
-      {
-        "<leader>Oi",
-        function()
-          vim.g.last_octo_picker = "issue"
-          vim.cmd("Octo issue list")
-        end,
-        desc = "List issues",
-      },
-      {
-        "<leader>OI",
-        function()
-          vim.g.last_octo_picker = "issue_search"
-          vim.cmd("Octo issue search")
-        end,
-        desc = "Search issues",
-      },
+      { "<leader>Oi", "<cmd>Octo issue list<cr>", desc = "List issues" },
+      { "<leader>OI", "<cmd>Octo issue search<cr>", desc = "Search issues" },
       { "<leader>Oc", "<cmd>Octo issue create<cr>", desc = "Create issue" },
 
       -- ══════════════════════════════════════════════════════════════
       -- PULL REQUESTS
       -- ══════════════════════════════════════════════════════════════
-      {
-        "<leader>Op",
-        function()
-          vim.g.last_octo_picker = "pr"
-          vim.cmd("Octo pr list")
-        end,
-        desc = "List PRs",
-      },
-      {
-        "<leader>OP",
-        function()
-          vim.g.last_octo_picker = "pr_search"
-          vim.cmd("Octo pr search")
-        end,
-        desc = "Search PRs",
-      },
+      { "<leader>Op", "<cmd>Octo pr list<cr>", desc = "List PRs" },
+      { "<leader>OP", "<cmd>Octo pr search<cr>", desc = "Search PRs" },
       { "<leader>OC", "<cmd>Octo pr create<cr>", desc = "Create PR" },
       { "<leader>Ox", "<cmd>Octo pr checkout<cr>", desc = "Checkout PR" },
 
@@ -605,34 +566,6 @@ return {
       -- KEY FIX: Patch octo.picker directly (not package.loaded)
       -- This overwrites the already-assigned function reference
       require("octo.picker").notifications = filtered_notifications_picker
-
-      -- ════════════════════════════════════════════════════════════════
-      -- Buffer-local `-` mapping: Close Octo buffer and return to picker
-      -- ════════════════════════════════════════════════════════════════
-      vim.api.nvim_create_autocmd("FileType", {
-        pattern = "octo",
-        callback = function(event)
-          vim.keymap.set("n", "-", function()
-            -- Close current buffer
-            vim.cmd("bd")
-            -- Reopen the last picker (if any)
-            if vim.g.last_octo_picker then
-              local picker_commands = {
-                notification = "Octo notification list",
-                issue = "Octo issue list",
-                issue_search = "Octo issue search",
-                pr = "Octo pr list",
-                pr_search = "Octo pr search",
-              }
-              local cmd = picker_commands[vim.g.last_octo_picker]
-              if cmd then
-                vim.cmd(cmd)
-              end
-            end
-          end, { buffer = event.buf, desc = "Back to Octo picker" })
-        end,
-        desc = "Set up Octo buffer navigation",
-      })
     end,
   },
 }

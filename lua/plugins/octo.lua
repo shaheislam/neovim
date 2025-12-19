@@ -438,16 +438,14 @@ return {
 
             -- Add state indicator for PRs
             local state_text = ""
-            local state_label = "" -- Plain text version for entry_id (must match ANSI-stripped content)
             if entry_state and state_icons[entry_state] then
               local si = state_icons[entry_state]
               state_text = fzf.utils.ansi_from_hl(si.hl, "[" .. si.label .. "]") .. " "
-              state_label = "[" .. si.label .. "] "
             end
 
             local content = table.concat({ unread_text, state_text .. id_text, repo_text, entry.obj.subject.title }, " ")
-            -- entry_id must match content after ANSI stripping (for previewer lookup)
-            local entry_id = table.concat({ unread_icon[1], state_label .. id_text, entry.obj.repository.full_name, entry.obj.subject.title }, " ")
+            -- Derive entry_id by stripping ANSI from content (guarantees match with fzf selection)
+            local entry_id = fzf.utils.strip_ansi_coloring(content)
 
             formatted_notifications[entry_id] = entry
             table.insert(display_items, content)

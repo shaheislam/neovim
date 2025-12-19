@@ -1166,6 +1166,16 @@ return {
           gutter = "-1", -- transparent gutter
         },
 
+        -- Highlight groups for fzf-lua floating windows (transparency)
+        -- These override the default FzfLuaNormal/FzfLuaBorder groups
+        -- Normal has bg=NONE from autocmds.lua, making windows transparent
+        hls = {
+          normal = "Normal",
+          border = "FloatBorder",
+          preview_normal = "Normal",
+          preview_border = "FloatBorder",
+        },
+
         winopts = {
           height = 0.85,
           width = 0.85,

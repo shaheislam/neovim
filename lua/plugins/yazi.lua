@@ -3,6 +3,15 @@
 return {
   "mikavilpas/yazi.nvim",
   event = "VeryLazy",
+  init = function()
+    -- Suppress "Invalid buffer id" errors from yazi's netrw hijacking race condition
+    local original_buf_delete = vim.api.nvim_buf_delete
+    vim.api.nvim_buf_delete = function(buf, opts)
+      if vim.api.nvim_buf_is_valid(buf) then
+        return original_buf_delete(buf, opts)
+      end
+    end
+  end,
   keys = {
     {
       "<leader>-",

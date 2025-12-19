@@ -108,10 +108,15 @@ local function set_transparent_floats()
   vim.api.nvim_set_hl(0, "DiagnosticFloatingHint", { link = "DiagnosticHint" })
 end
 
--- Apply on colorscheme changes
-vim.api.nvim_create_autocmd("ColorScheme", {
+-- Apply on colorscheme changes and terminal resize
+-- VimResized ensures floating windows re-inherit terminal background on resize
+vim.api.nvim_create_autocmd({ "ColorScheme", "VimResized" }, {
   group = augroup("transparent_floats"),
-  callback = set_transparent_floats,
+  callback = function()
+    set_transparent_floats()
+    -- Force redraw to apply highlight changes to open floating windows
+    vim.cmd("redraw!")
+  end,
 })
 
 -- Also apply on startup after colorscheme is loaded

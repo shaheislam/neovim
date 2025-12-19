@@ -1150,12 +1150,23 @@ return {
           },
         },
 
+        -- Transparency settings for fzf terminal colors
+        -- bg = '-1' tells fzf to use terminal's default background (transparent)
+        fzf_colors = {
+          true,         -- auto-generate rest of highlights
+          bg = "-1",    -- transparent background
+          gutter = "-1", -- transparent gutter
+        },
+
         winopts = {
           height = 0.85,
           width = 0.85,
           row = 0.35,
           col = 0.50,
           border = "rounded",
+          -- Disable backdrop (0=opaque, 100=transparent/disabled)
+          -- Prevents ghosting artifacts on terminal resize with transparent themes
+          backdrop = 100,
           preview = {
             layout = "horizontal",
             horizontal = "right:60%",

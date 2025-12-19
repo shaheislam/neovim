@@ -2640,7 +2640,7 @@ return {
 
           -- ===== Recursive function to launch zoxide picker with scope =====
           local function launch_zoxide_picker(initial_query, scope)
-            scope = scope or "Git"  -- Default to Git scope
+            scope = scope or "Global"  -- Default to Global scope
 
             -- Determine filter path based on scope
             local filter_path = nil
@@ -2743,8 +2743,8 @@ return {
             })
           end
 
-          -- Launch initial picker with Git scope (default)
-          launch_zoxide_picker(nil, "Git")
+          -- Launch initial picker with Global scope (default)
+          launch_zoxide_picker(nil, "Global")
         end,
         desc = "Zoxide jump to Oil"
       },

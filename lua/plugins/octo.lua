@@ -205,7 +205,10 @@ return {
             toggle_viewed = { lhs = "<leader>tv", desc = "Toggle viewed" },
           },
           notification = {
-            read = { lhs = "<cr>", desc = "Mark as read" },
+            -- Note: Use <C-x> format for fzf-lua compatibility (not <cr>)
+            read = { lhs = "<C-r>", desc = "Mark as read" },
+            done = { lhs = "<C-d>", desc = "Mark as done" },
+            unsubscribe = { lhs = "<C-u>", desc = "Unsubscribe" },
             open_in_browser = { lhs = "<C-b>", desc = "Open in browser" },
           },
         },

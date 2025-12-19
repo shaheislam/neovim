@@ -27,12 +27,16 @@ return {
 			win = {
 				border = "rounded",
 				padding = { 1, 2 }, -- extra window padding [top/bottom, right/left]
+				-- Position as vertical panel on bottom right
+				col = -1, -- -1 = right edge
+				row = -1, -- -1 = bottom edge
+				width = { min = 30, max = 50 }, -- narrow width for vertical layout
+				height = { min = 1 }, -- fully dynamic height, fits content exactly
 			},
 			layout = {
-				height = { min = 4, max = 25 }, -- min and max height of the columns
-				width = { min = 20, max = 0.9 }, -- min and max width - 0.9 = 90% of screen width
-				spacing = 3, -- spacing between columns
-				align = "left", -- align columns left, center or right
+				width = { min = 50 }, -- force single column by making min width = window width
+				spacing = 2,
+				align = "left",
 			},
 			show_help = true, -- show help message on the command line when the popup is visible
 			show_keys = true, -- show the currently pressed key and its label as a message in the command line

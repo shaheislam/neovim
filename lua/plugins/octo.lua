@@ -234,6 +234,22 @@ return {
       local type_filter = "all" -- "all", "pull_request", "issue", "discussion"
       local state_filter = "all" -- "all", "open", "closed", "merged"
 
+      -- Module-level cache for filter operations (avoids re-fetching on filter change)
+      local notification_cache = {
+        entries = {},     -- All notification entries from API
+        pr_list = {},     -- PRs that need state fetching
+        pr_states = {},   -- repo#number -> state mapping
+        opts = nil,       -- Original opts passed to picker
+      }
+
+      -- Clear cache (call on fresh picker invocation)
+      local function clear_notification_cache()
+        notification_cache.entries = {}
+        notification_cache.pr_list = {}
+        notification_cache.pr_states = {}
+        notification_cache.opts = nil
+      end
+
       -- State display helpers
       local state_icons = {
         open = { icon = "●", hl = "OctoGreen", label = "Open" },
@@ -282,16 +298,50 @@ return {
         return states
       end
 
+      -- Forward declaration for recursive reference
+      local filtered_notifications_picker
+
+      -- Helper to create filter action with query preservation
+      -- This allows filters to work in-place without closing the picker completely
+      local function make_filter_action(filter_type, filter_value)
+        return function()
+          -- Update the appropriate filter state
+          if filter_type == "type" then
+            type_filter = filter_value
+          else
+            state_filter = filter_value
+          end
+          -- Preserve the user's search query across filter changes
+          local query = fzf.get_last_query() or ""
+          -- Re-invoke picker with cached data and preserved query
+          vim.schedule(function()
+            filtered_notifications_picker({ query = query, use_cache = true })
+          end)
+        end
+      end
+
       -- Replace the notifications picker with our filtered version
-      local filtered_notifications_picker = function(opts)
+      filtered_notifications_picker = function(opts)
         opts = opts or {}
         local current_type = opts.type_filter or type_filter
         local current_state = opts.state_filter or state_filter
 
-        -- Phase 1: Collect all notifications
-        local all_entries = {}
-        local pr_list = {} -- PRs that need state fetching
-        local pr_states = {} -- repo#number -> state
+        -- Check if we should use cached data (for filter changes)
+        local use_cache = opts.use_cache and #notification_cache.entries > 0
+
+        -- References to data (either cache or fresh)
+        local all_entries, pr_list, pr_states
+        if use_cache then
+          all_entries = notification_cache.entries
+          pr_list = notification_cache.pr_list
+          pr_states = notification_cache.pr_states
+        else
+          -- Fresh fetch - clear cache first
+          clear_notification_cache()
+          all_entries = {}
+          pr_list = {}
+          pr_states = {}
+        end
 
         local function collect_notifications(done_cb)
           gh.api.get({
@@ -448,41 +498,17 @@ return {
           end
 
           -- Type filter toggle actions (ctrl-* for fzf-lua consistency)
-          local picker = require("octo.picker")
-          actions["ctrl-a"] = function()
-            type_filter = "all"
-            picker.notifications(opts)
-          end
-          actions["ctrl-p"] = function()
-            type_filter = "pull_request"
-            picker.notifications(opts)
-          end
-          actions["ctrl-i"] = function()
-            type_filter = "issue"
-            picker.notifications(opts)
-          end
-          actions["ctrl-d"] = function()
-            type_filter = "discussion"
-            picker.notifications(opts)
-          end
+          -- Uses make_filter_action to preserve query and use cached data
+          actions["ctrl-a"] = make_filter_action("type", "all")
+          actions["ctrl-p"] = make_filter_action("type", "pull_request")
+          actions["ctrl-i"] = make_filter_action("type", "issue")
+          actions["ctrl-d"] = make_filter_action("type", "discussion")
 
           -- State filter toggle actions (for PRs)
-          actions["ctrl-s"] = function()
-            state_filter = "all"
-            picker.notifications(opts)
-          end
-          actions["ctrl-o"] = function()
-            state_filter = "open"
-            picker.notifications(opts)
-          end
-          actions["ctrl-c"] = function()
-            state_filter = "closed"
-            picker.notifications(opts)
-          end
-          actions["ctrl-m"] = function()
-            state_filter = "merged"
-            picker.notifications(opts)
-          end
+          actions["ctrl-s"] = make_filter_action("state", "all")
+          actions["ctrl-o"] = make_filter_action("state", "open")
+          actions["ctrl-c"] = make_filter_action("state", "closed")
+          actions["ctrl-m"] = make_filter_action("state", "merged")
 
           -- Build header
           local type_names = { all = "All", pull_request = "PRs", issue = "Issues", discussion = "Discussions" }
@@ -493,14 +519,20 @@ return {
             state_names[current_state]
           )
 
+          local fzf_opts = {
+            ["--no-multi"] = "",
+            ["--header"] = header,
+            ["--info"] = "default",
+          }
+          -- Restore search query if provided (for filter changes)
+          if opts.query and opts.query ~= "" then
+            fzf_opts["--query"] = opts.query
+          end
+
           fzf.fzf_exec(display_items, {
             prompt = picker_utils.get_prompt(opts.prompt_title or ("Notifications")),
             previewer = previewers.notifications(formatted_notifications, cached_notification_infos),
-            fzf_opts = {
-              ["--no-multi"] = "",
-              ["--header"] = header,
-              ["--info"] = "default",
-            },
+            fzf_opts = fzf_opts,
             -- keymap inherits from global fzf-lua config (keymap.builtin["<C-/>"] = "toggle-preview")
             winopts = {
               title = string.format(" Notifications (%s/%s) ", type_names[current_type], state_names[current_state]),
@@ -511,12 +543,25 @@ return {
           })
         end
 
-        -- Execute phases sequentially
-        collect_notifications(function()
-          fetch_pr_states(function()
-            vim.schedule(display_picker)
+        -- Execute phases - skip fetch if using cached data
+        if use_cache then
+          -- Directly display with cached data
+          vim.schedule(display_picker)
+        else
+          -- Fetch fresh data, then store to cache
+          collect_notifications(function()
+            -- Store entries to cache
+            notification_cache.entries = all_entries
+            notification_cache.pr_list = pr_list
+            notification_cache.opts = opts
+
+            fetch_pr_states(function()
+              -- Store PR states to cache
+              notification_cache.pr_states = pr_states
+              vim.schedule(display_picker)
+            end)
           end)
-        end)
+        end
       end
 
       -- KEY FIX: Patch octo.picker directly (not package.loaded)

@@ -91,6 +91,8 @@ local function set_transparent_floats()
   vim.api.nvim_set_hl(0, "PmenuThumb", { bg = normal_hl.bg })
 
   -- Make which-key popup use transparent background
+  -- WhichKeyNormal is used by winhighlight for the main window background
+  vim.api.nvim_set_hl(0, "WhichKeyNormal", { link = "Normal" })
   vim.api.nvim_set_hl(0, "WhichKey", { link = "Normal" })
   vim.api.nvim_set_hl(0, "WhichKeyFloat", { link = "Normal" })
   vim.api.nvim_set_hl(0, "WhichKeyBorder", { link = "Normal" })

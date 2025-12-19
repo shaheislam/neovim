@@ -213,6 +213,163 @@ return {
           },
         },
       })
+
+      -- ════════════════════════════════════════════════════════════════
+      -- Monkey-patch: Add notification type filtering to Octo picker
+      -- Filters: All, PRs, Issues, Discussions (toggle with alt-a/p/i/d)
+      -- ════════════════════════════════════════════════════════════════
+      local fzf = require("fzf-lua")
+      local gh = require("octo.gh")
+      local entry_maker = require("octo.pickers.fzf-lua.entry_maker")
+      local utils = require("octo.utils")
+      local octo_notifications = require("octo.notifications")
+      local headers = require("octo.gh.headers")
+      local previewers = require("octo.pickers.fzf-lua.previewers")
+      local fzf_actions = require("octo.pickers.fzf-lua.pickers.fzf_actions")
+      local octo_config = require("octo.config")
+      local picker_utils = require("octo.pickers.fzf-lua.pickers.utils")
+
+      -- Persistent filter state across picker invocations
+      local notification_filter = "all" -- "all", "pull_request", "issue", "discussion"
+
+      -- Replace the notifications picker with our filtered version
+      local filtered_notifications_picker = function(opts)
+        opts = opts or {}
+        local filter = opts.filter or notification_filter
+        local formatted_notifications = {}
+        local cached_notification_infos = {}
+
+        local function get_contents(fzf_cb)
+          gh.api.get({
+            "/notifications",
+            paginate = true,
+            F = { all = opts.all, since = opts.since },
+            opts = {
+              headers = { headers.diff },
+              stream_cb = function(data, err)
+                if err and not utils.is_blank(err) then
+                  utils.error(err)
+                  fzf_cb()
+                elseif data then
+                  local resp = vim.json.decode(data)
+                  for _, notification in ipairs(resp) do
+                    local entry = entry_maker.gen_from_notification(notification)
+                    if entry ~= nil then
+                      -- Apply filter: skip entries that don't match current filter
+                      if filter ~= "all" and entry.kind ~= filter then
+                        goto continue
+                      end
+
+                      local icons = utils.icons
+                      local unread_icon = entry.obj.unread and icons.notification[entry.kind].unread
+                        or icons.notification[entry.kind].read
+                      local unread_text = fzf.utils.ansi_from_hl(unread_icon[2], unread_icon[1])
+                      local id_text = "#" .. (entry.obj.subject.url:match("/(%d+)$") or "NA")
+                      local repo_text = fzf.utils.ansi_from_hl("Number", entry.obj.repository.full_name)
+                      local content = table.concat({ unread_text, id_text, repo_text, entry.obj.subject.title }, " ")
+                      local entry_id =
+                        table.concat({ unread_icon[1], id_text, entry.obj.repository.full_name, entry.obj.subject.title }, " ")
+                      formatted_notifications[entry_id] = entry
+                      fzf_cb(content)
+                    end
+                    ::continue::
+                  end
+                end
+              end,
+              cb = function()
+                fzf_cb()
+              end,
+            },
+          })
+        end
+
+        -- Build actions with existing Octo actions + filter toggles
+        local cfg = octo_config.values
+        local actions = fzf_actions.common_buffer_actions(formatted_notifications)
+
+        -- Copy URL action
+        actions[utils.convert_vim_mapping_to_fzf(cfg.picker_config.mappings.copy_url.lhs)] = {
+          fn = function(selected)
+            octo_notifications.copy_notification_url(formatted_notifications[selected[1]].obj)
+          end,
+          reload = true,
+        }
+
+        -- Mark as read action
+        if not cfg.mappings.notification.read.lhs:match("leader>") then
+          actions[utils.convert_vim_mapping_to_fzf(cfg.mappings.notification.read.lhs)] = {
+            fn = function(selected)
+              octo_notifications.request_read_notification(formatted_notifications[selected[1]].thread_id)
+            end,
+            reload = true,
+          }
+        end
+
+        -- Mark as done action
+        if not cfg.mappings.notification.done.lhs:match("leader>") then
+          actions[utils.convert_vim_mapping_to_fzf(cfg.mappings.notification.done.lhs)] = {
+            fn = function(selected)
+              octo_notifications.delete_notification(formatted_notifications[selected[1]].thread_id)
+            end,
+            reload = true,
+          }
+        end
+
+        -- Unsubscribe action
+        if not cfg.mappings.notification.unsubscribe.lhs:match("leader>") then
+          actions[utils.convert_vim_mapping_to_fzf(cfg.mappings.notification.unsubscribe.lhs)] = {
+            fn = function(selected)
+              octo_notifications.unsubscribe_notification(formatted_notifications[selected[1]].thread_id)
+            end,
+            reload = true,
+          }
+        end
+
+        -- Filter toggle actions
+        local picker = require("octo.picker")
+        actions["alt-a"] = function()
+          notification_filter = "all"
+          picker.notifications(opts)
+        end
+        actions["alt-p"] = function()
+          notification_filter = "pull_request"
+          picker.notifications(opts)
+        end
+        actions["alt-i"] = function()
+          notification_filter = "issue"
+          picker.notifications(opts)
+        end
+        actions["alt-d"] = function()
+          notification_filter = "discussion"
+          picker.notifications(opts)
+        end
+
+        local filter_names = { all = "All", pull_request = "PRs", issue = "Issues", discussion = "Discussions" }
+        local header = string.format(
+          "Filter: %s │ M-a:All M-p:PRs M-i:Issues M-d:Discussions",
+          filter_names[filter]
+        )
+
+        fzf.fzf_exec(get_contents, {
+          prompt = picker_utils.get_prompt(opts.prompt_title or ("Notifications (" .. filter_names[filter] .. ")")),
+          previewer = previewers.notifications(formatted_notifications, cached_notification_infos),
+          fzf_opts = {
+            ["--no-multi"] = "",
+            ["--header"] = header,
+            ["--info"] = "default",
+          },
+          winopts = {
+            title = " Notifications ",
+            title_pos = "center",
+          },
+          actions = actions,
+          silent = true,
+        })
+      end
+
+      -- KEY FIX: Patch octo.picker directly (not package.loaded)
+      -- This overwrites the already-assigned function reference
+      require("octo.picker").notifications = filtered_notifications_picker
     end,
   },
 }

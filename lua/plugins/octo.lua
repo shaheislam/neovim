@@ -44,6 +44,22 @@ return {
       -- ══════════════════════════════════════════════════════════════
       { "<leader>Ob", "<cmd>Octo repo browser<cr>", desc = "Open repo in browser" },
       { "<leader>Oy", "<cmd>Octo repo url<cr>", desc = "Copy repo URL" },
+
+      -- ══════════════════════════════════════════════════════════════
+      -- DIFFVIEW INTEGRATION
+      -- ══════════════════════════════════════════════════════════════
+      {
+        "<leader>Od",
+        function()
+          -- Defer to global function set up in config
+          if _G.octo_diffview and _G.octo_diffview.open_pr_in_diffview then
+            _G.octo_diffview.open_pr_in_diffview()
+          else
+            vim.notify("Octo not loaded yet. Open a PR first.", vim.log.levels.WARN)
+          end
+        end,
+        desc = "Open PR in DiffView",
+      },
     },
     config = function()
       require("octo").setup({
@@ -213,6 +229,467 @@ return {
           },
         },
       })
+
+      -- ════════════════════════════════════════════════════════════════
+      -- Octo + DiffView Integration
+      -- Opens the current PR's changes in DiffView for visual diff navigation
+      -- ════════════════════════════════════════════════════════════════
+
+      ---Find an Octo PR buffer and extract PR metadata
+      ---@return table|nil pr_info Table with {base, head, repo, number, state, headSha, mergeCommit} or nil
+      local function get_octo_pr_info()
+        -- Check if _G.octo_buffers exists
+        if type(_G.octo_buffers) ~= "table" then
+          return nil
+        end
+
+        -- First check current buffer, then search all Octo buffers
+        local buffers_to_check = { vim.api.nvim_get_current_buf() }
+        for bufnr, _ in pairs(_G.octo_buffers) do
+          if bufnr ~= buffers_to_check[1] then
+            table.insert(buffers_to_check, bufnr)
+          end
+        end
+
+        for _, bufnr in ipairs(buffers_to_check) do
+          local buffer = _G.octo_buffers[bufnr]
+          if buffer and buffer.isPullRequest and buffer:isPullRequest() then
+            local pr = buffer:pullRequest()
+            if pr then
+              -- Extract state and commit info
+              local state = pr.state -- "OPEN", "CLOSED", "MERGED"
+              local head_sha = pr.headRefOid -- The HEAD commit SHA
+              local merge_commit = pr.mergeCommit and pr.mergeCommit.oid or nil
+
+              return {
+                base = pr.baseRefName,
+                head = pr.headRefName,
+                repo = buffer.repo,
+                number = buffer.number,
+                state = state,
+                headSha = head_sha,
+                mergeCommit = merge_commit,
+                -- Full ref for remote tracking
+                base_ref = "origin/" .. pr.baseRefName,
+              }
+            end
+          end
+        end
+
+        return nil
+      end
+
+      ---Get current git branch name
+      ---@return string|nil
+      local function get_current_branch()
+        local result = vim.fn.system("MISE_QUIET=1 git rev-parse --abbrev-ref HEAD 2>/dev/null")
+        if vim.v.shell_error == 0 then
+          return vim.trim(result)
+        end
+        return nil
+      end
+
+      ---Check if a git ref exists
+      ---@param ref string
+      ---@return boolean
+      local function ref_exists(ref)
+        vim.fn.system("MISE_QUIET=1 git rev-parse --verify " .. ref .. " 2>/dev/null")
+        return vim.v.shell_error == 0
+      end
+
+      ---Get the current local repo's remote URL (normalized)
+      ---@return string|nil
+      local function get_local_repo_name()
+        local result = vim.fn.system("MISE_QUIET=1 git remote get-url origin 2>/dev/null")
+        if vim.v.shell_error ~= 0 then
+          return nil
+        end
+        -- Normalize: extract owner/repo from various URL formats
+        -- git@github.com:owner/repo.git or https://github.com/owner/repo.git
+        -- Also handles git@github.com-alias:owner/repo.git
+        local owner, repo = result:match("[:/]([^/]+)/([^/%.]+)%.?g?i?t?%s*$")
+        if owner and repo then
+          return owner .. "/" .. repo
+        end
+        return nil
+      end
+
+      ---Find a repo's local path by searching common directories
+      ---@param repo_name string The repo name in "owner/repo" format
+      ---@return string|nil The local path if found
+      local function find_repo_local_path(repo_name)
+        local owner, repo = repo_name:match("([^/]+)/(.+)")
+        if not repo then
+          return nil
+        end
+
+        -- Common directories to search (in order of preference)
+        local search_dirs = {
+          vim.fn.expand("~/work"),
+          vim.fn.expand("~/code"),
+          vim.fn.expand("~/projects"),
+          vim.fn.expand("~/repos"),
+          vim.fn.expand("~/dev"),
+          vim.fn.expand("~"),
+        }
+
+        -- Try to find the repo directory
+        for _, dir in ipairs(search_dirs) do
+          if vim.fn.isdirectory(dir) == 1 then
+            -- Check direct match: ~/work/repo-name
+            local direct_path = dir .. "/" .. repo
+            if vim.fn.isdirectory(direct_path .. "/.git") == 1 then
+              -- Verify it's the right repo by checking remote
+              local remote = vim.fn.system(
+                string.format("MISE_QUIET=1 git -C %q remote get-url origin 2>/dev/null", direct_path)
+              )
+              if remote:lower():find(repo_name:lower(), 1, true) then
+                return direct_path
+              end
+            end
+
+            -- Check nested: ~/work/owner/repo-name
+            local nested_path = dir .. "/" .. owner .. "/" .. repo
+            if vim.fn.isdirectory(nested_path .. "/.git") == 1 then
+              return nested_path
+            end
+          end
+        end
+
+        return nil
+      end
+
+      ---Open current Octo PR in DiffView
+      ---@param opts? {notify: boolean}
+      local function open_pr_in_diffview(opts)
+        opts = opts or { notify = true }
+
+        local pr_info = get_octo_pr_info()
+
+        if not pr_info then
+          if opts.notify then
+            vim.notify("No Octo PR buffer found. Open a PR with :Octo pr list first.", vim.log.levels.WARN)
+          end
+          return false
+        end
+
+        -- Check if we're in the correct repo
+        local local_repo = get_local_repo_name()
+        if local_repo and pr_info.repo and local_repo:lower() ~= pr_info.repo:lower() then
+          -- Try to find and cd to the correct repo
+          local target_path = find_repo_local_path(pr_info.repo)
+          if target_path then
+            vim.notify(
+              string.format("Switching to %s...", pr_info.repo),
+              vim.log.levels.INFO
+            )
+            vim.cmd("cd " .. vim.fn.fnameescape(target_path))
+          else
+            if opts.notify then
+              vim.notify(
+                string.format(
+                  "PR #%d is from '%s'\nbut you're in '%s'.\n\nRepo not found in ~/work, ~/code, ~/projects.",
+                  pr_info.number,
+                  pr_info.repo,
+                  local_repo
+                ),
+                vim.log.levels.WARN
+              )
+            end
+            return false
+          end
+        end
+
+        local current_branch = get_current_branch()
+        local base_ref = "origin/" .. pr_info.base
+        local head_ref
+        local state_info = ""
+
+        -- For merged/closed PRs, use gh pr diff directly (most reliable)
+        -- Original commits may not exist (squash merge) or PR ref may be garbage collected
+        local is_merged_or_closed = pr_info.state == "MERGED" or pr_info.state == "CLOSED"
+          or pr_info.state == "merged" or pr_info.state == "closed"
+
+        if is_merged_or_closed then
+          -- For merged PRs, use gh pr checkout to fetch the PR's commits from GitHub
+          -- This is more reliable than git apply as it fetches actual commits
+          vim.notify(
+            string.format("PR #%d [%s] - fetching from GitHub...", pr_info.number, pr_info.state),
+            vim.log.levels.INFO
+          )
+
+          -- Save current branch to return to later
+          local original_branch = get_current_branch() or "main"
+
+          -- Stash any uncommitted changes
+          vim.fn.system("MISE_QUIET=1 git stash push -m 'octo-diffview-temp' 2>/dev/null")
+          local had_stash = vim.v.shell_error == 0
+
+          -- Strategy: Use gh api to get PR head SHA, then fetch that commit
+          -- This works even when refs/pull/{n}/head isn't available
+          local temp_branch = string.format("octo-pr-%d", pr_info.number)
+          local fetch_ok = false
+
+          -- First, get the head SHA from GitHub API
+          local head_sha = pr_info.headSha
+          if not head_sha or head_sha == "" then
+            -- Fetch from API if not in pr_info
+            local api_result = vim.fn.system(
+              string.format("MISE_QUIET=1 gh api repos/%s/pulls/%d --jq .head.sha 2>/dev/null", pr_info.repo, pr_info.number)
+            )
+            if vim.v.shell_error == 0 then
+              head_sha = vim.trim(api_result)
+            end
+          end
+
+          if head_sha and head_sha ~= "" then
+            -- Try to fetch the specific commit
+            -- First, try fetching with the commit SHA directly
+            vim.fn.system(string.format("MISE_QUIET=1 git fetch origin %s 2>&1", head_sha))
+            if vim.v.shell_error == 0 then
+              -- Create branch from fetched commit
+              vim.fn.system(string.format("MISE_QUIET=1 git branch -f %s %s 2>&1", temp_branch, head_sha))
+              fetch_ok = vim.v.shell_error == 0
+            end
+
+            -- If that failed, try fetching via PR ref
+            if not fetch_ok then
+              vim.fn.system(string.format("MISE_QUIET=1 git fetch origin pull/%d/head 2>&1", pr_info.number))
+              if vim.v.shell_error == 0 then
+                vim.fn.system(string.format("MISE_QUIET=1 git branch -f %s FETCH_HEAD 2>&1", temp_branch))
+                fetch_ok = vim.v.shell_error == 0
+              end
+            end
+
+            -- Last resort: fetch all and hope the commit is reachable
+            if not fetch_ok then
+              vim.fn.system("MISE_QUIET=1 git fetch origin 2>&1")
+              if ref_exists(head_sha) then
+                vim.fn.system(string.format("MISE_QUIET=1 git branch -f %s %s 2>&1", temp_branch, head_sha))
+                fetch_ok = vim.v.shell_error == 0
+              end
+            end
+          end
+
+          if fetch_ok then
+            -- Checkout the temp branch
+            local checkout_result = vim.fn.system(
+              string.format("MISE_QUIET=1 git checkout %s 2>&1", temp_branch)
+            )
+
+            if vim.v.shell_error == 0 then
+              -- Success! Now use DiffView
+              local diff_cmd = string.format("DiffviewOpen origin/%s...HEAD", pr_info.base)
+              vim.notify(
+                string.format("PR #%d: %s → %s [%s]", pr_info.number, pr_info.base, pr_info.head, pr_info.state),
+                vim.log.levels.INFO
+              )
+              vim.cmd(diff_cmd)
+
+              -- Store cleanup info for later (user can run :OctoDiffCleanup)
+              _G.octo_diffview.cleanup = function()
+                vim.cmd("DiffviewClose")
+                vim.fn.system("MISE_QUIET=1 git checkout " .. original_branch .. " 2>/dev/null")
+                vim.fn.system("MISE_QUIET=1 git branch -D " .. temp_branch .. " 2>/dev/null")
+                if had_stash then
+                  vim.fn.system("MISE_QUIET=1 git stash pop 2>/dev/null")
+                end
+                vim.notify("Cleaned up and restored to " .. original_branch, vim.log.levels.INFO)
+              end
+
+              vim.api.nvim_create_user_command("OctoDiffCleanup", function()
+                if _G.octo_diffview.cleanup then
+                  _G.octo_diffview.cleanup()
+                end
+              end, { desc = "Clean up after Octo DiffView" })
+
+              return true
+            end
+          end
+
+          -- Fetch/checkout failed - try applying the diff to create commits
+          vim.notify(
+            string.format("PR #%d: Commits unavailable, applying diff...", pr_info.number),
+            vim.log.levels.INFO
+          )
+
+          -- Get the diff from GitHub
+          local diff_output = vim.fn.system(
+            string.format("MISE_QUIET=1 gh pr diff %d --repo %s 2>/dev/null", pr_info.number, pr_info.repo)
+          )
+
+          if vim.v.shell_error == 0 and diff_output ~= "" then
+            -- Checkout the base branch
+            vim.fn.system(string.format("MISE_QUIET=1 git checkout origin/%s 2>&1", pr_info.base))
+            if vim.v.shell_error ~= 0 then
+              -- Try without origin/ prefix
+              vim.fn.system(string.format("MISE_QUIET=1 git checkout %s 2>&1", pr_info.base))
+            end
+
+            -- Create temp branch from base
+            vim.fn.system(string.format("MISE_QUIET=1 git checkout -b %s 2>&1", temp_branch))
+
+            if vim.v.shell_error == 0 then
+              -- Write diff to temp file and apply
+              local temp_file = vim.fn.tempname() .. ".patch"
+              local f = io.open(temp_file, "w")
+              if f then
+                f:write(diff_output)
+                f:close()
+
+                -- Apply the diff (--3way handles conflicts better)
+                local apply_result = vim.fn.system(
+                  string.format("MISE_QUIET=1 git apply --3way %s 2>&1", temp_file)
+                )
+                vim.fn.delete(temp_file)
+
+                -- Check if apply worked (may have partial success)
+                local status = vim.fn.system("MISE_QUIET=1 git status --porcelain 2>/dev/null")
+                if status ~= "" then
+                  -- Stage and commit all changes
+                  vim.fn.system("MISE_QUIET=1 git add -A 2>/dev/null")
+                  vim.fn.system(string.format(
+                    'MISE_QUIET=1 git commit -m "PR #%d: %s" 2>/dev/null',
+                    pr_info.number, pr_info.head
+                  ))
+
+                  if vim.v.shell_error == 0 then
+                    -- Success! Open DiffView
+                    local diff_cmd = string.format("DiffviewOpen origin/%s...HEAD", pr_info.base)
+                    vim.notify(
+                      string.format("PR #%d: %s → %s [%s] (applied)", pr_info.number, pr_info.base, pr_info.head, pr_info.state),
+                      vim.log.levels.INFO
+                    )
+                    vim.cmd(diff_cmd)
+
+                    -- Store cleanup
+                    _G.octo_diffview.cleanup = function()
+                      vim.cmd("DiffviewClose")
+                      vim.fn.system("MISE_QUIET=1 git checkout " .. original_branch .. " 2>/dev/null")
+                      vim.fn.system("MISE_QUIET=1 git branch -D " .. temp_branch .. " 2>/dev/null")
+                      if had_stash then
+                        vim.fn.system("MISE_QUIET=1 git stash pop 2>/dev/null")
+                      end
+                      vim.notify("Cleaned up and restored to " .. original_branch, vim.log.levels.INFO)
+                    end
+
+                    vim.api.nvim_create_user_command("OctoDiffCleanup", function()
+                      if _G.octo_diffview.cleanup then
+                        _G.octo_diffview.cleanup()
+                      end
+                    end, { desc = "Clean up after Octo DiffView" })
+
+                    return true
+                  end
+                end
+              end
+            end
+          end
+
+          -- All methods failed - restore state and show scratch buffer
+          vim.fn.system("MISE_QUIET=1 git checkout " .. original_branch .. " 2>/dev/null")
+          vim.fn.system("MISE_QUIET=1 git branch -D " .. temp_branch .. " 2>/dev/null")
+          if had_stash then
+            vim.fn.system("MISE_QUIET=1 git stash pop 2>/dev/null")
+          end
+
+          -- Fall back to scratch buffer
+          vim.notify(
+            string.format("PR #%d: Could not apply diff for DiffView. Showing raw diff...", pr_info.number),
+            vim.log.levels.WARN
+          )
+          local diff_output = vim.fn.system(
+            string.format("MISE_QUIET=1 gh pr diff %d --repo %s 2>/dev/null", pr_info.number, pr_info.repo)
+          )
+
+          if vim.v.shell_error == 0 and diff_output ~= "" then
+            vim.cmd("tabnew")
+            local buf = vim.api.nvim_get_current_buf()
+            vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+            vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+            vim.api.nvim_buf_set_option(buf, "swapfile", false)
+            vim.api.nvim_buf_set_name(buf, string.format("PR #%d diff [%s]", pr_info.number, pr_info.repo))
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(diff_output, "\n"))
+            vim.api.nvim_buf_set_option(buf, "filetype", "diff")
+            vim.api.nvim_buf_set_option(buf, "modifiable", false)
+            return true
+          else
+            vim.notify(
+              string.format("Could not fetch PR #%d. Refs may have been garbage collected.", pr_info.number),
+              vim.log.levels.WARN
+            )
+            return false
+          end
+        end
+
+        -- If we don't have head_ref yet, try the normal methods
+        if not head_ref then
+          if current_branch == pr_info.head then
+            -- We're on the PR branch locally, use HEAD
+            head_ref = "HEAD"
+          elseif ref_exists("origin/" .. pr_info.head) then
+            -- PR branch exists on origin (same-repo PR)
+            head_ref = "origin/" .. pr_info.head
+          else
+            -- Fork PR or Dependabot - fetch using GitHub's PR ref
+            -- GitHub exposes all PRs at refs/pull/{number}/head
+            vim.notify(string.format("Fetching PR #%d from origin...", pr_info.number), vim.log.levels.INFO)
+
+            local fetch_cmd = string.format("MISE_QUIET=1 git fetch origin pull/%d/head 2>&1", pr_info.number)
+            local fetch_result = vim.fn.system(fetch_cmd)
+
+            if vim.v.shell_error ~= 0 then
+              -- Last resort: try using the head SHA if available
+              if pr_info.headSha then
+                vim.notify("Branch ref unavailable, using commit SHA...", vim.log.levels.INFO)
+                -- Force fetch by SHA (may not work if commit is unreachable)
+                vim.fn.system("MISE_QUIET=1 git fetch origin 2>/dev/null")
+                if ref_exists(pr_info.headSha) then
+                  head_ref = pr_info.headSha
+                end
+              end
+
+              if not head_ref then
+                if opts.notify then
+                  vim.notify(
+                    string.format(
+                      "PR #%d: Could not find branch or commit.\n"
+                        .. "The PR may be from a deleted fork.\n"
+                        .. "Head SHA: %s",
+                      pr_info.number,
+                      pr_info.headSha or "unknown"
+                    ),
+                    vim.log.levels.ERROR
+                  )
+                end
+                return false
+              end
+            else
+              -- Use FETCH_HEAD which now points to the PR
+              head_ref = "FETCH_HEAD"
+            end
+          end
+        end
+
+        -- Build the diff command: base...head shows what the PR introduces
+        local diff_cmd = string.format("DiffviewOpen %s...%s", base_ref, head_ref)
+
+        if opts.notify then
+          vim.notify(
+            string.format("PR #%d: %s → %s%s", pr_info.number, pr_info.base, pr_info.head, state_info),
+            vim.log.levels.INFO
+          )
+        end
+
+        vim.cmd(diff_cmd)
+        return true
+      end
+
+      -- Expose for use in keymaps (used by the keys array above)
+      _G.octo_diffview = {
+        open_pr_in_diffview = open_pr_in_diffview,
+        get_octo_pr_info = get_octo_pr_info,
+      }
 
       -- ════════════════════════════════════════════════════════════════
       -- Monkey-patch: Add notification filtering to Octo picker

@@ -2237,8 +2237,8 @@ return {
     end,
 
     keys = {
-      -- File pickers
-      { "<leader>ff", function() require("fzf-lua").files() end, desc = "Find Files" },
+      -- File pickers (frecency = frequency + recency ranking)
+      { "<leader>ff", function() require("fzf-lua-frecency").frecency({ all_files = true }) end, desc = "Find Files (Frecency)" },
       { "<leader>fF", function() require("fzf-lua").files({ cwd = vim.fn.expand("~") }) end, desc = "Find Files (Home)" },
 
       -- Buffer pickers
@@ -2839,5 +2839,18 @@ return {
         desc = "Yank History"
       },
     },
+  },
+
+  -- fzf-lua-frecency: frecency-based file picker (frequency + recency)
+  -- Uses Mozilla's frecency algorithm with 30-day half-life decay
+  {
+    "elanmed/fzf-lua-frecency.nvim",
+    dependencies = { "ibhagwan/fzf-lua" },
+    config = function()
+      require("fzf-lua-frecency").setup({
+        db_dir = vim.fs.joinpath(vim.fn.stdpath("data"), "fzf-lua-frecency"),
+        stat_file = true, -- verify files exist before displaying
+      })
+    end,
   },
 }

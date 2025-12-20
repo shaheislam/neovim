@@ -148,7 +148,6 @@ return {
   {
     "ibhagwan/fzf-lua",
     dependencies = { "nvim-tree/nvim-web-devicons" },
-    cmd = "FzfLua",
 
     opts = function()
       local actions = require("fzf-lua.actions")
@@ -2237,8 +2236,7 @@ return {
     end,
 
     keys = {
-      -- File pickers (frecency = frequency + recency ranking)
-      { "<leader>ff", function() require("fzf-lua-frecency").frecency({ all_files = true }) end, desc = "Find Files (Frecency)" },
+      -- File pickers
       { "<leader>fF", function() require("fzf-lua").files({ cwd = vim.fn.expand("~") }) end, desc = "Find Files (Home)" },
 
       -- Buffer pickers
@@ -2846,6 +2844,9 @@ return {
   {
     "elanmed/fzf-lua-frecency.nvim",
     dependencies = { "ibhagwan/fzf-lua" },
+    keys = {
+      { "<leader>ff", function() require("fzf-lua-frecency").frecency({ all_files = true }) end, desc = "Find Files (Frecency)" },
+    },
     config = function()
       require("fzf-lua-frecency").setup({
         db_dir = vim.fs.joinpath(vim.fn.stdpath("data"), "fzf-lua-frecency"),

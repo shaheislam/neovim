@@ -2631,6 +2631,17 @@ return {
             return vim.fn.getcwd()
           end
 
+          local function get_parent_dirs(path)
+            local dirs = {}
+            local current = path or vim.fn.getcwd()
+            while current and current ~= "/" do
+              table.insert(dirs, current)
+              current = vim.fn.fnamemodify(current, ":h")
+            end
+            table.insert(dirs, "/")
+            return dirs
+          end
+
           -- ===== Build zoxide command with optional scope filter =====
           local function build_zoxide_cmd(scope, filter_path)
             local base_cmd = "zoxide query --list --score"
@@ -2646,68 +2657,108 @@ return {
             end
           end
 
+          -- ===== Shared actions for scope switching =====
+          local function make_scope_actions(launch_fn)
+            return {
+              ["alt-g"] = function(_, opts)
+                local query = opts.__call_opts and opts.__call_opts.query or ""
+                vim.schedule(function() launch_fn(query, "Global") end)
+              end,
+              ["alt-s"] = function(_, opts)
+                local query = opts.__call_opts and opts.__call_opts.query or ""
+                vim.schedule(function() launch_fn(query, "Git") end)
+              end,
+              ["alt-l"] = function(_, opts)
+                local query = opts.__call_opts and opts.__call_opts.query or ""
+                vim.schedule(function() launch_fn(query, "Local") end)
+              end,
+              ["alt-p"] = function(_, opts)
+                local query = opts.__call_opts and opts.__call_opts.query or ""
+                vim.schedule(function() launch_fn(query, "Parents") end)
+              end,
+            }
+          end
+
           -- ===== Recursive function to launch zoxide picker with scope =====
           local function launch_zoxide_picker(initial_query, scope)
             scope = scope or "Global"  -- Default to Global scope
+            local fzf = require("fzf-lua")
+            local header = "--header='M-g: global | M-s: git | M-l: local | M-p: parents | Tab: drill down | Enter: cd'"
 
-            -- Determine filter path based on scope
+            -- Default action: cd and open oil
+            local function default_action(selected)
+              if not selected or #selected == 0 then return end
+              local line = selected[1]
+              local path
+
+              if scope == "Parents" then
+                -- Parents scope: line is just the path
+                path = line
+              else
+                -- Zoxide scopes: extract path from "score  path" format
+                local _, extracted = line:match("^(%s*%S+)\t(.+)$")
+                if not extracted then
+                  _, extracted = line:match("^(%s*%S+)%s+(.+)$")
+                end
+                if not extracted then
+                  vim.notify("Could not extract path from: " .. line, vim.log.levels.ERROR)
+                  return
+                end
+                path = extracted
+                -- Reconstruct full path if it was transformed
+                if not path:match("^/") then
+                  path = home .. "/" .. path
+                end
+              end
+
+              vim.cmd("cd " .. vim.fn.fnameescape(path))
+              require("oil").open(path)
+            end
+
+            -- ===== Parents scope: use fzf_exec with Lua table =====
+            if scope == "Parents" then
+              local parent_dirs = get_parent_dirs()
+              fzf.fzf_exec(parent_dirs, {
+                prompt = "Parents> ",
+                query = initial_query or "",
+                preview = preview_cmd .. " {}",
+                winopts = {
+                  on_create = function() end,
+                },
+                fzf_args = header,
+                actions = vim.tbl_extend("force", make_scope_actions(launch_zoxide_picker), {
+                  ["default"] = default_action,
+                }),
+              })
+              return
+            end
+
+            -- ===== Zoxide scopes (Global/Git/Local) =====
             local filter_path = nil
             if scope == "Git" then
               filter_path = get_git_root()
-              -- If no git root, fall back to global
               if not filter_path then
                 scope = "Global"
               end
             elseif scope == "Local" then
               filter_path = get_local_dir()
             end
-            -- Global scope = no filter (filter_path stays nil)
 
             local cmd = build_zoxide_cmd(scope, filter_path)
 
-            require("fzf-lua").zoxide({
+            fzf.zoxide({
               prompt = "Zoxide (" .. scope .. ")> ",
               query = initial_query or "",
               cmd = cmd,
-              -- Preview uses shell script to reconstruct full path
               preview = "bash -c 'path=$(echo {2..} | xargs); [[ \"$path\" != /* ]] && path=\"" .. home .. "/$path\"; " .. preview_cmd .. " \"$path\"'",
               winopts = {
-                -- Override the global on_create to prevent Tab from toggling preview
-                on_create = function()
-                  -- Don't set up the Tab toggle for this picker
-                  -- Tab will be handled by the fzf-lua action below
-                end,
+                on_create = function() end,
               },
-              -- Use fzf_args for header to ensure it displays (fzf_opts may be overridden)
-              fzf_args = "--header='M-g: global | M-s: git | M-l: local | Tab: drill down | Enter: cd'",
-              actions = {
-                ["default"] = function(selected)
-                  if not selected or #selected == 0 then return end
-                  -- Extract the path (second field after tab or spaces)
-                  local line = selected[1]
-                  -- Try tab separator first, then space separator
-                  local _, path = line:match("^(%s*%S+)\t(.+)$")
-                  if not path then
-                    _, path = line:match("^(%s*%S+)%s+(.+)$")
-                  end
-                  if not path then
-                    vim.notify("Could not extract path from: " .. line, vim.log.levels.ERROR)
-                    return
-                  end
-
-                  -- Reconstruct full path if it was transformed
-                  if not path:match("^/") then
-                    path = home .. "/" .. path
-                  end
-
-                  -- Change working directory
-                  vim.cmd("cd " .. vim.fn.fnameescape(path))
-                  -- Open oil in that directory
-                  require("oil").open(path)
-                end,
+              fzf_args = header,
+              actions = vim.tbl_extend("force", make_scope_actions(launch_zoxide_picker), {
+                ["default"] = default_action,
                 ["tab"] = function(selected)
                   if not selected or #selected == 0 then return end
-                  -- Extract the path (displayed value, not reconstructed full path)
                   local line = selected[1]
                   local _, path = line:match("^(%s*%S+)\t(.+)$")
                   if not path then
@@ -2717,37 +2768,12 @@ return {
                     vim.notify("Could not extract path from: " .. line, vim.log.levels.ERROR)
                     return
                   end
-
-                  -- Use the displayed path as-is for the query (don't reconstruct)
-                  -- Add trailing slash to indicate we're navigating into this directory
                   local query = path .. "/"
-
-                  -- Restart picker with selected path as query for further navigation
-                  -- Preserve current scope when drilling down
                   vim.schedule(function()
                     launch_zoxide_picker(query, scope)
                   end)
                 end,
-                -- Scope switching actions
-                ["alt-g"] = function(_, opts)
-                  local query = opts.__call_opts and opts.__call_opts.query or ""
-                  vim.schedule(function()
-                    launch_zoxide_picker(query, "Global")
-                  end)
-                end,
-                ["alt-s"] = function(_, opts)
-                  local query = opts.__call_opts and opts.__call_opts.query or ""
-                  vim.schedule(function()
-                    launch_zoxide_picker(query, "Git")
-                  end)
-                end,
-                ["alt-l"] = function(_, opts)
-                  local query = opts.__call_opts and opts.__call_opts.query or ""
-                  vim.schedule(function()
-                    launch_zoxide_picker(query, "Local")
-                  end)
-                end,
-              }
+              }),
             })
           end
 

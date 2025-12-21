@@ -33,7 +33,13 @@
       "Bash(compgen -c)",
       "Read(//Users/shaheislam/.ssh/**)",
       "Bash(xargs:*)",
-      "WebFetch(domain:www.naseraleisa.com)"
+      "WebFetch(domain:www.naseraleisa.com)",
+      "Bash(open http://localhost:3000)",
+      "Bash(curl:*)",
+      "Bash(ls:*)",
+      "Bash(file:*)",
+      "Bash(python3:*)",
+      "Bash(npx tsc:*)"
     ],
     "additionalDirectories": [
       "/Users/shaheislam/dotfiles/"

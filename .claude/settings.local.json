@@ -39,7 +39,9 @@
       "Bash(ls:*)",
       "Bash(file:*)",
       "Bash(python3:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(# Kill any existing node processes for mcp_excalidraw pkill -f \"\"node.*mcp_excalidraw\"\" || true sleep 1 # Start the canvas server cd ~/tools/mcp_excalidraw && npm run canvas & sleep 5 # Test the config endpoint echo \"\"=== Testing Obsidian Config ===\"\" curl -s http://localhost:3000/api/obsidian/config)",
+      "Bash(open \"obsidian://open?vault=obsidian&file=Excalidraw%2F3-tier-aws-architecture.excalidraw.md\")"
     ],
     "additionalDirectories": [
       "/Users/shaheislam/dotfiles/"

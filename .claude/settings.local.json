@@ -60,7 +60,10 @@
       "Bash(do)",
       "Bash(if ! printf '%s' \"$line\")",
       "Bash(then echo \"BAD ENV: $line\" fi done)",
-      "Bash(# Check tmux clipboard settings tmux show-options -g set-clipboard echo \"\"\"\" echo \"\"tmux version:\"\" tmux -V # Check if there''s something in bracketed paste mode echo \"\"\"\" echo \"\"Terminal capabilities:\"\" infocmp)"
+      "Bash(# Check tmux clipboard settings tmux show-options -g set-clipboard echo \"\"\"\" echo \"\"tmux version:\"\" tmux -V # Check if there''s something in bracketed paste mode echo \"\"\"\" echo \"\"Terminal capabilities:\"\" infocmp)",
+      "Bash(nix flake show:*)",
+      "Bash(direnv status:*)",
+      "Bash(direnv reload:*)"
     ],
     "additionalDirectories": [
       "/Users/shaheislam/dotfiles/"

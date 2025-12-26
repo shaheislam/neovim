@@ -41,7 +41,26 @@
       "Bash(python3:*)",
       "Bash(npx tsc:*)",
       "Bash(# Kill any existing node processes for mcp_excalidraw pkill -f \"\"node.*mcp_excalidraw\"\" || true sleep 1 # Start the canvas server cd ~/tools/mcp_excalidraw && npm run canvas & sleep 5 # Test the config endpoint echo \"\"=== Testing Obsidian Config ===\"\" curl -s http://localhost:3000/api/obsidian/config)",
-      "Bash(open \"obsidian://open?vault=obsidian&file=Excalidraw%2F3-tier-aws-architecture.excalidraw.md\")"
+      "Bash(open \"obsidian://open?vault=obsidian&file=Excalidraw%2F3-tier-aws-architecture.excalidraw.md\")",
+      "Bash(atuin:*)",
+      "Bash(sqlite3:*)",
+      "Bash(zsh:*)",
+      "Bash(iconv:*)",
+      "Skill(fish-reload)",
+      "Bash(env)",
+      "Bash(while IFS= read -r line)",
+      "Bash(do if ! printf '%s' \"$line\")",
+      "Bash(then echo \"INVALID UTF-8: $line\")",
+      "Bash(fi)",
+      "Bash(done)",
+      "Bash(brew info:*)",
+      "Bash(xxd:*)",
+      "Bash(# Find lines with invalid UTF-8 in Fish history grep -axv ''.*'' ~/.local/share/fish/fish_history)",
+      "Bash(while read line)",
+      "Bash(do)",
+      "Bash(if ! printf '%s' \"$line\")",
+      "Bash(then echo \"BAD ENV: $line\" fi done)",
+      "Bash(# Check tmux clipboard settings tmux show-options -g set-clipboard echo \"\"\"\" echo \"\"tmux version:\"\" tmux -V # Check if there''s something in bracketed paste mode echo \"\"\"\" echo \"\"Terminal capabilities:\"\" infocmp)"
     ],
     "additionalDirectories": [
       "/Users/shaheislam/dotfiles/"

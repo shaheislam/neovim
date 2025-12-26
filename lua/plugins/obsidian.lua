@@ -163,6 +163,238 @@ return {
     { "<leader>ol", "<cmd>Obsidian links<cr>", desc = "Outgoing links" },
     { "<leader>ok", "<cmd>Obsidian tags<cr>", desc = "Search tags" },
 
+    -- Semantic search (local embeddings) - Enhanced
+    {
+      "<leader>or",
+      function()
+        local current_file = vim.fn.expand("%:p")
+        local vault_path = vim.fn.expand("~/obsidian")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-search.py")
+
+        if not current_file:match(vault_path) then
+          vim.notify("Not in Obsidian vault", vim.log.levels.WARN)
+          return
+        end
+
+        local rel_path = current_file:gsub(vault_path .. "/", "")
+        local cmd = string.format("'%s' '%s' --vault '%s' --top 15 --hybrid", script_path, rel_path, vault_path)
+        local results = vim.fn.systemlist(cmd)
+
+        if vim.v.shell_error ~= 0 or #results == 0 then
+          vim.notify("No related notes found (run vault-index.py first?)", vim.log.levels.WARN)
+          return
+        end
+
+        local entries = {}
+        for _, line in ipairs(results) do
+          local parts = vim.split(line, "\t")
+          if #parts >= 3 then
+            local path, score, title = parts[1], parts[2], parts[3]
+            local preview = parts[4] or ""
+            table.insert(entries, string.format("[%s] %s │ %s", score, title, preview:sub(1, 50)))
+          end
+        end
+
+        require("fzf-lua").fzf_exec(entries, {
+          prompt = "Related notes> ",
+          actions = {
+            ["default"] = function(selected)
+              if selected and selected[1] then
+                local title_match = selected[1]:match("%] ([^│]+)")
+                if title_match then
+                  -- Find matching result
+                  for _, line in ipairs(results) do
+                    local parts = vim.split(line, "\t")
+                    if #parts >= 1 then
+                      local path = parts[1]:gsub(":%d+$", "") -- Remove line number
+                      vim.cmd("edit " .. vault_path .. "/" .. path)
+                      return
+                    end
+                  end
+                end
+              end
+            end,
+          },
+        })
+      end,
+      desc = "Related notes (semantic)",
+    },
+    {
+      "<leader>oR",
+      function()
+        local vault_path = vim.fn.expand("~/obsidian")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-search.py")
+
+        vim.ui.input({ prompt = "Semantic search: " }, function(query)
+          if not query or query == "" then
+            return
+          end
+
+          local cmd = string.format("'%s' --query '%s' --vault '%s' --top 15 --hybrid", script_path, query, vault_path)
+          local results = vim.fn.systemlist(cmd)
+
+          if vim.v.shell_error ~= 0 or #results == 0 then
+            vim.notify("No results found", vim.log.levels.WARN)
+            return
+          end
+
+          local entries = {}
+          local result_map = {}
+          for _, line in ipairs(results) do
+            local parts = vim.split(line, "\t")
+            if #parts >= 3 then
+              local path, score, title = parts[1], parts[2], parts[3]
+              local preview = parts[4] or ""
+              local entry = string.format("[%s] %s │ %s", score, title, preview:sub(1, 50))
+              table.insert(entries, entry)
+              result_map[entry] = path:gsub(":%d+$", "")
+            end
+          end
+
+          require("fzf-lua").fzf_exec(entries, {
+            prompt = "Results: " .. query .. "> ",
+            actions = {
+              ["default"] = function(selected)
+                if selected and selected[1] and result_map[selected[1]] then
+                  vim.cmd("edit " .. vault_path .. "/" .. result_map[selected[1]])
+                end
+              end,
+            },
+          })
+        end)
+      end,
+      desc = "Semantic search (query)",
+    },
+    {
+      "<leader>oF",
+      function()
+        local current_file = vim.fn.expand("%:p")
+        local vault_path = vim.fn.expand("~/obsidian")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-search.py")
+
+        if not current_file:match(vault_path) then
+          vim.notify("Not in Obsidian vault", vim.log.levels.WARN)
+          return
+        end
+
+        local rel_path = current_file:gsub(vault_path .. "/", "")
+        local folder = vim.fn.fnamemodify(rel_path, ":h")
+        if folder == "." then folder = "" end
+
+        local cmd = string.format("'%s' '%s' --vault '%s' --folder '%s' --top 15", script_path, rel_path, vault_path, folder)
+        local results = vim.fn.systemlist(cmd)
+
+        if vim.v.shell_error ~= 0 or #results == 0 then
+          vim.notify("No related notes in folder", vim.log.levels.WARN)
+          return
+        end
+
+        local entries = {}
+        local result_map = {}
+        for _, line in ipairs(results) do
+          local parts = vim.split(line, "\t")
+          if #parts >= 3 then
+            local path, score, title = parts[1], parts[2], parts[3]
+            local entry = string.format("[%s] %s", score, title)
+            table.insert(entries, entry)
+            result_map[entry] = path:gsub(":%d+$", "")
+          end
+        end
+
+        require("fzf-lua").fzf_exec(entries, {
+          prompt = "Related in " .. folder .. "> ",
+          actions = {
+            ["default"] = function(selected)
+              if selected and selected[1] and result_map[selected[1]] then
+                vim.cmd("edit " .. vault_path .. "/" .. result_map[selected[1]])
+              end
+            end,
+          },
+        })
+      end,
+      desc = "Related notes (same folder)",
+    },
+    {
+      "<leader>oS",
+      function()
+        local current_file = vim.fn.expand("%:p")
+        local vault_path = vim.fn.expand("~/obsidian")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-suggest.py")
+
+        if not current_file:match(vault_path) then
+          vim.notify("Not in Obsidian vault", vim.log.levels.WARN)
+          return
+        end
+
+        local rel_path = current_file:gsub(vault_path .. "/", "")
+        local cmd = string.format("'%s' '%s' --vault '%s' --format plain", script_path, rel_path, vault_path)
+        local output = vim.fn.system(cmd)
+
+        if vim.v.shell_error ~= 0 then
+          vim.notify("No link suggestions found", vim.log.levels.WARN)
+          return
+        end
+
+        -- Show in floating window
+        local lines = vim.split(output, "\n")
+        local buf = vim.api.nvim_create_buf(false, true)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.api.nvim_buf_set_option(buf, "filetype", "markdown")
+
+        local width = math.min(80, vim.o.columns - 10)
+        local height = math.min(#lines + 2, vim.o.lines - 10)
+
+        vim.api.nvim_open_win(buf, true, {
+          relative = "editor",
+          width = width,
+          height = height,
+          row = (vim.o.lines - height) / 2,
+          col = (vim.o.columns - width) / 2,
+          style = "minimal",
+          border = "rounded",
+          title = " Link Suggestions ",
+          title_pos = "center",
+        })
+
+        vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
+        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = buf })
+      end,
+      desc = "Suggest backlinks",
+    },
+    {
+      "<leader>oH",
+      function()
+        local vault_path = vim.fn.expand("~/obsidian")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-search.py")
+
+        local cmd = string.format("'%s' --history --vault '%s'", script_path, vault_path)
+        local output = vim.fn.system(cmd)
+
+        local lines = vim.split(output, "\n")
+        local buf = vim.api.nvim_create_buf(false, true)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+        local width = math.min(60, vim.o.columns - 10)
+        local height = math.min(#lines + 2, vim.o.lines - 10)
+
+        vim.api.nvim_open_win(buf, true, {
+          relative = "editor",
+          width = width,
+          height = height,
+          row = (vim.o.lines - height) / 2,
+          col = (vim.o.columns - width) / 2,
+          style = "minimal",
+          border = "rounded",
+          title = " Query History ",
+          title_pos = "center",
+        })
+
+        vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
+        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = buf })
+      end,
+      desc = "Search history",
+    },
+
     -- Creation
     { "<leader>on", "<cmd>Obsidian new<cr>", desc = "New note" },
     { "<leader>ot", "<cmd>Obsidian template<cr>", desc = "Insert template" },

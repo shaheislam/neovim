@@ -169,7 +169,7 @@ return {
       function()
         local current_file = vim.fn.expand("%:p")
         local vault_path = vim.fn.expand("~/obsidian")
-        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-search.py")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/smart-connections/vault-search.py")
 
         if not current_file:match(vault_path) then
           vim.notify("Not in Obsidian vault", vim.log.levels.WARN)
@@ -223,7 +223,7 @@ return {
       "<leader>oR",
       function()
         local vault_path = vim.fn.expand("~/obsidian")
-        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-search.py")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/smart-connections/vault-search.py")
 
         vim.ui.input({ prompt = "Semantic search: " }, function(query)
           if not query or query == "" then
@@ -270,7 +270,7 @@ return {
       function()
         local current_file = vim.fn.expand("%:p")
         local vault_path = vim.fn.expand("~/obsidian")
-        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-search.py")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/smart-connections/vault-search.py")
 
         if not current_file:match(vault_path) then
           vim.notify("Not in Obsidian vault", vim.log.levels.WARN)
@@ -319,7 +319,7 @@ return {
       function()
         local current_file = vim.fn.expand("%:p")
         local vault_path = vim.fn.expand("~/obsidian")
-        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-suggest.py")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/smart-connections/vault-suggest.py")
 
         if not current_file:match(vault_path) then
           vim.notify("Not in Obsidian vault", vim.log.levels.WARN)
@@ -365,7 +365,7 @@ return {
       "<leader>oH",
       function()
         local vault_path = vim.fn.expand("~/obsidian")
-        local script_path = vim.fn.expand("~/dotfiles/scripts/vault-search.py")
+        local script_path = vim.fn.expand("~/dotfiles/scripts/smart-connections/vault-search.py")
 
         local cmd = string.format("'%s' --history --vault '%s'", script_path, vault_path)
         local output = vim.fn.system(cmd)

@@ -646,8 +646,8 @@ return {
           -- Hover documentation (integrated with nvim-ufo in lsp-enhancements.lua)
           map("n", "K", vim.lsp.buf.hover, "Hover Documentation")
 
-          -- Signature help
-          map({ "n", "i" }, "<C-k>", vim.lsp.buf.signature_help, "Signature Help")
+          -- Signature help (remapped from <C-k> to avoid conflict with vim-tmux-navigator)
+          map({ "n", "i" }, "<leader>k", vim.lsp.buf.signature_help, "Signature Help")
 
           -- Go to definition/references
           map("n", "gd", "<cmd>FzfLua lsp_definitions<cr>", "Go to Definition")

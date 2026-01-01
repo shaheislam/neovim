@@ -1,13 +1,25 @@
 -- Tree-sitter for better syntax highlighting
+
+-- In devcontainers, use a local directory for parser installation
+-- to avoid permission issues with bind-mounted volumes (utime errors)
+local parser_install_dir = nil
+if vim.env.DEVCONTAINER then
+  parser_install_dir = "/tmp/nvim-treesitter-parsers"
+  vim.fn.mkdir(parser_install_dir .. "/parser", "p")
+  vim.opt.runtimepath:append(parser_install_dir)
+end
+
 return {
   {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
     lazy = false, -- Load immediately so highlight groups exist for styling autocmd
     dependencies = {
-      "nvim-treesitter/nvim-treesitter-textobjects",
+      -- Temporarily commented out due to API incompatibility
+      -- "nvim-treesitter/nvim-treesitter-textobjects",
     },
     opts = {
+      parser_install_dir = parser_install_dir,
       ensure_installed = {
         "lua", "vim", "vimdoc", "query",
         "bash", "fish",

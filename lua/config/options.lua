@@ -24,9 +24,11 @@ local function osc52_copy(lines, regtype)
   -- 1. In tmux directly ($TMUX set)
   -- 2. In SSH session (likely through tmux on local machine)
   -- 3. In Kubernetes container (kubectl exec/debug through tmux)
+  -- 4. In devcontainer (docker exec through tmux)
   local needs_tmux_wrap = vim.env.TMUX
     or vim.env.SSH_TTY
     or vim.env.KUBERNETES_SERVICE_HOST
+    or vim.env.DEVCONTAINER
 
   if needs_tmux_wrap then
     osc = string.format("\027Ptmux;\027%s\027\\", osc)
@@ -38,7 +40,7 @@ end
 
 -- Paste function: use pbpaste on macOS, empty on remote (use Ctrl-V for terminal paste)
 local function get_paste_fn()
-  local is_remote = vim.env.SSH_TTY or vim.env.KUBERNETES_SERVICE_HOST
+  local is_remote = vim.env.SSH_TTY or vim.env.KUBERNETES_SERVICE_HOST or vim.env.DEVCONTAINER
   if is_remote then
     -- Remote: return empty (user should use Ctrl-V for terminal paste)
     return function()

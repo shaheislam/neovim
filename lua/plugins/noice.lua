@@ -309,15 +309,7 @@ return {
     -- Cmdline configuration
     cmdline = {
       enabled = true,
-      view = "cmdline", -- Traditional bottom cmdline - testing if this causes crash
-      format = {
-        cmdline = { pattern = "^:", icon = "", lang = "vim" },
-        search_down = { kind = "search", pattern = "^/", icon = " ", lang = "" },
-        search_up = { kind = "search", pattern = "^%?", icon = " ", lang = "" },
-        filter = { pattern = "^:%s*!", icon = "$", lang = "bash" },
-        lua = { pattern = { "^:%s*lua%s+", "^:%s*lua%s*=%s*", "^:%s*=%s*" }, icon = "", lang = "lua" },
-        help = { pattern = "^:%s*he?l?p?%s+", icon = "󰋖" },
-      },
+      view = "cmdline", -- Traditional bottom command line bar (like 2 days ago)
     },
     -- Views configuration - use split buffer for messages
     views = {

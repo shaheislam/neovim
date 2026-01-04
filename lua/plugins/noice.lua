@@ -1,11 +1,12 @@
 -- Noice.nvim configuration to ensure text fits in message window
 return {
   "folke/noice.nvim",
-  enabled = true, -- Using split view for message history (no popups)
+  enabled = true,
   event = "VeryLazy",
   dependencies = {
     "MunifTanjim/nui.nvim",
     "rcarriga/nvim-notify",
+    "nvim-treesitter/nvim-treesitter", -- Required for cmdline syntax highlighting
   },
   cmd = { "Noice" },
   -- LazyVim already defines keys under <leader>sn prefix
@@ -308,7 +309,15 @@ return {
     -- Cmdline configuration
     cmdline = {
       enabled = true,
-      view = "cmdline", -- Use traditional bottom cmdline (like /)
+      view = "cmdline", -- Traditional bottom cmdline - testing if this causes crash
+      format = {
+        cmdline = { pattern = "^:", icon = "", lang = "vim" },
+        search_down = { kind = "search", pattern = "^/", icon = " ", lang = "" },
+        search_up = { kind = "search", pattern = "^%?", icon = " ", lang = "" },
+        filter = { pattern = "^:%s*!", icon = "$", lang = "bash" },
+        lua = { pattern = { "^:%s*lua%s+", "^:%s*lua%s*=%s*", "^:%s*=%s*" }, icon = "", lang = "lua" },
+        help = { pattern = "^:%s*he?l?p?%s+", icon = "󰋖" },
+      },
     },
     -- Views configuration - use split buffer for messages
     views = {

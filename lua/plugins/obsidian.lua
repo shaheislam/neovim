@@ -48,7 +48,7 @@ return {
     },
 
     attachments = {
-      img_folder = "assets/imgs",
+      folder = "assets/imgs",
     },
 
     preferred_link_style = "wiki",

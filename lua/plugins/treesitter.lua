@@ -17,6 +17,7 @@ local ensure_parsers = {
   "python", "javascript", "typescript",
   "json", "yaml", "toml",
   "markdown", "markdown_inline",
+  "typst",
 }
 
 return {

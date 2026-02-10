@@ -1270,7 +1270,7 @@ return {
 						-- Cross-worktree merge detection: watch main repo's .git/ for MERGE_HEAD
 						local main_info = get_main_repo_info()
 						if main_info then
-							vim.notify("Cross-worktree: watching " .. main_info.main_git_dir, vim.log.levels.INFO)
+							vim.notify("Cross-worktree: watching " .. main_info.main_git_dir, vim.log.levels.DEBUG)
 							local main_handle = vim.uv.new_fs_event()
 							if main_handle then
 								local main_debounce_timer = nil
@@ -1283,7 +1283,7 @@ return {
 										return
 									end
 									vim.schedule(function()
-										vim.notify("Cross-worktree fs_event: " .. tostring(filename), vim.log.levels.INFO)
+										vim.notify("Cross-worktree fs_event: " .. tostring(filename), vim.log.levels.DEBUG)
 									end)
 									vim.schedule(function()
 										if main_debounce_timer then

@@ -108,6 +108,14 @@ local commit_cycle_state = {
 -- Buffer for commit info display
 local commit_info_bufnr = nil
 
+-- Cross-worktree merge detection state
+local cross_worktree_state = {
+	active = false,
+	original_cwd = nil,
+	main_work_dir = nil,
+	main_git_dir = nil,
+}
+
 -- Color palette for persistent commit colors (Rose Pine theme)
 local commit_colors = {
 	"#ebbcba", -- Rose Pine "rose" (pink)
@@ -272,6 +280,83 @@ end
 local function is_git_repo()
 	local result = vim.fn.system("MISE_QUIET=1 git rev-parse --is-inside-work-tree 2>/dev/null")
 	return result:match("true") ~= nil
+end
+
+-- Get the git dir path (works for both regular repos and worktrees)
+-- In worktrees, .git is a file containing "gitdir: <path>" so finddir() fails.
+-- Returns absolute path with trailing slash, or nil.
+local function get_git_dir(cwd)
+	cwd = cwd or vim.fn.getcwd()
+	local dot_git = cwd .. "/.git"
+	local stat = vim.uv.fs_stat(dot_git)
+	if not stat then
+		return nil
+	end
+
+	if stat.type == "directory" then
+		return dot_git .. "/"
+	end
+
+	-- Worktree: .git is a file with "gitdir: <path>"
+	local f = io.open(dot_git, "r")
+	if not f then
+		return nil
+	end
+	local line = f:read("*l")
+	f:close()
+
+	local gitdir = line and line:match("^gitdir:%s*(.+)$")
+	if not gitdir then
+		return nil
+	end
+
+	-- Resolve relative paths
+	if not gitdir:match("^/") then
+		gitdir = cwd .. "/" .. gitdir
+	end
+
+	return vim.fn.resolve(gitdir) .. "/"
+end
+
+-- Resolve the main repo's git dir and working dir from a worktree.
+-- Returns { main_git_dir = ".../.git/", main_work_dir = ".../" } or nil.
+local function get_main_repo_info(cwd)
+	cwd = cwd or vim.fn.getcwd()
+	local git_dir = get_git_dir(cwd)
+	if not git_dir then
+		return nil
+	end
+
+	-- Only worktrees have a commondir file
+	local commondir_path = git_dir .. "commondir"
+	local f = io.open(commondir_path, "r")
+	if not f then
+		return nil
+	end
+	local commondir = f:read("*l")
+	f:close()
+
+	if not commondir or commondir == "" then
+		return nil
+	end
+
+	-- commondir is relative to the worktree's git dir (e.g., "../..")
+	local main_git_dir
+	if commondir:match("^/") then
+		main_git_dir = commondir
+	else
+		main_git_dir = git_dir .. commondir
+	end
+	main_git_dir = vim.fn.resolve(main_git_dir) .. "/"
+
+	-- Main working dir is the parent of .git/
+	local main_work_dir = main_git_dir:gsub("%.git/$", "")
+
+	vim.notify("get_main_repo_info: git_dir=" .. main_git_dir .. " work_dir=" .. main_work_dir, vim.log.levels.DEBUG)
+	return {
+		main_git_dir = main_git_dir,
+		main_work_dir = main_work_dir,
+	}
 end
 
 -- Get the currently highlighted file path from Diffview's file panel
@@ -1129,13 +1214,15 @@ return {
 					-- Called when diffview is opened
 					view_opened = function(view)
 						vim.notify("Diffview opened", vim.log.levels.DEBUG)
-						-- Start watching .git directory for auto-refresh
-						local git_dir = vim.fn.finddir(".git", vim.fn.getcwd() .. ";")
-						if git_dir ~= "" then
-							local git_path = vim.fn.fnamemodify(git_dir, ":p")
+						-- Track whether we're in a merge state (to detect transitions)
+						-- Uses get_git_dir() which handles worktrees (where .git is a file, not a dir)
+						local git_path = get_git_dir()
+						if git_path then
+							view._was_merging = vim.uv.fs_stat(git_path .. "MERGE_HEAD") ~= nil
 							local handle = vim.uv.new_fs_event()
 							if handle then
 								local debounce_timer = nil
+								local reopening = false
 								handle:start(git_path, { recursive = true }, function(err, filename, events)
 									if err then return end
 									vim.schedule(function()
@@ -1144,7 +1231,27 @@ return {
 											debounce_timer:stop()
 										end
 										debounce_timer = vim.defer_fn(function()
-											-- Refresh diffview file list
+											debounce_timer = nil
+											if reopening then return end
+
+											-- Check if merge state changed (MERGE_HEAD appeared or disappeared)
+											local is_merging = vim.uv.fs_stat(git_path .. "MERGE_HEAD") ~= nil
+											if is_merging ~= view._was_merging then
+												view._was_merging = is_merging
+												-- Reopen Diffview to switch between normal and merge conflict view
+												-- Stop watcher first to avoid callback-during-close issues
+												reopening = true
+												handle:stop()
+												view._git_watcher = nil
+												pcall(vim.cmd, "DiffviewClose")
+												vim.defer_fn(function()
+													pcall(vim.cmd, "DiffviewOpen")
+													reopening = false
+												end, 100)
+												return
+											end
+
+											-- Normal refresh for non-merge-state changes
 											local ok, lib = pcall(require, "diffview.lib")
 											if ok then
 												local current_view = lib.get_current_view()
@@ -1152,12 +1259,76 @@ return {
 													current_view:update_files()
 												end
 											end
-											debounce_timer = nil
-										end, 200)
+										end, 300)
 									end)
 								end)
 								-- Store handle for cleanup
 								view._git_watcher = handle
+							end
+						end
+
+						-- Cross-worktree merge detection: watch main repo's .git/ for MERGE_HEAD
+						local main_info = get_main_repo_info()
+						if main_info then
+							vim.notify("Cross-worktree: watching " .. main_info.main_git_dir, vim.log.levels.INFO)
+							local main_handle = vim.uv.new_fs_event()
+							if main_handle then
+								local main_debounce_timer = nil
+								local main_reopening = false
+								main_handle:start(main_info.main_git_dir, { recursive = true }, function(err, filename, events)
+									if err then
+										vim.schedule(function()
+											vim.notify("Cross-worktree watcher error: " .. tostring(err), vim.log.levels.ERROR)
+										end)
+										return
+									end
+									vim.schedule(function()
+										vim.notify("Cross-worktree fs_event: " .. tostring(filename), vim.log.levels.INFO)
+									end)
+									vim.schedule(function()
+										if main_debounce_timer then
+											main_debounce_timer:stop()
+										end
+										main_debounce_timer = vim.defer_fn(function()
+											main_debounce_timer = nil
+											if main_reopening then return end
+
+											local main_merging = vim.uv.fs_stat(main_info.main_git_dir .. "MERGE_HEAD") ~= nil
+
+											if main_merging and not cross_worktree_state.active then
+												-- Main repo started merging - switch to show its conflicts
+												main_reopening = true
+												cross_worktree_state.active = true
+												cross_worktree_state.original_cwd = vim.fn.getcwd()
+												cross_worktree_state.main_work_dir = main_info.main_work_dir
+												cross_worktree_state.main_git_dir = main_info.main_git_dir
+												main_handle:stop()
+												view._main_repo_watcher = nil
+												pcall(vim.cmd, "DiffviewClose")
+												vim.defer_fn(function()
+													pcall(vim.cmd, "DiffviewOpen -C" .. main_info.main_work_dir)
+													main_reopening = false
+												end, 100)
+											elseif not main_merging and cross_worktree_state.active then
+												-- Main repo merge completed - switch back to worktree view
+												main_reopening = true
+												local orig_cwd = cross_worktree_state.original_cwd
+												cross_worktree_state.active = false
+												cross_worktree_state.original_cwd = nil
+												cross_worktree_state.main_work_dir = nil
+												cross_worktree_state.main_git_dir = nil
+												main_handle:stop()
+												view._main_repo_watcher = nil
+												pcall(vim.cmd, "DiffviewClose")
+												vim.defer_fn(function()
+													pcall(vim.cmd, "DiffviewOpen")
+													main_reopening = false
+												end, 100)
+											end
+										end, 300)
+									end)
+								end)
+								view._main_repo_watcher = main_handle
 							end
 						end
 					end,
@@ -1169,6 +1340,12 @@ return {
 							view._git_watcher:stop()
 							view._git_watcher:close()
 							view._git_watcher = nil
+						end
+						-- Stop main repo watcher (cross-worktree)
+						if view._main_repo_watcher then
+							view._main_repo_watcher:stop()
+							view._main_repo_watcher:close()
+							view._main_repo_watcher = nil
 						end
 						-- Reset commit cycling state
 						commit_cycle_state.current_sha = nil
@@ -1204,6 +1381,71 @@ return {
 						})
 					end,
 				},
+			})
+
+			-- FocusGained fallback: refresh Diffview when switching from terminal pane
+			-- Catches cases where fs_event misses git state changes (e.g., tmux pane switch)
+			local dv_focus_group = vim.api.nvim_create_augroup('diffview_focus_refresh', { clear = true })
+			vim.api.nvim_create_autocmd('FocusGained', {
+				group = dv_focus_group,
+				callback = function()
+					local ok, lib = pcall(require, 'diffview.lib')
+					if not ok then
+						return
+					end
+					local view = lib.get_current_view()
+					if not view then
+						return
+					end
+
+					local git_path = get_git_dir()
+					if not git_path then
+						return
+					end
+
+					local is_merging = vim.uv.fs_stat(git_path .. 'MERGE_HEAD') ~= nil
+					if view._was_merging ~= nil and is_merging ~= view._was_merging then
+						view._was_merging = is_merging
+						-- Merge state changed - reopen to switch between normal and merge view
+						pcall(vim.cmd, 'DiffviewClose')
+						vim.defer_fn(function()
+							pcall(vim.cmd, 'DiffviewOpen')
+						end, 100)
+						return
+					end
+
+					-- Cross-worktree: check if main repo started/finished a merge
+					local main_info = get_main_repo_info()
+					if main_info then
+						local main_merging = vim.uv.fs_stat(main_info.main_git_dir .. 'MERGE_HEAD') ~= nil
+						if main_merging and not cross_worktree_state.active then
+							cross_worktree_state.active = true
+							cross_worktree_state.original_cwd = vim.fn.getcwd()
+							cross_worktree_state.main_work_dir = main_info.main_work_dir
+							cross_worktree_state.main_git_dir = main_info.main_git_dir
+							pcall(vim.cmd, 'DiffviewClose')
+							vim.defer_fn(function()
+								pcall(vim.cmd, 'DiffviewOpen -C' .. main_info.main_work_dir)
+							end, 100)
+							return
+						elseif not main_merging and cross_worktree_state.active then
+							cross_worktree_state.active = false
+							cross_worktree_state.original_cwd = nil
+							cross_worktree_state.main_work_dir = nil
+							cross_worktree_state.main_git_dir = nil
+							pcall(vim.cmd, 'DiffviewClose')
+							vim.defer_fn(function()
+								pcall(vim.cmd, 'DiffviewOpen')
+							end, 100)
+							return
+						end
+					end
+
+					if view.update_files then
+						view:update_files()
+					end
+				end,
+				desc = 'Refresh Diffview on focus gain (merge conflict detection)',
 			})
 
 			-- Arbitrary file comparison command (VSCode-style syntax)

@@ -108,6 +108,9 @@ local commit_cycle_state = {
 -- Buffer for commit info display
 local commit_info_bufnr = nil
 
+-- Track buffers modified by diff_buf_read for restoration on view_closed
+local diffview_modified_bufs = {}
+
 -- Cross-worktree merge detection state
 local cross_worktree_state = {
 	active = false,
@@ -1446,8 +1449,31 @@ return {
 						end
 						-- Close commit info window if open
 						close_commit_info_window()
+
+						-- Restore treesitter/diagnostics/gitsigns on persisting buffers
+						-- (diffview:// buffers are wiped by now; only real files persist)
+						vim.schedule(function()
+							for bufnr, _ in pairs(diffview_modified_bufs) do
+								if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr) then
+									-- Re-enable treesitter highlighting
+									if vim.treesitter.start then
+										pcall(vim.treesitter.start, bufnr)
+									end
+									-- Re-enable diagnostics
+									pcall(vim.diagnostic.enable, true, { bufnr = bufnr })
+									-- Re-attach gitsigns
+									if package.loaded.gitsigns then
+										pcall(require("gitsigns").attach, bufnr)
+									end
+								end
+							end
+							diffview_modified_bufs = {}
+						end)
 					end,
 					diff_buf_read = function(bufnr)
+						-- Track this buffer for restoration when diffview closes
+						diffview_modified_bufs[bufnr] = true
+
 						-- Set local options for diff buffers
 						vim.opt_local.wrap = false
 						vim.opt_local.list = false
@@ -1458,6 +1484,7 @@ return {
 						vim.wo.relativenumber = false
 						vim.wo.signcolumn = "no"
 						vim.wo.foldcolumn = "0"
+						vim.wo.foldmethod = "manual"
 						vim.wo.statuscolumn = "%{v:lnum} "
 
 						-- Detach gitsigns from diff buffers (prevents blame/word_diff per-buffer)

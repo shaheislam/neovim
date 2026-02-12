@@ -141,6 +141,35 @@ local function find_repo_root(dir)
 	return nil
 end
 
+-- Get the working directory of the current terminal buffer's shell process.
+-- On macOS: queries lsof for the process cwd. On Linux: reads /proc/PID/cwd.
+-- Returns nil if not in a terminal buffer or if detection fails.
+local function get_terminal_cwd()
+	local job_id = vim.b.terminal_job_id
+	if not job_id then
+		return nil
+	end
+	local ok, pid = pcall(vim.fn.jobpid, job_id)
+	if not ok or not pid or pid <= 0 then
+		return nil
+	end
+	local cwd = nil
+	if vim.fn.has("mac") == 1 then
+		local out = vim.fn.system("lsof -a -p " .. pid .. " -d cwd -Fn 2>/dev/null")
+		-- lsof output: "p<pid>\nn<cwd>\n" — extract the n-prefixed line
+		cwd = out:match("\nn(.-)\n") or out:match("\nn(.+)$")
+	else
+		local out = vim.fn.system("readlink /proc/" .. pid .. "/cwd 2>/dev/null")
+		if vim.v.shell_error == 0 then
+			cwd = out:gsub("\n$", "")
+		end
+	end
+	if cwd and cwd ~= "" then
+		return cwd
+	end
+	return nil
+end
+
 -- User toggle: set vim.g.diffview_auto_switch = false to disable
 -- automatic conflict detection and view switching.
 -- Default: true (enabled). Can be toggled at runtime via:
@@ -1734,19 +1763,80 @@ return {
 				desc = 'Refresh Diffview on focus gain (conflict detection)',
 			})
 
-			-- TermLeave/TermClose: detect conflicts started from :terminal splits.
-			-- TermLeave fires on Ctrl-\ Ctrl-n (leaving terminal mode).
-			-- TermClose fires when the terminal job exits.
-			-- Together they cover intra-Neovim gaps where FocusGained doesn't fire.
-			for _, event in ipairs({ 'TermLeave', 'TermClose' }) do
-				vim.api.nvim_create_autocmd(event, {
-					group = dv_focus_group,
-					callback = function()
-						vim.defer_fn(poll_with_retry, 200)
-					end,
-					desc = 'Refresh Diffview on ' .. event .. ' (conflict detection)',
-				})
+			-- Shared reentrancy guard for repo-following (used by BufEnter and TermLeave).
+			local repo_switch_in_progress = false
+
+			-- Shared retarget helper: close current Diffview, open for new_root.
+			-- Handles failure recovery (reverts diffview_current_root on error).
+			local function retarget_diffview(new_root)
+				if repo_switch_in_progress then
+					return
+				end
+				repo_switch_in_progress = true
+				local prev_root = diffview_current_root
+				diffview_current_root = new_root
+				pcall(vim.cmd, "DiffviewClose")
+				vim.defer_fn(function()
+					local open_ok = pcall(vim.cmd, "DiffviewOpen -C" .. vim.fn.fnameescape(new_root))
+					if not open_ok then
+						diffview_current_root = prev_root
+					end
+					repo_switch_in_progress = false
+				end, 100)
 			end
+
+			-- TermClose: detect conflicts started from :terminal splits.
+			-- Fires when the terminal job exits.
+			vim.api.nvim_create_autocmd("TermClose", {
+				group = dv_focus_group,
+				callback = function()
+					vim.defer_fn(poll_with_retry, 200)
+				end,
+				desc = "Refresh Diffview on TermClose (conflict detection)",
+			})
+
+			-- TermLeave: conflict detection + repo-following from terminal cwd.
+			-- Fires on Ctrl-\ Ctrl-n (leaving terminal mode). At this point the
+			-- current buffer is still the terminal, so vim.b.terminal_job_id is
+			-- available. We query the shell process's actual cwd (via lsof on macOS
+			-- or /proc on Linux) and retarget Diffview if it's in a different repo.
+			vim.api.nvim_create_autocmd("TermLeave", {
+				group = dv_focus_group,
+				callback = function()
+					-- Conflict detection (existing)
+					vim.defer_fn(poll_with_retry, 200)
+
+					-- Repo-following from terminal cwd
+					if vim.g.diffview_follow_repo == false then
+						return
+					end
+					if repo_switch_in_progress then
+						return
+					end
+					local ok, lib = pcall(require, "diffview.lib")
+					if not ok or not lib.get_current_view() then
+						return
+					end
+					local term_cwd = get_terminal_cwd()
+					if not term_cwd then
+						return
+					end
+					term_cwd = vim.fn.resolve(term_cwd)
+					-- Short-circuit if terminal cwd is under current root
+					if diffview_current_root and term_cwd:sub(1, #diffview_current_root) == diffview_current_root then
+						return
+					end
+					local term_root = find_repo_root(term_cwd)
+					if not term_root then
+						return
+					end
+					term_root = vim.fn.resolve(term_root)
+					if diffview_current_root and term_root ~= diffview_current_root then
+						retarget_diffview(term_root)
+					end
+				end,
+				desc = "Refresh Diffview on TermLeave (conflict detection + repo following)",
+			})
 
 			-- WinEnter: catch-all for any window switch while Diffview is open.
 			-- Subsumes BufEnter/BufWinEnter since WinEnter fires on all window
@@ -1780,14 +1870,13 @@ return {
 			-- Short-circuits when the buffer path is under the current root.
 			-- Debounced at 300ms to avoid thrashing during rapid buffer switches.
 			local buf_enter_timer = nil
-			local buf_enter_switching = false
-			vim.api.nvim_create_autocmd('BufEnter', {
+			vim.api.nvim_create_autocmd("BufEnter", {
 				group = dv_focus_group,
 				callback = function()
 					if vim.g.diffview_follow_repo == false then
 						return
 					end
-					if buf_enter_switching then
+					if repo_switch_in_progress then
 						return
 					end
 
@@ -1796,16 +1885,13 @@ return {
 						return
 					end
 
-					local ok, lib = pcall(require, 'diffview.lib')
+					local ok, lib = pcall(require, "diffview.lib")
 					if not ok or not lib.get_current_view() then
 						return
 					end
 
 					local bufname = vim.api.nvim_buf_get_name(0)
 					if bufname == "" or bufname:match("^%w+://") then
-						-- Skip empty buffers and URI-scheme buffers (diffview://, fugitive://,
-						-- term://, oil://, man://, etc.). Most also have non-empty buftype,
-						-- but this catches any that slip through.
 						return
 					end
 
@@ -1827,25 +1913,13 @@ return {
 						if not buf_root then
 							return
 						end
-						-- Canonicalize for stow symlink comparison
 						buf_root = vim.fn.resolve(buf_root)
 						if diffview_current_root and buf_root ~= diffview_current_root then
-							buf_enter_switching = true
-							local prev_root = diffview_current_root
-							diffview_current_root = buf_root
-							pcall(vim.cmd, 'DiffviewClose')
-							vim.defer_fn(function()
-								local open_ok = pcall(vim.cmd, 'DiffviewOpen -C' .. vim.fn.fnameescape(buf_root))
-								if not open_ok then
-									-- Revert root tracking — old view was closed but new one failed
-									diffview_current_root = prev_root
-								end
-								buf_enter_switching = false
-							end, 100)
+							retarget_diffview(buf_root)
 						end
 					end, 300)
 				end,
-				desc = 'Follow buffer repo: retarget Diffview when switching to a different repo',
+				desc = "Follow buffer repo: retarget Diffview when switching to a different repo",
 			})
 
 			-- Arbitrary file comparison command (VSCode-style syntax)

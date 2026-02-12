@@ -122,11 +122,17 @@ local cross_worktree_state = {
 -- User toggle: set vim.g.diffview_auto_switch = false to disable
 -- automatic conflict detection and view switching.
 -- Default: true (enabled). Can be toggled at runtime via:
+--   :DiffviewAutoSwitchToggle
 --   :let g:diffview_auto_switch = v:false
 --   :lua vim.g.diffview_auto_switch = false
 if vim.g.diffview_auto_switch == nil then
 	vim.g.diffview_auto_switch = true
 end
+
+vim.api.nvim_create_user_command("DiffviewAutoSwitchToggle", function()
+	vim.g.diffview_auto_switch = not vim.g.diffview_auto_switch
+	vim.notify("Diffview auto-switch: " .. (vim.g.diffview_auto_switch and "ON" or "OFF"), vim.log.levels.INFO)
+end, { desc = "Toggle Diffview automatic conflict detection and view switching" })
 
 -- Git conflict state indicators (files and directories).
 -- Interactive rebase creates rebase-merge/ (not just REBASE_HEAD).

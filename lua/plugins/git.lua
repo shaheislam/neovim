@@ -1557,7 +1557,7 @@ return {
 						-- Set local options for diff buffers
 						vim.opt_local.wrap = false
 						vim.opt_local.list = false
-						vim.opt_local.colorcolumn = { 80 }
+						vim.opt_local.colorcolumn = ""
 
 						-- Reduce redraw cost: disable expensive per-line rendering
 						vim.wo.cursorline = false
@@ -1565,7 +1565,9 @@ return {
 						vim.wo.signcolumn = "no"
 						vim.wo.foldcolumn = "0"
 						vim.wo.foldmethod = "manual"
-						vim.wo.statuscolumn = "%{v:lnum} "
+						-- Clear custom statuscolumn — native 'number' option renders
+						-- line numbers in C without per-line expression evaluation
+						vim.wo.statuscolumn = ""
 
 						-- Detach gitsigns from diff buffers (prevents blame/word_diff per-buffer)
 						vim.defer_fn(function()

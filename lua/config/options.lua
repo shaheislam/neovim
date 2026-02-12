@@ -7,11 +7,10 @@ local opt = vim.opt
 opt.number = true
 opt.relativenumber = true
 
--- Statuscolumn: display both absolute and relative line numbers side by side
--- %s = sign column (gitsigns, diagnostics, etc.)
--- %{v:lnum} = absolute line number
--- %{v:relnum} = relative line number
-opt.statuscolumn = "%s %{v:lnum} %{v:relnum}"
+-- Use native number + relativenumber (handled in C, much faster than custom statuscolumn).
+-- A custom statuscolumn with %{v:relnum} evaluates Vimscript per-line per-redraw,
+-- causing scroll stutter. The native options show relative numbers on non-cursor
+-- lines and the absolute number on the cursor line.
 
 -- Clipboard - Custom OSC-52 with explicit tmux passthrough
 -- The built-in vim.ui.clipboard.osc52 doesn't wrap sequences for tmux correctly

@@ -1536,69 +1536,130 @@ return {
 				},
 			})
 
-			-- FocusGained fallback: refresh Diffview when switching from terminal pane
+			-- Shared merge-state polling: checks local + cross-worktree MERGE_HEAD
+			-- Returns true if a reopen was triggered (caller should return early)
+			local function poll_merge_state()
+				local ok, lib = pcall(require, 'diffview.lib')
+				if not ok then
+					return false
+				end
+				local view = lib.get_current_view()
+				if not view then
+					return false
+				end
+
+				local git_path = get_git_dir()
+				if not git_path then
+					return false
+				end
+
+				-- Check local worktree merge state
+				local is_merging = vim.uv.fs_stat(git_path .. 'MERGE_HEAD') ~= nil
+				if view._was_merging ~= nil and is_merging ~= view._was_merging then
+					view._was_merging = is_merging
+					pcall(vim.cmd, 'DiffviewClose')
+					vim.defer_fn(function()
+						pcall(vim.cmd, 'DiffviewOpen')
+					end, 100)
+					return true
+				end
+
+				-- Cross-worktree: check if main repo started/finished a merge
+				local main_info = get_main_repo_info()
+				if main_info then
+					local main_merging = vim.uv.fs_stat(main_info.main_git_dir .. 'MERGE_HEAD') ~= nil
+					if main_merging and not cross_worktree_state.active then
+						cross_worktree_state.active = true
+						cross_worktree_state.original_cwd = vim.fn.getcwd()
+						cross_worktree_state.main_work_dir = main_info.main_work_dir
+						cross_worktree_state.main_git_dir = main_info.main_git_dir
+						pcall(vim.cmd, 'DiffviewClose')
+						vim.defer_fn(function()
+							pcall(vim.cmd, 'DiffviewOpen -C' .. main_info.main_work_dir)
+						end, 100)
+						return true
+					elseif not main_merging and cross_worktree_state.active then
+						cross_worktree_state.active = false
+						cross_worktree_state.original_cwd = nil
+						cross_worktree_state.main_work_dir = nil
+						cross_worktree_state.main_git_dir = nil
+						pcall(vim.cmd, 'DiffviewClose')
+						vim.defer_fn(function()
+							pcall(vim.cmd, 'DiffviewOpen')
+						end, 100)
+						return true
+					end
+				end
+
+				return false
+			end
+
+			-- FocusGained fallback: refresh Diffview when switching from external app
 			-- Catches cases where fs_event misses git state changes (e.g., tmux pane switch)
 			local dv_focus_group = vim.api.nvim_create_augroup('diffview_focus_refresh', { clear = true })
 			vim.api.nvim_create_autocmd('FocusGained', {
 				group = dv_focus_group,
 				callback = function()
+					if poll_merge_state() then
+						return
+					end
+					-- No merge state change — just refresh files
 					local ok, lib = pcall(require, 'diffview.lib')
-					if not ok then
-						return
-					end
-					local view = lib.get_current_view()
-					if not view then
-						return
-					end
-
-					local git_path = get_git_dir()
-					if not git_path then
-						return
-					end
-
-					local is_merging = vim.uv.fs_stat(git_path .. 'MERGE_HEAD') ~= nil
-					if view._was_merging ~= nil and is_merging ~= view._was_merging then
-						view._was_merging = is_merging
-						-- Merge state changed - reopen to switch between normal and merge view
-						pcall(vim.cmd, 'DiffviewClose')
-						vim.defer_fn(function()
-							pcall(vim.cmd, 'DiffviewOpen')
-						end, 100)
-						return
-					end
-
-					-- Cross-worktree: check if main repo started/finished a merge
-					local main_info = get_main_repo_info()
-					if main_info then
-						local main_merging = vim.uv.fs_stat(main_info.main_git_dir .. 'MERGE_HEAD') ~= nil
-						if main_merging and not cross_worktree_state.active then
-							cross_worktree_state.active = true
-							cross_worktree_state.original_cwd = vim.fn.getcwd()
-							cross_worktree_state.main_work_dir = main_info.main_work_dir
-							cross_worktree_state.main_git_dir = main_info.main_git_dir
-							pcall(vim.cmd, 'DiffviewClose')
-							vim.defer_fn(function()
-								pcall(vim.cmd, 'DiffviewOpen -C' .. main_info.main_work_dir)
-							end, 100)
-							return
-						elseif not main_merging and cross_worktree_state.active then
-							cross_worktree_state.active = false
-							cross_worktree_state.original_cwd = nil
-							cross_worktree_state.main_work_dir = nil
-							cross_worktree_state.main_git_dir = nil
-							pcall(vim.cmd, 'DiffviewClose')
-							vim.defer_fn(function()
-								pcall(vim.cmd, 'DiffviewOpen')
-							end, 100)
-							return
+					if ok then
+						local view = lib.get_current_view()
+						if view and view.update_files then
+							view:update_files()
 						end
-					end
-
-					if view.update_files then
-						view:update_files()
 					end
 				end,
 				desc = 'Refresh Diffview on focus gain (merge conflict detection)',
+			})
+
+			-- TermLeave fallback: detect merge conflicts started from :terminal splits
+			-- FocusGained doesn't fire for intra-Neovim window switches, but TermLeave
+			-- fires when the user leaves a terminal buffer (e.g., after running git merge)
+			vim.api.nvim_create_autocmd('TermLeave', {
+				group = dv_focus_group,
+				callback = function()
+					-- Defer slightly to let git finish writing MERGE_HEAD
+					vim.defer_fn(function()
+						if poll_merge_state() then
+							return
+						end
+						-- No merge state change — refresh files in case of other git ops
+						local ok, lib = pcall(require, 'diffview.lib')
+						if ok then
+							local view = lib.get_current_view()
+							if view and view.update_files then
+								view:update_files()
+							end
+						end
+					end, 200)
+				end,
+				desc = 'Refresh Diffview on terminal exit (merge conflict detection)',
+			})
+
+			-- WinEnter fallback: poll merge state when switching to any window
+			-- while Diffview is active. Debounced to avoid excessive checks.
+			local win_enter_timer = nil
+			vim.api.nvim_create_autocmd('WinEnter', {
+				group = dv_focus_group,
+				callback = function()
+					-- Only check if Diffview is currently open
+					local ok, lib = pcall(require, 'diffview.lib')
+					if not ok or not lib.get_current_view() then
+						return
+					end
+					-- Debounce: skip if recently checked
+					if win_enter_timer then
+						return
+					end
+					win_enter_timer = vim.defer_fn(function()
+						win_enter_timer = nil
+						poll_merge_state()
+					end, 500)
+				end,
+				desc = 'Poll merge state on window switch while Diffview is open',
 			})
 
 			-- Arbitrary file comparison command (VSCode-style syntax)

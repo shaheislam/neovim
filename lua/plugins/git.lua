@@ -1622,26 +1622,52 @@ return {
 
 			-- Detection event autocmds. All bail early if Diffview isn't open
 			-- (poll_merge_state checks lib.get_current_view(); explicit guards below).
+			--
 			-- fs_event watchers (view_opened) remain the primary detection mechanism;
 			-- these autocmds are fallbacks for when fs_event misses changes, which
-			-- occurs on macOS when FSEvents coalesces rapid .git/ writes.
+			-- occurs on macOS when FSEvents coalesces rapid .git/ writes (kernel
+			-- batches events within ~1s; git merge writes multiple files in quick
+			-- succession, so individual file events may be dropped or merged).
+			--
+			-- ModeChanged is intentionally not used: the only mode transition that
+			-- matters for conflict detection is leaving terminal mode (where git
+			-- commands run), which TermLeave already covers. Normal/insert/visual
+			-- transitions don't create or resolve git conflicts.
+			--
+			-- Debounce rationale:
+			--   200ms (terminal/focus events): git merge writes MERGE_HEAD within
+			--     ~50ms of exit; 200ms provides margin for slow I/O.
+			--   500ms (WinEnter): fires frequently during window navigation; 500ms
+			--     batches rapid switches into one check. Worst-case: 500ms delay.
+			--   800ms (retry): one-shot second check after the initial 200ms to
+			--     cover FSEvents coalescing. Total ~1s from event, bounded.
 			local dv_focus_group = vim.api.nvim_create_augroup('diffview_focus_refresh', { clear = true })
+
+			-- Poll with bounded retry: initial check + one-shot retry at 800ms.
+			-- Covers FSEvents coalescing where the first fs_stat misses a slow write.
+			local function poll_with_retry()
+				if poll_merge_state() then
+					return
+				end
+				-- Refresh files immediately for non-conflict git changes
+				local ok, lib = pcall(require, 'diffview.lib')
+				if ok then
+					local view = lib.get_current_view()
+					if view and view.update_files then
+						view:update_files()
+					end
+				end
+				-- Bounded retry: re-check once at ~1s total from event
+				vim.defer_fn(function()
+					poll_merge_state()
+				end, 800)
+			end
 
 			-- FocusGained: catches external app switches (tmux pane, terminal app focus)
 			vim.api.nvim_create_autocmd('FocusGained', {
 				group = dv_focus_group,
 				callback = function()
-					if poll_merge_state() then
-						return
-					end
-					-- No conflict state change — just refresh file list
-					local ok, lib = pcall(require, 'diffview.lib')
-					if ok then
-						local view = lib.get_current_view()
-						if view and view.update_files then
-							view:update_files()
-						end
-					end
+					vim.defer_fn(poll_with_retry, 200)
 				end,
 				desc = 'Refresh Diffview on focus gain (conflict detection)',
 			})
@@ -1649,35 +1675,20 @@ return {
 			-- TermLeave/TermClose: detect conflicts started from :terminal splits.
 			-- TermLeave fires on Ctrl-\ Ctrl-n (leaving terminal mode).
 			-- TermClose fires when the terminal job exits.
-			-- These cover the intra-Neovim gap where FocusGained doesn't fire.
-			-- 200ms defer lets git finish writing state files before we check.
+			-- Together they cover intra-Neovim gaps where FocusGained doesn't fire.
 			for _, event in ipairs({ 'TermLeave', 'TermClose' }) do
 				vim.api.nvim_create_autocmd(event, {
 					group = dv_focus_group,
 					callback = function()
-						-- Defer to let git finish writing conflict state files
-						vim.defer_fn(function()
-							if poll_merge_state() then
-								return
-							end
-							-- No conflict state change — refresh files in case of other git ops
-							local ok, lib = pcall(require, 'diffview.lib')
-							if ok then
-								local view = lib.get_current_view()
-								if view and view.update_files then
-									view:update_files()
-								end
-							end
-						end, 200)
+						vim.defer_fn(poll_with_retry, 200)
 					end,
 					desc = 'Refresh Diffview on ' .. event .. ' (conflict detection)',
 				})
 			end
 
 			-- WinEnter: catch-all for any window switch while Diffview is open.
-			-- Subsumes BufEnter/BufWinEnter/ModeChanged since WinEnter fires on all
-			-- window transitions. Scoped: bails immediately if no Diffview view is open.
-			-- 500ms debounce: only one fs_stat check per burst of window switches.
+			-- Subsumes BufEnter/BufWinEnter since WinEnter fires on all window
+			-- transitions. Scoped: bails immediately if no Diffview view is open.
 			local win_enter_timer = nil
 			vim.api.nvim_create_autocmd('WinEnter', {
 				group = dv_focus_group,
@@ -1696,7 +1707,7 @@ return {
 						poll_merge_state()
 					end, 500)
 				end,
-				desc = 'Poll merge state on window switch while Diffview is open',
+				desc = 'Poll conflict state on window switch while Diffview is open',
 			})
 
 			-- Arbitrary file comparison command (VSCode-style syntax)

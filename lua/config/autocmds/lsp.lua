@@ -7,6 +7,24 @@ local function augroup(name)
   return vim.api.nvim_create_augroup("lsp_" .. name, { clear = true })
 end
 
+-- Check if current buffer/window is a diff buffer (skip expensive LSP ops)
+-- Uses vim.wo.diff as primary signal (set by diffview on its panes),
+-- plus URI/filetype checks for diffview's non-diff panels.
+local function is_diff_buf(bufnr)
+  bufnr = bufnr or 0
+  -- Primary: check if window is in diff mode (most reliable for diff panes)
+  if vim.wo.diff then
+    return true
+  end
+  -- Fallback: check diffview-specific buffer name and filetypes
+  local name = vim.api.nvim_buf_get_name(bufnr)
+  if name:match("^diffview://") then
+    return true
+  end
+  local ft = vim.bo[bufnr].filetype
+  return ft == "DiffviewFiles" or ft == "DiffviewFileHistory"
+end
+
 function M.setup()
   -- ============================================================================
   -- Import Organization
@@ -46,6 +64,7 @@ function M.setup()
   vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
     group = augroup("document_highlight"),
     callback = function()
+      if is_diff_buf() then return end
       local clients = vim.lsp.get_clients({ bufnr = 0 })
       for _, client in pairs(clients) do
         if client.server_capabilities.documentHighlightProvider then
@@ -63,6 +82,7 @@ function M.setup()
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
     group = augroup("document_highlight_clear"),
     callback = function()
+      if is_diff_buf() then return end
       pcall(vim.lsp.buf.clear_references)
     end,
   })
@@ -75,6 +95,7 @@ function M.setup()
   vim.api.nvim_create_autocmd("CursorHold", {
     group = augroup("diagnostic_hover"),
     callback = function()
+      if is_diff_buf() then return end
       -- Check if diagnostics are enabled globally
       local diagnostics_enabled = true
       if vim.diagnostic.is_enabled then
@@ -280,6 +301,7 @@ function M.setup()
   vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "InsertLeave" }, {
     group = augroup("semantic_tokens"),
     callback = function()
+      if is_diff_buf() then return end
       -- Skip markdown files (Marksman doesn't support semantic tokens)
       if vim.bo.filetype == "markdown" then
         return

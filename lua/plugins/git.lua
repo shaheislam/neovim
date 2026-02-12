@@ -1280,7 +1280,7 @@ return {
 						-- Normal diff: 'diff2_horizontal'
 						-- Merge conflict: 'diff3_horizontal'
 						layout = "diff2_horizontal",
-						disable_diagnostics = false,
+						disable_diagnostics = true, -- Disable LSP diagnostics in diff buffers (reduces lag)
 						winbar_info = true,
 					},
 					merge_tool = {
@@ -1291,7 +1291,7 @@ return {
 					},
 					file_history = {
 						layout = "diff2_horizontal",
-						disable_diagnostics = false,
+						disable_diagnostics = true, -- Disable LSP diagnostics in file history diff buffers
 						winbar_info = true,
 					},
 				},
@@ -1452,6 +1452,39 @@ return {
 						vim.opt_local.wrap = false
 						vim.opt_local.list = false
 						vim.opt_local.colorcolumn = { 80 }
+
+						-- Reduce redraw cost: disable expensive per-line rendering
+						vim.wo.cursorline = false
+						vim.wo.relativenumber = false
+						vim.wo.signcolumn = "no"
+						vim.wo.foldcolumn = "0"
+						vim.wo.statuscolumn = "%{v:lnum} "
+
+						-- Detach gitsigns from diff buffers (prevents blame/word_diff per-buffer)
+						vim.defer_fn(function()
+							if package.loaded.gitsigns then
+								local ok, err = pcall(require("gitsigns").detach, bufnr)
+								if not ok then
+									vim.notify("gitsigns detach failed: " .. tostring(err), vim.log.levels.DEBUG)
+								end
+							end
+						end, 50)
+
+						-- Stop treesitter highlighting in diff buffers (diffview uses its own highlighting)
+						vim.defer_fn(function()
+							if vim.treesitter.stop then
+								local ok, err = pcall(vim.treesitter.stop, bufnr)
+								if not ok then
+									vim.notify("treesitter stop failed (buf " .. bufnr .. "): " .. tostring(err), vim.log.levels.DEBUG)
+								end
+							end
+						end, 50)
+
+						-- Disable diagnostics per-buffer (more reliable than view config alone)
+						local ok, err = pcall(vim.diagnostic.enable, false, { bufnr = bufnr })
+						if not ok then
+							vim.notify("diagnostic disable failed (buf " .. bufnr .. "): " .. tostring(err), vim.log.levels.DEBUG)
+						end
 
 						-- Stop terraform-ls on diff buffers (it crashes on diffview:// URIs)
 						vim.defer_fn(function()

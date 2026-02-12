@@ -119,6 +119,15 @@ local cross_worktree_state = {
 	main_git_dir = nil,
 }
 
+-- User toggle: set vim.g.diffview_auto_switch = false to disable
+-- automatic conflict detection and view switching.
+-- Default: true (enabled). Can be toggled at runtime via:
+--   :let g:diffview_auto_switch = v:false
+--   :lua vim.g.diffview_auto_switch = false
+if vim.g.diffview_auto_switch == nil then
+	vim.g.diffview_auto_switch = true
+end
+
 -- Git conflict state indicators (files and directories).
 -- Interactive rebase creates rebase-merge/ (not just REBASE_HEAD).
 -- Cherry-pick/revert sequences create sequencer/.
@@ -1340,6 +1349,7 @@ return {
 								local reopening = false
 								handle:start(git_path, { recursive = true }, function(err, filename, events)
 									if err then return end
+									if vim.g.diffview_auto_switch == false then return end
 									vim.schedule(function()
 										-- Debounce to avoid excessive refreshes
 										if debounce_timer then
@@ -1397,6 +1407,7 @@ return {
 										end)
 										return
 									end
+									if vim.g.diffview_auto_switch == false then return end
 									vim.schedule(function()
 										vim.notify("Cross-worktree fs_event: " .. tostring(filename), vim.log.levels.DEBUG)
 									end)
@@ -1564,7 +1575,11 @@ return {
 			-- Shared conflict-state polling: checks local + cross-worktree git conflict files
 			-- (MERGE_HEAD, REBASE_HEAD, CHERRY_PICK_HEAD, REVERT_HEAD)
 			-- Returns true if a reopen was triggered (caller should return early)
+			-- Respects vim.g.diffview_auto_switch toggle.
 			local function poll_merge_state()
+				if vim.g.diffview_auto_switch == false then
+					return false
+				end
 				local ok, lib = pcall(require, 'diffview.lib')
 				if not ok then
 					return false

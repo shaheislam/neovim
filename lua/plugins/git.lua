@@ -141,6 +141,15 @@ local function find_repo_root(dir)
 	return nil
 end
 
+-- Check if `path` is equal to or under `root` (path-separator-aware).
+-- Avoids false positives like "/dotfiles" matching "/dotfiles-mergeview".
+local function path_is_under(path, root)
+	if not root or not path then
+		return false
+	end
+	return path == root or path:sub(1, #root + 1) == root .. "/"
+end
+
 -- Get the working directory of the current terminal buffer's shell process.
 -- On macOS: queries lsof for the process cwd. On Linux: reads /proc/PID/cwd.
 -- Returns nil if not in a terminal buffer or if detection fails.
@@ -1819,19 +1828,22 @@ return {
 					end
 					local term_cwd = get_terminal_cwd()
 					if not term_cwd then
+						vim.notify("repo-follow: terminal cwd not detected", vim.log.levels.DEBUG)
 						return
 					end
 					term_cwd = vim.fn.resolve(term_cwd)
-					-- Short-circuit if terminal cwd is under current root
-					if diffview_current_root and term_cwd:sub(1, #diffview_current_root) == diffview_current_root then
+					-- Short-circuit if terminal cwd is under current root (path-separator-aware)
+					if path_is_under(term_cwd, diffview_current_root) then
 						return
 					end
 					local term_root = find_repo_root(term_cwd)
 					if not term_root then
+						vim.notify("repo-follow: no git repo at " .. term_cwd, vim.log.levels.DEBUG)
 						return
 					end
 					term_root = vim.fn.resolve(term_root)
-					if diffview_current_root and term_root ~= diffview_current_root then
+					if not diffview_current_root or term_root ~= diffview_current_root then
+						vim.notify("repo-follow: switching " .. (diffview_current_root or "nil") .. " → " .. term_root, vim.log.levels.DEBUG)
 						retarget_diffview(term_root)
 					end
 				end,
@@ -1898,7 +1910,7 @@ return {
 					-- Short-circuit: if buffer path is under current root, no repo change
 					if diffview_current_root then
 						local resolved_buf = vim.fn.resolve(bufname)
-						if resolved_buf:sub(1, #diffview_current_root) == diffview_current_root then
+						if path_is_under(resolved_buf, diffview_current_root) then
 							return
 						end
 					end
@@ -1914,7 +1926,7 @@ return {
 							return
 						end
 						buf_root = vim.fn.resolve(buf_root)
-						if diffview_current_root and buf_root ~= diffview_current_root then
+						if not diffview_current_root or buf_root ~= diffview_current_root then
 							retarget_diffview(buf_root)
 						end
 					end, 300)

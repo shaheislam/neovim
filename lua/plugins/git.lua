@@ -1486,14 +1486,16 @@ return {
 							vim.notify("diagnostic disable failed (buf " .. bufnr .. "): " .. tostring(err), vim.log.levels.DEBUG)
 						end
 
-						-- Detach all LSP clients from diff buffers (prevents attach-time work
-						-- like indexing, didOpen, and server-specific initialization)
+						-- Detach terraform-ls from diff buffers (crashes on diffview:// URIs).
+						-- Other LSP clients are NOT detached to avoid reattachment issues
+						-- when diffview closes; the is_diff_buf() guards in lsp.lua prevent
+						-- their expensive per-cursor operations instead.
 						vim.defer_fn(function()
-							local clients = vim.lsp.get_clients({ bufnr = bufnr })
+							local clients = vim.lsp.get_clients({ bufnr = bufnr, name = "terraformls" })
 							for _, client in ipairs(clients) do
 								local ok, err = pcall(vim.lsp.buf_detach_client, bufnr, client.id)
 								if not ok then
-									vim.notify("LSP detach failed (" .. client.name .. ", buf " .. bufnr .. "): " .. tostring(err), vim.log.levels.DEBUG)
+									vim.notify("LSP detach failed (terraformls, buf " .. bufnr .. "): " .. tostring(err), vim.log.levels.DEBUG)
 								end
 							end
 						end, 100)

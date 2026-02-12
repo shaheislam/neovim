@@ -7,11 +7,12 @@ local opt = vim.opt
 opt.number = true
 opt.relativenumber = true
 
--- Statuscolumn: signs + right-aligned line number
+-- Statuscolumn: signs + right-aligned hybrid line number
 -- Uses %l (Neovim 0.11+) which renders the number column natively in C,
--- respecting number/relativenumber without per-line Vimscript evaluation.
--- The previous %{v:lnum}/%{v:relnum} expressions caused scroll stutter because
--- they were evaluated as Vimscript per visible line per redraw.
+-- respecting number/relativenumber (hybrid: absolute on cursor, relative elsewhere).
+-- Previously used "%s %{v:lnum} %{v:relnum}" to show both numbers side-by-side,
+-- but %{} expressions evaluate Vimscript per visible line per redraw causing scroll
+-- stutter — especially with neoscroll animating ~15 frames per scroll action.
 opt.statuscolumn = "%s%=%l "
 
 -- Clipboard - Custom OSC-52 with explicit tmux passthrough

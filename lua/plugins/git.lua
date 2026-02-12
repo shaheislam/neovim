@@ -1802,7 +1802,10 @@ return {
 					end
 
 					local bufname = vim.api.nvim_buf_get_name(0)
-					if bufname == "" or bufname:match("^diffview://") then
+					if bufname == "" or bufname:match("^%w+://") then
+						-- Skip empty buffers and URI-scheme buffers (diffview://, fugitive://,
+						-- term://, oil://, man://, etc.). Most also have non-empty buftype,
+						-- but this catches any that slip through.
 						return
 					end
 
@@ -1828,10 +1831,15 @@ return {
 						buf_root = vim.fn.resolve(buf_root)
 						if diffview_current_root and buf_root ~= diffview_current_root then
 							buf_enter_switching = true
+							local prev_root = diffview_current_root
 							diffview_current_root = buf_root
 							pcall(vim.cmd, 'DiffviewClose')
 							vim.defer_fn(function()
-								pcall(vim.cmd, 'DiffviewOpen -C' .. vim.fn.fnameescape(buf_root))
+								local open_ok = pcall(vim.cmd, 'DiffviewOpen -C' .. vim.fn.fnameescape(buf_root))
+								if not open_ok then
+									-- Revert root tracking — old view was closed but new one failed
+									diffview_current_root = prev_root
+								end
 								buf_enter_switching = false
 							end, 100)
 						end

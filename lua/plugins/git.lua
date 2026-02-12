@@ -155,7 +155,7 @@ local function get_terminal_cwd()
 	end
 	local cwd = nil
 	if vim.fn.has("mac") == 1 then
-		local out = vim.fn.system("lsof -a -p " .. pid .. " -d cwd -Fn 2>/dev/null")
+		local out = vim.fn.system("lsof -nP -a -p " .. pid .. " -d cwd -Fn 2>/dev/null")
 		-- lsof output: "p<pid>\nn<cwd>\n" — extract the n-prefixed line
 		cwd = out:match("\nn(.-)\n") or out:match("\nn(.+)$")
 	else

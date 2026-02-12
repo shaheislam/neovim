@@ -1530,7 +1530,7 @@ return {
 						-- Close commit info window if open
 						close_commit_info_window()
 
-						-- Restore treesitter/diagnostics/gitsigns on persisting buffers
+						-- Restore treesitter/diagnostics/gitsigns/window-opts on persisting buffers
 						-- (diffview:// buffers are wiped by now; only real files persist)
 						vim.schedule(function()
 							for bufnr, _ in pairs(diffview_modified_bufs) do
@@ -1544,6 +1544,15 @@ return {
 									-- Re-attach gitsigns
 									if package.loaded.gitsigns then
 										pcall(require("gitsigns").attach, bufnr)
+									end
+									-- Restore window options in any window showing this buffer
+									for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+										pcall(function()
+											vim.wo[win].cursorline = vim.o.cursorline
+											vim.wo[win].signcolumn = vim.o.signcolumn
+											vim.wo[win].foldcolumn = vim.o.foldcolumn
+											vim.wo[win].statuscolumn = vim.o.statuscolumn
+										end)
 									end
 								end
 							end

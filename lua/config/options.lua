@@ -7,10 +7,12 @@ local opt = vim.opt
 opt.number = true
 opt.relativenumber = true
 
--- Use native number + relativenumber (handled in C, much faster than custom statuscolumn).
--- A custom statuscolumn with %{v:relnum} evaluates Vimscript per-line per-redraw,
--- causing scroll stutter. The native options show relative numbers on non-cursor
--- lines and the absolute number on the cursor line.
+-- Statuscolumn: signs + right-aligned line number
+-- Uses %l (Neovim 0.11+) which renders the number column natively in C,
+-- respecting number/relativenumber without per-line Vimscript evaluation.
+-- The previous %{v:lnum}/%{v:relnum} expressions caused scroll stutter because
+-- they were evaluated as Vimscript per visible line per redraw.
+opt.statuscolumn = "%s%=%l "
 
 -- Clipboard - Custom OSC-52 with explicit tmux passthrough
 -- The built-in vim.ui.clipboard.osc52 doesn't wrap sequences for tmux correctly

@@ -159,6 +159,7 @@ local function setup_commit_info_highlights()
 	vim.api.nvim_set_hl(0, "CommitInfoTo", { fg = "#31748f", bold = true }) -- Rose Pine "pine" (blue)
 	vim.api.nvim_set_hl(0, "CommitInfoSha", { fg = "#9ccfd8" }) -- Rose Pine "foam" (cyan)
 	vim.api.nvim_set_hl(0, "CommitInfoDate", { fg = "#c4a7e7" }) -- Rose Pine "iris" (purple)
+	vim.api.nvim_set_hl(0, "CommitInfoCheckpoint", { fg = "#7aa2f7", bold = true }) -- Tokyo Night blue
 end
 
 -- Set up highlights on load and colorscheme change
@@ -167,6 +168,35 @@ vim.api.nvim_create_autocmd("ColorScheme", {
 	pattern = "*",
 	callback = setup_commit_info_highlights,
 })
+
+-- Look up checkpoint metadata for a commit SHA
+local function get_checkpoint_info(sha)
+	if not sha or #sha < 8 then
+		return nil
+	end
+	-- Check if checkpoint branch exists
+	local check = vim.fn.system("MISE_QUIET=1 git show-ref --quiet refs/heads/checkpoints/v1 2>/dev/null; echo $?")
+	if vim.trim(check) ~= "0" then
+		return nil
+	end
+	local shard = sha:sub(1, 2) .. "/" .. sha:sub(3, 8)
+	local meta = vim.fn.system("MISE_QUIET=1 git show checkpoints/v1:" .. shard .. "/metadata.json 2>/dev/null")
+	if meta == "" or meta:match("^fatal") then
+		return nil
+	end
+	local ok, data = pcall(vim.fn.json_decode, meta)
+	if not ok or type(data) ~= "table" then
+		return nil
+	end
+	local tools = {}
+	for _, t in ipairs(data.tool_calls_summary or {}) do
+		table.insert(tools, vim.trim(t))
+	end
+	return {
+		tools = table.concat(tools, ", "),
+		summary = data.summary or "",
+	}
+end
 
 -- Checkout to FROM or TO commit
 local function checkout_commit(which)
@@ -211,6 +241,13 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 		"  FROM  " .. from_sha_short .. "  " .. from_date .. "  " .. from_msg,
 		"  TO    " .. to_sha_short .. "  " .. to_date .. "  " .. to_msg,
 	}
+	-- Add checkpoint line (always show — indicator when no data)
+	local ckpt = get_checkpoint_info(to_sha)
+	if ckpt then
+		table.insert(lines, "  CKPT  " .. ckpt.tools .. "  " .. ckpt.summary)
+	else
+		table.insert(lines, "  CKPT  —")
+	end
 	vim.api.nvim_buf_set_lines(commit_info_bufnr, 0, -1, false, lines)
 
 	-- Apply highlights using extmarks
@@ -239,20 +276,32 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, to_date_start, { end_col = to_date_end, hl_group = "CommitInfoDate" })
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, to_msg_start, { end_col = #lines[2], hl_group = to_msg_hl })
 
+	-- Line 2: CKPT line (always present)
+	if ckpt then
+		vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 2, 2, { end_col = 6, hl_group = "CommitInfoCheckpoint" })
+		vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 2, 8, { end_col = #lines[3], hl_group = "Comment" })
+	else
+		vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 2, 2, { end_col = 6, hl_group = "CommitInfoCheckpoint" })
+		vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 2, 8, { end_col = #lines[3], hl_group = "NonText" })
+	end
+
 	-- Find or create window for the buffer
-	local win_exists = false
+	local info_win = nil
 	for _, win in ipairs(vim.api.nvim_list_wins()) do
 		if vim.api.nvim_win_get_buf(win) == commit_info_bufnr then
-			win_exists = true
+			info_win = win
 			break
 		end
 	end
 
-	if not win_exists then
-		-- Create horizontal split at bottom (2 lines height)
+	if info_win then
+		-- Window exists — just resize to match new content
+		vim.api.nvim_win_set_height(info_win, #lines)
+	else
+		-- Create horizontal split at bottom (2-3 lines depending on checkpoint)
 		vim.cmd("botright split")
 		vim.api.nvim_win_set_buf(0, commit_info_bufnr)
-		vim.api.nvim_win_set_height(0, 2)
+		vim.api.nvim_win_set_height(0, #lines)
 		vim.wo[0].number = false
 		vim.wo[0].relativenumber = false
 		vim.wo[0].signcolumn = "no"
@@ -422,6 +471,30 @@ local function get_adjacent_commit(current_sha, direction, file_path)
 	return nil
 end
 
+-- Show commit info buffer for a single commit (resolves parent, formats FROM/TO/CKPT)
+local function show_single_commit_info(sha)
+	local parent_sha = vim.fn.system("MISE_QUIET=1 git rev-parse " .. sha .. "^ 2>/dev/null"):gsub("%s+", "")
+	local parent_msg = vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
+	local parent_date = vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
+	local current_msg = vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. sha):gsub("\n", "")
+	local current_date = vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. sha):gsub("\n", "")
+
+	-- Store SHAs for checkout functionality
+	commit_cycle_state.to_sha = sha
+
+	-- Assign colors in order: TO commit first, then FROM
+	get_commit_color(sha)
+
+	if parent_sha == "" or parent_sha:match("^fatal") then
+		commit_cycle_state.from_sha = nil
+		show_commit_info_buffer("(none)", "(root commit)", "", sha, current_msg, current_date)
+	else
+		commit_cycle_state.from_sha = parent_sha
+		get_commit_color(parent_sha)
+		show_commit_info_buffer(parent_sha, parent_msg, parent_date, sha, current_msg, current_date)
+	end
+end
+
 -- Open Diffview for a single commit (comparing to its parent)
 local function open_commit_diff(sha, file_path)
 	-- Set flag to preserve color state during cycling
@@ -440,28 +513,8 @@ local function open_commit_diff(sha, file_path)
 	-- Open new Diffview (sha^! means compare sha to its parent)
 	vim.cmd("DiffviewOpen " .. sha .. "^!")
 
-	-- Get commit messages and dates for BOTH refs (parent and current)
-	local parent_sha = vim.fn.system("MISE_QUIET=1 git rev-parse " .. sha .. "^ 2>/dev/null"):gsub("%s+", "")
-	local parent_msg = vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
-	local parent_date = vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
-	local current_msg = vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. sha):gsub("\n", "")
-	local current_date = vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. sha):gsub("\n", "")
-
-	-- Store SHAs for checkout functionality
-	commit_cycle_state.to_sha = sha
-
-	-- Assign colors in order: TO commit first (current), then FROM (parent)
-	-- This ensures colors persist as commits move from TO → FROM position
-	get_commit_color(sha) -- Assign color to TO commit first
-
-	if parent_sha == "" or parent_sha:match("^fatal") then
-		commit_cycle_state.from_sha = nil
-		show_commit_info_buffer("(none)", "(root commit)", "", sha, current_msg, current_date)
-	else
-		commit_cycle_state.from_sha = parent_sha
-		get_commit_color(parent_sha) -- Assign color to FROM commit second
-		show_commit_info_buffer(parent_sha, parent_msg, parent_date, sha, current_msg, current_date)
-	end
+	-- Show FROM/TO/CKPT info buffer
+	show_single_commit_info(sha)
 end
 
 -- Main cycle function
@@ -702,6 +755,8 @@ return {
 
 						-- Open the commit in DiffView using ^! syntax (single commit diff)
 						vim.cmd("DiffviewOpen " .. blame.sha .. "^!")
+						-- Show FROM/TO/CKPT info buffer
+						show_single_commit_info(blame.sha)
 					end, { desc = "Open blame commit in DiffView" })
 
 					-- Advanced diff features

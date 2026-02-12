@@ -119,6 +119,28 @@ local cross_worktree_state = {
 	main_git_dir = nil,
 }
 
+-- Repo-following state: tracks which repo root Diffview is currently showing,
+-- so BufEnter can detect when the user switches to a buffer in a different repo.
+local diffview_current_root = nil
+
+-- Find the repo/worktree root by walking up from dir to find .git.
+-- Returns the directory containing .git (the working tree root), or nil.
+-- Uses fs_stat only (no subprocess).
+local function find_repo_root(dir)
+	local d = dir
+	while d and d ~= "" and d ~= "/" do
+		if vim.uv.fs_stat(d .. "/.git") then
+			return d
+		end
+		local parent = vim.fn.fnamemodify(d, ":h")
+		if parent == d then
+			break
+		end
+		d = parent
+	end
+	return nil
+end
+
 -- User toggle: set vim.g.diffview_auto_switch = false to disable
 -- automatic conflict detection and view switching.
 -- Default: true (enabled). Can be toggled at runtime via:
@@ -133,6 +155,18 @@ vim.api.nvim_create_user_command("DiffviewAutoSwitchToggle", function()
 	vim.g.diffview_auto_switch = not vim.g.diffview_auto_switch
 	vim.notify("Diffview auto-switch: " .. (vim.g.diffview_auto_switch and "ON" or "OFF"), vim.log.levels.INFO)
 end, { desc = "Toggle Diffview automatic conflict detection and view switching" })
+
+-- Repo-following toggle: set vim.g.diffview_follow_repo = false to disable
+-- automatic Diffview retargeting when switching to a buffer in a different repo.
+-- Default: true (enabled). Toggle at runtime via :DiffviewFollowRepoToggle
+if vim.g.diffview_follow_repo == nil then
+	vim.g.diffview_follow_repo = true
+end
+
+vim.api.nvim_create_user_command("DiffviewFollowRepoToggle", function()
+	vim.g.diffview_follow_repo = not vim.g.diffview_follow_repo
+	vim.notify("Diffview follow-repo: " .. (vim.g.diffview_follow_repo and "ON" or "OFF"), vim.log.levels.INFO)
+end, { desc = "Toggle Diffview automatic repo following on buffer switch" })
 
 -- Git conflict state indicators (files and directories).
 -- Interactive rebase creates rebase-merge/ (not just REBASE_HEAD).
@@ -1344,6 +1378,8 @@ return {
 					-- Called when diffview is opened
 					view_opened = function(view)
 						vim.notify("Diffview opened", vim.log.levels.DEBUG)
+						-- Track which repo root this Diffview is showing (for repo-following)
+						diffview_current_root = find_repo_root(vim.fn.getcwd())
 						-- Track whether we're in a conflict state (to detect transitions)
 						-- Checks MERGE_HEAD, REBASE_HEAD, CHERRY_PICK_HEAD, REVERT_HEAD
 						local git_path = get_git_dir()
@@ -1467,6 +1503,7 @@ return {
 					-- Called when diffview is closed
 					view_closed = function(view)
 						vim.notify("Diffview closed", vim.log.levels.DEBUG)
+						diffview_current_root = nil
 						-- Stop git watcher
 						if view._git_watcher then
 							view._git_watcher:stop()
@@ -1620,6 +1657,7 @@ return {
 						cross_worktree_state.original_cwd = vim.fn.getcwd()
 						cross_worktree_state.main_work_dir = main_info.main_work_dir
 						cross_worktree_state.main_git_dir = main_info.main_git_dir
+						diffview_current_root = main_info.main_work_dir:gsub("/$", "")
 						pcall(vim.cmd, 'DiffviewClose')
 						vim.defer_fn(function()
 							pcall(vim.cmd, 'DiffviewOpen -C' .. main_info.main_work_dir)
@@ -1630,6 +1668,7 @@ return {
 						cross_worktree_state.original_cwd = nil
 						cross_worktree_state.main_work_dir = nil
 						cross_worktree_state.main_git_dir = nil
+						diffview_current_root = find_repo_root(vim.fn.getcwd())
 						pcall(vim.cmd, 'DiffviewClose')
 						vim.defer_fn(function()
 							pcall(vim.cmd, 'DiffviewOpen')
@@ -1729,6 +1768,56 @@ return {
 					end, 500)
 				end,
 				desc = 'Poll conflict state on window switch while Diffview is open',
+			})
+
+			-- BufEnter: repo-following — when the user switches to a buffer in a
+			-- different git repo, retarget Diffview to show that repo's changes.
+			-- Skips Diffview's own buffers (diffview://) and terminal buffers (term://).
+			-- Debounced at 300ms to avoid thrashing during rapid buffer switches.
+			local buf_enter_timer = nil
+			local buf_enter_switching = false
+			vim.api.nvim_create_autocmd('BufEnter', {
+				group = dv_focus_group,
+				callback = function()
+					if vim.g.diffview_follow_repo == false then
+						return
+					end
+					if buf_enter_switching then
+						return
+					end
+
+					local ok, lib = pcall(require, 'diffview.lib')
+					if not ok or not lib.get_current_view() then
+						return
+					end
+
+					local bufname = vim.api.nvim_buf_get_name(0)
+					if bufname == "" or bufname:match("^diffview://") or bufname:match("^term://") then
+						return
+					end
+
+					if buf_enter_timer then
+						return
+					end
+					buf_enter_timer = vim.defer_fn(function()
+						buf_enter_timer = nil
+						local buf_dir = vim.fn.fnamemodify(bufname, ":h")
+						local buf_root = find_repo_root(buf_dir)
+						if not buf_root then
+							return
+						end
+						if diffview_current_root and buf_root ~= diffview_current_root then
+							buf_enter_switching = true
+							diffview_current_root = buf_root
+							pcall(vim.cmd, 'DiffviewClose')
+							vim.defer_fn(function()
+								pcall(vim.cmd, 'DiffviewOpen -C' .. buf_root)
+								buf_enter_switching = false
+							end, 100)
+						end
+					end, 300)
+				end,
+				desc = 'Follow buffer repo: retarget Diffview when switching to a different repo',
 			})
 
 			-- Arbitrary file comparison command (VSCode-style syntax)

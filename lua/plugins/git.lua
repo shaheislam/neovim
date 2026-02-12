@@ -119,16 +119,21 @@ local cross_worktree_state = {
 	main_git_dir = nil,
 }
 
--- Git conflict state files: merge, rebase, cherry-pick, revert
+-- Git conflict state indicators (files and directories).
+-- Interactive rebase creates rebase-merge/ (not just REBASE_HEAD).
+-- Cherry-pick/revert sequences create sequencer/.
 local CONFLICT_STATE_FILES = {
 	"MERGE_HEAD",
 	"REBASE_HEAD",
 	"CHERRY_PICK_HEAD",
 	"REVERT_HEAD",
+	"rebase-merge",
+	"rebase-apply",
+	"sequencer",
 }
 
--- Check if any git conflict state file exists in the given git dir.
--- Returns the name of the first found conflict file, or nil.
+-- Check if any git conflict/operation state exists in the given git dir.
+-- Uses fs_stat only (no subprocess). Returns the indicator name, or nil.
 local function check_conflict_state(git_dir)
 	for _, fname in ipairs(CONFLICT_STATE_FILES) do
 		if vim.uv.fs_stat(git_dir .. fname) then
@@ -385,8 +390,9 @@ local function is_git_repo()
 	return result:match("true") ~= nil
 end
 
--- Get the git dir path (works for both regular repos and worktrees)
--- In worktrees, .git is a file containing "gitdir: <path>" so finddir() fails.
+-- Get the git dir path (works for both regular repos and worktrees).
+-- Handles .git file indirection: parses "gitdir: <path>" for linked worktrees,
+-- resolves relative paths against cwd, then canonicalizes with vim.fn.resolve().
 -- Returns absolute path with trailing slash, or nil.
 local function get_git_dir(cwd)
 	cwd = cwd or vim.fn.getcwd()
@@ -1614,16 +1620,21 @@ return {
 				return false
 			end
 
-			-- FocusGained fallback: refresh Diffview when switching from external app
-			-- Catches cases where fs_event misses git state changes (e.g., tmux pane switch)
+			-- Detection event autocmds. All bail early if Diffview isn't open
+			-- (poll_merge_state checks lib.get_current_view(); explicit guards below).
+			-- fs_event watchers (view_opened) remain the primary detection mechanism;
+			-- these autocmds are fallbacks for when fs_event misses changes, which
+			-- occurs on macOS when FSEvents coalesces rapid .git/ writes.
 			local dv_focus_group = vim.api.nvim_create_augroup('diffview_focus_refresh', { clear = true })
+
+			-- FocusGained: catches external app switches (tmux pane, terminal app focus)
 			vim.api.nvim_create_autocmd('FocusGained', {
 				group = dv_focus_group,
 				callback = function()
 					if poll_merge_state() then
 						return
 					end
-					-- No merge state change — just refresh files
+					-- No conflict state change — just refresh file list
 					local ok, lib = pcall(require, 'diffview.lib')
 					if ok then
 						local view = lib.get_current_view()
@@ -1632,13 +1643,14 @@ return {
 						end
 					end
 				end,
-				desc = 'Refresh Diffview on focus gain (merge conflict detection)',
+				desc = 'Refresh Diffview on focus gain (conflict detection)',
 			})
 
-			-- TermLeave/TermClose fallback: detect conflicts started from :terminal splits
-			-- TermLeave fires when leaving terminal mode (Ctrl-\ Ctrl-n)
-			-- TermClose fires when the terminal job exits (e.g., shell closes)
-			-- Together they cover the gap where FocusGained doesn't fire for intra-Neovim switches
+			-- TermLeave/TermClose: detect conflicts started from :terminal splits.
+			-- TermLeave fires on Ctrl-\ Ctrl-n (leaving terminal mode).
+			-- TermClose fires when the terminal job exits.
+			-- These cover the intra-Neovim gap where FocusGained doesn't fire.
+			-- 200ms defer lets git finish writing state files before we check.
 			for _, event in ipairs({ 'TermLeave', 'TermClose' }) do
 				vim.api.nvim_create_autocmd(event, {
 					group = dv_focus_group,
@@ -1662,8 +1674,10 @@ return {
 				})
 			end
 
-			-- WinEnter fallback: poll merge state when switching to any window
-			-- while Diffview is active. Debounced to avoid excessive checks.
+			-- WinEnter: catch-all for any window switch while Diffview is open.
+			-- Subsumes BufEnter/BufWinEnter/ModeChanged since WinEnter fires on all
+			-- window transitions. Scoped: bails immediately if no Diffview view is open.
+			-- 500ms debounce: only one fs_stat check per burst of window switches.
 			local win_enter_timer = nil
 			vim.api.nvim_create_autocmd('WinEnter', {
 				group = dv_focus_group,

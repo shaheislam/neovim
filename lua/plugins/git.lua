@@ -188,12 +188,7 @@ local function get_checkpoint_info(sha)
 	if not ok or type(data) ~= "table" then
 		return nil
 	end
-	local tools = {}
-	for _, t in ipairs(data.tool_calls_summary or {}) do
-		table.insert(tools, vim.trim(t))
-	end
 	return {
-		tools = table.concat(tools, ", "),
 		summary = data.summary or "",
 	}
 end
@@ -222,11 +217,32 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 		vim.bo[commit_info_bufnr].bufhidden = "hide"
 		vim.bo[commit_info_bufnr].swapfile = false
 		pcall(vim.api.nvim_buf_set_name, commit_info_bufnr, "Commit Info")
-		-- Add keymap to checkout commit on Enter
+		-- Add keymap: Enter on FROM/TO checks out that commit, Enter on CKPT opens full checkpoint
 		vim.keymap.set("n", "<CR>", function()
 			local line = vim.fn.line(".")
-			checkout_commit(line == 1 and "from" or "to")
-		end, { buffer = commit_info_bufnr, desc = "Checkout this commit" })
+			if line <= 2 then
+				checkout_commit(line == 1 and "from" or "to")
+			else
+				-- CKPT line: open full checkpoint details
+				local sha = commit_cycle_state.to_sha
+				if not sha then
+					vim.notify("No commit SHA available", vim.log.levels.WARN)
+					return
+				end
+				vim.cmd("botright new")
+				vim.fn.termopen("checkpoints show " .. sha, {
+					on_exit = function(_, code)
+						if code ~= 0 then
+							vim.schedule(function()
+								vim.notify("No checkpoint for " .. sha:sub(1, 7), vim.log.levels.INFO)
+							end)
+						end
+					end,
+				})
+				vim.bo.bufhidden = "wipe"
+				vim.cmd("startinsert") -- Enter terminal mode so user can scroll
+			end
+		end, { buffer = commit_info_bufnr, desc = "Checkout commit / Show checkpoint" })
 		-- Add keymap to close Diffview with q
 		vim.keymap.set("n", "q", "<cmd>DiffviewClose<cr>", {
 			buffer = commit_info_bufnr,
@@ -244,7 +260,7 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 	-- Add checkpoint line (always show — indicator when no data)
 	local ckpt = get_checkpoint_info(to_sha)
 	if ckpt then
-		table.insert(lines, "  CKPT  " .. ckpt.tools .. "  " .. ckpt.summary)
+		table.insert(lines, "  CKPT  " .. ckpt.summary)
 	else
 		table.insert(lines, "  CKPT  —")
 	end
@@ -294,20 +310,36 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 		end
 	end
 
+	-- Calculate visual height accounting for line wrap
+	local function calc_visual_height(buf_lines, win_width)
+		local height = 0
+		for _, line in ipairs(buf_lines) do
+			-- Each line takes ceil(display_width / win_width) visual rows, minimum 1
+			local display_width = vim.fn.strdisplaywidth(line)
+			height = height + math.max(1, math.ceil(display_width / win_width))
+		end
+		return height
+	end
+
 	if info_win then
-		-- Window exists — just resize to match new content
-		vim.api.nvim_win_set_height(info_win, #lines)
+		-- Window exists — resize to match wrapped content
+		local win_width = vim.api.nvim_win_get_width(info_win)
+		vim.api.nvim_win_set_height(info_win, calc_visual_height(lines, win_width))
 	else
-		-- Create horizontal split at bottom (2-3 lines depending on checkpoint)
+		-- Create horizontal split at bottom
 		vim.cmd("botright split")
 		vim.api.nvim_win_set_buf(0, commit_info_bufnr)
-		vim.api.nvim_win_set_height(0, #lines)
 		vim.wo[0].number = false
 		vim.wo[0].relativenumber = false
 		vim.wo[0].signcolumn = "no"
 		vim.wo[0].cursorline = false
 		vim.wo[0].winfixheight = true
+		vim.wo[0].wrap = true
+		vim.wo[0].linebreak = true
 		vim.wo[0].winhighlight = "Normal:NormalFloat" -- Use float background for subtle distinction
+		-- Size after options are set so width is accurate
+		local win_width = vim.api.nvim_win_get_width(0)
+		vim.api.nvim_win_set_height(0, calc_visual_height(lines, win_width))
 		-- Return to previous window (Diffview)
 		vim.cmd("wincmd p")
 	end

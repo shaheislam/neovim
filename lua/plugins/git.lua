@@ -1379,7 +1379,8 @@ return {
 					view_opened = function(view)
 						vim.notify("Diffview opened", vim.log.levels.DEBUG)
 						-- Track which repo root this Diffview is showing (for repo-following)
-						diffview_current_root = find_repo_root(vim.fn.getcwd())
+						local root = find_repo_root(vim.fn.getcwd())
+						diffview_current_root = root and vim.fn.resolve(root) or nil
 						-- Track whether we're in a conflict state (to detect transitions)
 						-- Checks MERGE_HEAD, REBASE_HEAD, CHERRY_PICK_HEAD, REVERT_HEAD
 						local git_path = get_git_dir()
@@ -1657,7 +1658,7 @@ return {
 						cross_worktree_state.original_cwd = vim.fn.getcwd()
 						cross_worktree_state.main_work_dir = main_info.main_work_dir
 						cross_worktree_state.main_git_dir = main_info.main_git_dir
-						diffview_current_root = main_info.main_work_dir:gsub("/$", "")
+						diffview_current_root = vim.fn.resolve(main_info.main_work_dir:gsub("/$", ""))
 						pcall(vim.cmd, 'DiffviewClose')
 						vim.defer_fn(function()
 							pcall(vim.cmd, 'DiffviewOpen -C' .. main_info.main_work_dir)
@@ -1668,7 +1669,8 @@ return {
 						cross_worktree_state.original_cwd = nil
 						cross_worktree_state.main_work_dir = nil
 						cross_worktree_state.main_git_dir = nil
-						diffview_current_root = find_repo_root(vim.fn.getcwd())
+						local cwd_root = find_repo_root(vim.fn.getcwd())
+						diffview_current_root = cwd_root and vim.fn.resolve(cwd_root) or nil
 						pcall(vim.cmd, 'DiffviewClose')
 						vim.defer_fn(function()
 							pcall(vim.cmd, 'DiffviewOpen')
@@ -1772,7 +1774,10 @@ return {
 
 			-- BufEnter: repo-following — when the user switches to a buffer in a
 			-- different git repo, retarget Diffview to show that repo's changes.
-			-- Skips Diffview's own buffers (diffview://) and terminal buffers (term://).
+			-- Skips non-file buffers (buftype ~= ""), which covers help, quickfix,
+			-- terminal, nofile, prompt, and plugin UIs (Telescope, oil, etc.).
+			-- Uses vim.fn.resolve() for path canonicalization (handles stow symlinks).
+			-- Short-circuits when the buffer path is under the current root.
 			-- Debounced at 300ms to avoid thrashing during rapid buffer switches.
 			local buf_enter_timer = nil
 			local buf_enter_switching = false
@@ -1786,14 +1791,27 @@ return {
 						return
 					end
 
+					-- Skip non-file buffers (terminal, help, quickfix, nofile, prompt, etc.)
+					if vim.bo.buftype ~= "" then
+						return
+					end
+
 					local ok, lib = pcall(require, 'diffview.lib')
 					if not ok or not lib.get_current_view() then
 						return
 					end
 
 					local bufname = vim.api.nvim_buf_get_name(0)
-					if bufname == "" or bufname:match("^diffview://") or bufname:match("^term://") then
+					if bufname == "" or bufname:match("^diffview://") then
 						return
+					end
+
+					-- Short-circuit: if buffer path is under current root, no repo change
+					if diffview_current_root then
+						local resolved_buf = vim.fn.resolve(bufname)
+						if resolved_buf:sub(1, #diffview_current_root) == diffview_current_root then
+							return
+						end
 					end
 
 					if buf_enter_timer then
@@ -1801,17 +1819,19 @@ return {
 					end
 					buf_enter_timer = vim.defer_fn(function()
 						buf_enter_timer = nil
-						local buf_dir = vim.fn.fnamemodify(bufname, ":h")
+						local buf_dir = vim.fn.resolve(vim.fn.fnamemodify(bufname, ":h"))
 						local buf_root = find_repo_root(buf_dir)
 						if not buf_root then
 							return
 						end
+						-- Canonicalize for stow symlink comparison
+						buf_root = vim.fn.resolve(buf_root)
 						if diffview_current_root and buf_root ~= diffview_current_root then
 							buf_enter_switching = true
 							diffview_current_root = buf_root
 							pcall(vim.cmd, 'DiffviewClose')
 							vim.defer_fn(function()
-								pcall(vim.cmd, 'DiffviewOpen -C' .. buf_root)
+								pcall(vim.cmd, 'DiffviewOpen -C' .. vim.fn.fnameescape(buf_root))
 								buf_enter_switching = false
 							end, 100)
 						end

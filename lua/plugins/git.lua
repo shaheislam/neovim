@@ -1566,11 +1566,34 @@ return {
 								view._main_repo_watcher = main_handle
 							end
 						end
+
+						-- Start timer polling for tmux pane cwd changes (2s interval).
+						-- Also expose Neovim socket to tmux so Fish hook can find us.
+						-- Design constraint: one Diffview-owning Neovim per tmux session.
+						-- NVIM_DIFFVIEW_SOCKET is session-scoped; if two Neovims open
+						-- Diffview in the same session, the last one wins (last-writer-wins).
+						-- Per-pane namespacing would break the Fish hook (it wouldn't know
+						-- which pane has Neovim). This is acceptable: the user interacts
+						-- with one Diffview at a time.
+						start_follow_timer()
+						if vim.env.TMUX then
+							-- Ensure Neovim has a server socket for RPC discovery.
+							if vim.v.servername == "" then
+								vim.fn.serverstart()
+							end
+							vim.fn.system("tmux set-environment NVIM_DIFFVIEW_SOCKET " .. vim.fn.shellescape(vim.v.servername))
+						end
 					end,
 					-- Called when diffview is closed
 					view_closed = function(view)
 						vim.notify("Diffview closed", vim.log.levels.DEBUG)
 						diffview_current_root = nil
+						-- Stop follow timer (ref-counted: only stops on last view close).
+						-- Only remove tmux socket when no views remain.
+						stop_follow_timer()
+						if vim.env.TMUX and follow_timer_refs == 0 then
+							vim.fn.system("tmux set-environment -u NVIM_DIFFVIEW_SOCKET 2>/dev/null")
+						end
 						-- Stop git watcher
 						if view._git_watcher then
 							view._git_watcher:stop()
@@ -1814,6 +1837,103 @@ return {
 				end, 100)
 			end
 
+			-- Shared tmux pane check: query the last-active tmux pane's cwd,
+			-- compare against the current Diffview's adapter root, and retarget
+			-- if the pane is in a different repo. Multi-tab safe.
+			-- Called by: FocusGained, timer polling, and RPC from Fish hook.
+			local function check_tmux_pane_and_retarget()
+				if vim.g.diffview_follow_repo == false then
+					return
+				end
+				if repo_switch_in_progress then
+					return
+				end
+				local ok, lib = pcall(require, "diffview.lib")
+				if not ok then
+					return
+				end
+				local current_view = lib.get_current_view()
+				if not current_view then
+					return
+				end
+				local pane_cwd = get_tmux_last_pane_cwd()
+				if not pane_cwd then
+					return
+				end
+				pane_cwd = vim.fn.resolve(pane_cwd)
+				-- Read root from the active view's adapter (multi-tab safe).
+				local view_root = current_view.adapter
+					and current_view.adapter.ctx
+					and current_view.adapter.ctx.toplevel
+				if view_root then
+					view_root = vim.fn.resolve(view_root):gsub("/$", "")
+				end
+				if path_is_under(pane_cwd, view_root) then
+					return
+				end
+				local pane_root = find_repo_root(pane_cwd)
+				if not pane_root then
+					return
+				end
+				pane_root = vim.fn.resolve(pane_root):gsub("/$", "")
+				if not view_root or pane_root ~= view_root then
+					retarget_diffview(pane_root)
+				end
+			end
+
+			-- Timer-based polling: check tmux pane cwd every 2 seconds.
+			-- Starts when Diffview opens, stops when ALL views close (ref-counted).
+			-- Acts as a reliable fallback; Fish hook provides instant response.
+			local follow_timer = nil
+			local follow_timer_refs = 0
+
+			local function start_follow_timer()
+				follow_timer_refs = follow_timer_refs + 1
+				if follow_timer then
+					return
+				end
+				if not vim.env.TMUX then
+					return
+				end
+				-- vim.schedule_wrap: timer callbacks run from the Vim event loop,
+				-- but wrap for safety in case future Neovim versions change this.
+				follow_timer = vim.fn.timer_start(2000, vim.schedule_wrap(function()
+					check_tmux_pane_and_retarget()
+				end), { ["repeat"] = -1 })
+			end
+
+			local function stop_follow_timer()
+				follow_timer_refs = math.max(0, follow_timer_refs - 1)
+				if follow_timer_refs > 0 then
+					return
+				end
+				if follow_timer then
+					vim.fn.timer_stop(follow_timer)
+					follow_timer = nil
+				end
+			end
+
+			-- RPC endpoint for Fish hook: called via
+			--   nvim --server $socket --remote-expr 'v:lua.diffview_check_pane()'
+			-- vim.schedule ensures we run in the main loop (safe from RPC context).
+			_G.diffview_check_pane = function()
+				vim.schedule(check_tmux_pane_and_retarget)
+				return "ok"
+			end
+
+			-- VimLeave: clean up tmux socket var on exit (prevents stale sockets
+			-- when Neovim crashes or is killed without closing Diffview first).
+			vim.api.nvim_create_autocmd("VimLeave", {
+				group = dv_focus_group,
+				callback = function()
+					if vim.env.TMUX then
+						vim.fn.system("tmux set-environment -u NVIM_DIFFVIEW_SOCKET 2>/dev/null")
+					end
+					stop_follow_timer()
+				end,
+				desc = "Clean up Diffview follow state on Neovim exit",
+			})
+
 			-- FocusGained: conflict detection + tmux pane repo-following.
 			-- When you switch back to the Neovim tmux pane from another pane,
 			-- Neovim receives FocusGained. We query tmux for the last-active
@@ -1824,47 +1944,8 @@ return {
 					-- Conflict detection (existing)
 					vim.defer_fn(poll_with_retry, 200)
 
-					-- Tmux repo-following: read the active view's root live from
-					-- the adapter (not the cached diffview_current_root) so this
-					-- is correct even with multiple Diffview tabs.
-					if vim.g.diffview_follow_repo == false then
-						return
-					end
-					if repo_switch_in_progress then
-						return
-					end
-					local ok, lib = pcall(require, "diffview.lib")
-					if not ok then
-						return
-					end
-					local current_view = lib.get_current_view()
-					if not current_view then
-						return
-					end
-					local pane_cwd = get_tmux_last_pane_cwd()
-					if not pane_cwd then
-						return
-					end
-					pane_cwd = vim.fn.resolve(pane_cwd)
-					-- Read root from the active view's adapter (multi-tab safe).
-					local view_root = current_view.adapter
-						and current_view.adapter.ctx
-						and current_view.adapter.ctx.toplevel
-					if view_root then
-						view_root = vim.fn.resolve(view_root):gsub("/$", "")
-					end
-					if path_is_under(pane_cwd, view_root) then
-						return
-					end
-					local pane_root = find_repo_root(pane_cwd)
-					if not pane_root then
-						return
-					end
-					-- Normalize: resolve symlinks, strip trailing slash.
-					pane_root = vim.fn.resolve(pane_root):gsub("/$", "")
-					if not view_root or pane_root ~= view_root then
-						retarget_diffview(pane_root)
-					end
+					-- Tmux repo-following (shared logic)
+					check_tmux_pane_and_retarget()
 				end,
 				desc = 'Refresh Diffview on focus gain (conflict detection + tmux repo following)',
 			})

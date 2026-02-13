@@ -1833,7 +1833,7 @@ return {
 						cross_worktree_state.original_cwd = vim.fn.getcwd()
 						cross_worktree_state.main_work_dir = main_info.main_work_dir
 						cross_worktree_state.main_git_dir = main_info.main_git_dir
-						diffview_current_root = vim.fn.resolve(main_info.main_work_dir:gsub("/$", ""))
+						diffview_current_root = vim.fn.resolve((main_info.main_work_dir:gsub("/$", "")))
 						pcall(vim.cmd, 'DiffviewClose')
 						vim.defer_fn(function()
 							pcall(vim.cmd, 'DiffviewOpen -C' .. main_info.main_work_dir)

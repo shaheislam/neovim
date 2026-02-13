@@ -3,19 +3,10 @@
 -- This allows per-project LSP versioning via Nix flakes
 
 -- Helper function to get the full path of a command
--- Returns the full path if found, nil otherwise
+-- Uses vim.fn.exepath (built-in, no subprocess spawn)
 local function get_command_path(cmd)
-  local handle = io.popen("command -v " .. cmd .. " 2>/dev/null")
-  if handle then
-    local result = handle:read("*a")
-    handle:close()
-    -- Trim whitespace/newlines and return full path
-    result = result:gsub("^%s+", ""):gsub("%s+$", "")
-    if result ~= "" then
-      return result
-    end
-  end
-  return nil
+  local path = vim.fn.exepath(cmd)
+  return path ~= "" and path or nil
 end
 
 -- Helper function to get command path for LSP
@@ -355,7 +346,7 @@ return {
                 globals = { "vim" },
               },
               workspace = {
-                library = vim.api.nvim_get_runtime_file("", true),
+                library = vim.api.nvim_get_runtime_file("lua", true),
                 checkThirdParty = false,
               },
               telemetry = {

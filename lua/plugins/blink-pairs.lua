@@ -11,6 +11,17 @@ return {
 
     --- @module 'blink.pairs'
     --- @type blink.pairs.Config
+    config = function(_, opts)
+      require('blink.pairs').setup(opts)
+      -- Disable built-in matchparen after runtime plugins are sourced
+      -- (NoMatchParen unsets g:loaded_matchparen, so it must run after matchparen.vim)
+      vim.api.nvim_create_autocmd('VimEnter', {
+        once = true,
+        callback = function()
+          pcall(vim.cmd, 'NoMatchParen')
+        end,
+      })
+    end,
     opts = {
       mappings = {
         -- you can call require("blink.pairs.mappings").enable()

@@ -22,6 +22,15 @@ if not vim.loop.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
+-- Disable built-in plugins early (before runtime sources them)
+-- lazy.nvim's disabled_plugins handles gzip/tar/zip/tohtml/tutor,
+-- but these need explicit guards to prevent $VIMRUNTIME/plugin/ sourcing
+vim.g.loaded_netrwPlugin = 1    -- oil.nvim replaces file browsing; gx is built-in since nvim 0.11
+vim.g.loaded_matchparen = 1     -- blink.pairs matchparen replaces this
+vim.g.loaded_2html_plugin = 1
+vim.g.loaded_spellfile_plugin = 1
+vim.g.loaded_rplugin = 1
+
 -- Load core configuration
 require("config.options")
 require("config.keymaps")

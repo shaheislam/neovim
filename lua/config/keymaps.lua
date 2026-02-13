@@ -75,59 +75,8 @@ local function get_git_root()
   return nil
 end
 
--- Yank selection with file path (relative or absolute)
-local function yank_with_path(use_relative)
-  -- Exit visual mode to set '< and '> marks
-  vim.cmd('normal! "vy')
-
-  -- Get line numbers
-  local start_line = vim.fn.line("'<")
-  local end_line = vim.fn.line("'>")
-
-  -- Get selected lines
-  local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
-  if #lines == 0 then
-    vim.notify("No selection", vim.log.levels.WARN)
-    return
-  end
-
-  -- Get file path
-  local file_path = vim.fn.expand("%:p")
-  if use_relative then
-    local git_root = get_git_root()
-    if git_root then
-      file_path = file_path:sub(#git_root + 2) -- +2 to skip trailing /
-    else
-      file_path = vim.fn.expand("%:.")
-    end
-  end
-
-  -- Format line range
-  local line_range
-  if start_line == end_line then
-    line_range = tostring(start_line)
-  else
-    line_range = string.format("%d-%d", start_line, end_line)
-  end
-
-  -- Build output: path:lines\n\ncode
-  local code = table.concat(lines, "\n")
-  local output = string.format("%s:%s\n\n%s", file_path, line_range, code)
-
-  -- Copy to clipboard
-  vim.fn.setreg("+", output)
-
-  -- Notify
-  local path_type = use_relative and "relative" or "absolute"
-  vim.notify(string.format("Yanked %s:%s (%s)", file_path, line_range, path_type), vim.log.levels.INFO)
-end
-
--- Visual mode keymaps for yanking with paths
-keymap("v", "<leader>yr", function() yank_with_path(true) end, { desc = "Yank with relative path" })
-keymap("v", "<leader>ya", function() yank_with_path(false) end, { desc = "Yank with absolute path" })
-
 -- ============================================================================
--- GitHub permalink (filelink)
+-- Shared git helpers
 -- ============================================================================
 
 -- Parse git remote URL into GitHub owner/repo
@@ -165,6 +114,60 @@ local function get_git_relative_path()
   local abs_path = vim.fn.expand("%:p")
   return abs_path:sub(#git_root + 2)
 end
+
+-- Format a line range string
+local function format_line_range(start_line, end_line)
+  if start_line == end_line then
+    return tostring(start_line)
+  end
+  return string.format("%d-%d", start_line, end_line)
+end
+
+-- ============================================================================
+-- Yank with file path and line numbers (for Claude Code)
+-- ============================================================================
+
+-- Yank selection with file path (relative or absolute)
+local function yank_with_path(use_relative)
+  -- Exit visual mode to set '< and '> marks
+  vim.cmd('normal! "vy')
+
+  -- Get line numbers
+  local start_line = vim.fn.line("'<")
+  local end_line = vim.fn.line("'>")
+
+  -- Get selected lines
+  local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+  if #lines == 0 then
+    vim.notify("No selection", vim.log.levels.WARN)
+    return
+  end
+
+  -- Get file path
+  local file_path
+  if use_relative then
+    file_path = get_git_relative_path() or vim.fn.expand("%:.")
+  else
+    file_path = vim.fn.expand("%:p")
+  end
+
+  local line_range = format_line_range(start_line, end_line)
+
+  -- Build output: path:lines\n\ncode
+  local code = table.concat(lines, "\n")
+  local output = string.format("%s:%s\n\n%s", file_path, line_range, code)
+
+  -- Copy to clipboard
+  vim.fn.setreg("+", output)
+
+  -- Notify
+  local path_type = use_relative and "relative" or "absolute"
+  vim.notify(string.format("Yanked %s:%s (%s)", file_path, line_range, path_type), vim.log.levels.INFO)
+end
+
+-- Visual mode keymaps for yanking with paths
+keymap("v", "<leader>yr", function() yank_with_path(true) end, { desc = "Yank with relative path" })
+keymap("v", "<leader>ya", function() yank_with_path(false) end, { desc = "Yank with absolute path" })
 
 -- Build a GitHub permalink for current file + lines
 local function github_permalink(opts)
@@ -243,13 +246,7 @@ keymap("v", "<leader>yL", function()
   local url = github_permalink({ start_line = start_line, end_line = end_line })
   if url then
     local rel_path = get_git_relative_path()
-    local line_ref
-    if start_line == end_line then
-      line_ref = tostring(start_line)
-    else
-      line_ref = string.format("%d-%d", start_line, end_line)
-    end
-    local md = string.format("[`%s:%s`](%s)", rel_path, line_ref, url)
+    local md = string.format("[`%s:%s`](%s)", rel_path, format_line_range(start_line, end_line), url)
     vim.fn.setreg("+", md)
     vim.notify(md, vim.log.levels.INFO)
   end

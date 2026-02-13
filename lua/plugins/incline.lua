@@ -96,12 +96,15 @@ return {
   config = function(_, opts)
     require("incline").setup(opts)
 
-    -- Optional: hide incline in specific filetypes
+    -- Hide incline in specific filetypes (including diffview for scroll perf)
+    local excluded_fts = {
+      "neo-tree", "dashboard", "lazy", "mason", "TelescopePrompt",
+      "DiffviewFiles", "DiffviewFileHistory",
+    }
     vim.api.nvim_create_autocmd("FileType", {
-      pattern = { "neo-tree", "dashboard", "lazy", "mason", "TelescopePrompt" },
+      pattern = excluded_fts,
       callback = function()
-        local incline = require("incline")
-        incline.disable()
+        require("incline").disable()
       end,
     })
 
@@ -109,8 +112,7 @@ return {
       pattern = "*",
       callback = function()
         local ft = vim.bo.filetype
-        local excluded = { "neo-tree", "dashboard", "lazy", "mason", "TelescopePrompt" }
-        if not vim.tbl_contains(excluded, ft) then
+        if not vim.tbl_contains(excluded_fts, ft) then
           require("incline").enable()
         end
       end,

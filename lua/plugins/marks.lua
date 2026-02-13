@@ -16,8 +16,8 @@ return {
     -- Don't force write shada on every mark operation
     force_write_shada = false,
 
-    -- Refresh interval for mark display
-    refresh_interval = 250,
+    -- Refresh interval for mark display (higher = less stutter during scroll)
+    refresh_interval = 500,
 
     -- Sign column priority settings
     sign_priority = {

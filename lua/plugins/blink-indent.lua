@@ -30,6 +30,8 @@ return {
           "lazyterm",
           "octo",
           "octo_panel",
+          "DiffviewFiles",
+          "DiffviewFileHistory",
         },
       },
     },

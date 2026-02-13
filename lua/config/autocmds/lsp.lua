@@ -78,12 +78,18 @@ function M.setup()
     end,
   })
 
-  -- Clear reference highlights when cursor moves
+  -- Clear reference highlights when cursor moves (debounced to avoid scroll stutter).
+  -- Without debouncing, clear_references fires an LSP request per cursor movement
+  -- which causes visible stutter during rapid scrolling.
+  local clear_ref_timer = vim.uv.new_timer()
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
     group = augroup("document_highlight_clear"),
     callback = function()
       if is_diff_buf() then return end
-      pcall(vim.lsp.buf.clear_references)
+      clear_ref_timer:stop()
+      clear_ref_timer:start(100, 0, vim.schedule_wrap(function()
+        pcall(vim.lsp.buf.clear_references)
+      end))
     end,
   })
 

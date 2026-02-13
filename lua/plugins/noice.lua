@@ -184,7 +184,7 @@ return {
     local function scroll_to_bottom(force)
       for _, win in ipairs(vim.api.nvim_list_wins()) do
         local buf = vim.api.nvim_win_get_buf(win)
-        local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+        local ft = vim.bo[buf].filetype
         local bufname = vim.api.nvim_buf_get_name(buf)
         if ft == "noice" or ft == "NoiceHistory" or ft == "NoiceSplit" or 
            bufname:match("Noice") or bufname:match("noice") then
@@ -220,8 +220,9 @@ return {
     vim.api.nvim_create_autocmd({ "WinScrolled" }, {
       callback = function()
         local win = vim.api.nvim_get_current_win()
+        -- Skip if no noice windows are tracked and this isn't a noice buffer
         local buf = vim.api.nvim_win_get_buf(win)
-        local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+        local ft = vim.bo[buf].filetype
         if ft == "noice" or ft == "NoiceHistory" or ft == "NoiceSplit" then
           local cursor = vim.api.nvim_win_get_cursor(win)
           local line_count = vim.api.nvim_buf_line_count(buf)

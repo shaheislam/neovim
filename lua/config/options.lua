@@ -8,10 +8,10 @@ opt.number = true
 opt.relativenumber = true
 
 -- Statuscolumn: signs + right-aligned hybrid line number
--- %l (Neovim 0.11+, PR #29357) renders the number column natively in C.
--- With number+relativenumber, %l shows hybrid: absolute on cursor, relative elsewhere.
--- Verified on 0.11.5: cursor line 10 → "10", line 9 → "1", line 11 → "1", etc.
--- Source: src/nvim/statusline.c — num = (!rnu || (nu && relnum==0)) ? lnum : relnum
+-- %l = "line number column for currently drawn line" (:help statuscolumn).
+-- With nu+rnu, the number column shows hybrid (:help number_relativenumber):
+-- absolute on cursor line, relative elsewhere — and %l mirrors that exactly.
+-- Verified on 0.11.5: cursor@10 → lnum 9→"1", 10→"10", 11→"1" (hybrid).
 -- Previously "%s %{v:lnum} %{v:relnum}" (both numbers side-by-side) but %{}
 -- expressions evaluate Vimscript per visible line per redraw causing scroll stutter.
 opt.statuscolumn = "%s%=%l "

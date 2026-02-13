@@ -122,6 +122,9 @@ local cross_worktree_state = {
 -- Repo-following state: tracks which repo root Diffview is currently showing,
 -- so BufEnter can detect when the user switches to a buffer in a different repo.
 local diffview_current_root = nil
+-- When retarget_diffview opens Diffview with -C<path>, this override tells
+-- view_opened to use the retarget root instead of vim.fn.getcwd().
+local retarget_root_override = nil
 
 -- Find the repo/worktree root by walking up from dir to find .git.
 -- Returns the directory containing .git (the working tree root), or nil.
@@ -1434,9 +1437,16 @@ return {
 					-- Called when diffview is opened
 					view_opened = function(view)
 						vim.notify("Diffview opened", vim.log.levels.DEBUG)
-						-- Track which repo root this Diffview is showing (for repo-following)
-						local root = find_repo_root(vim.fn.getcwd())
-						diffview_current_root = root and vim.fn.resolve(root) or nil
+						-- Track which repo root this Diffview is showing (for repo-following).
+						-- retarget_root_override is set by retarget_diffview when opening
+						-- Diffview with -C<path> for a different repo than cwd.
+						if retarget_root_override then
+							diffview_current_root = retarget_root_override
+							retarget_root_override = nil
+						else
+							local root = find_repo_root(vim.fn.getcwd())
+							diffview_current_root = root and vim.fn.resolve(root) or nil
+						end
 						-- Track whether we're in a conflict state (to detect transitions)
 						-- Checks MERGE_HEAD, REBASE_HEAD, CHERRY_PICK_HEAD, REVERT_HEAD
 						local git_path = get_git_dir()
@@ -1795,9 +1805,11 @@ return {
 				diffview_current_root = new_root
 				pcall(vim.cmd, "DiffviewClose")
 				vim.defer_fn(function()
+					retarget_root_override = new_root
 					local open_ok = pcall(vim.cmd, "DiffviewOpen -C" .. vim.fn.fnameescape(new_root))
 					if not open_ok then
 						diffview_current_root = prev_root
+						retarget_root_override = nil
 					end
 					repo_switch_in_progress = false
 				end, 100)

@@ -182,6 +182,8 @@ end
 -- Get the current working directory of the last-active tmux pane.
 -- Uses tmux's built-in pane_current_path tracking — no external tools needed.
 -- Returns nil if not running inside tmux or if the query fails.
+-- Best for FocusGained: when Neovim just gained focus, {last} = the shell
+-- pane the user was just in.
 local function get_tmux_last_pane_cwd()
 	if not vim.env.TMUX then
 		return nil
@@ -195,6 +197,34 @@ local function get_tmux_last_pane_cwd()
 		return nil
 	end
 	return path
+end
+
+-- Get the cwd of the currently active (focused) tmux pane, skipping if it's
+-- Neovim's own pane. Best for timer polling: when the user is in a shell pane,
+-- active = the shell pane (correct). {last} would return Neovim's own pane
+-- (wrong), causing the timer to override Fish hook results with stale data.
+local function get_tmux_active_pane_cwd()
+	if not vim.env.TMUX then
+		return nil
+	end
+	local out = vim.fn.system("tmux list-panes -F '#{pane_active} #{pane_id} #{pane_current_path}' 2>/dev/null")
+	if vim.v.shell_error ~= 0 then
+		return nil
+	end
+	for line in out:gmatch("[^\n]+") do
+		local active, pane_id, path = line:match("^(%d) (%%%d+) (.+)$")
+		if active == "1" then
+			-- Skip if the active pane is Neovim's own pane
+			if pane_id == vim.env.TMUX_PANE then
+				return nil
+			end
+			if path == "" then
+				return nil
+			end
+			return path
+		end
+	end
+	return nil
 end
 
 -- User toggle: set vim.g.diffview_auto_switch = false to disable
@@ -1908,6 +1938,9 @@ return {
 			-- Timer-based polling: check tmux pane cwd every 2 seconds.
 			-- Starts when Diffview opens, stops when ALL views close (ref-counted).
 			-- Acts as a reliable fallback; Fish hook provides instant response.
+			-- Uses get_tmux_active_pane_cwd() (not {last}) because when the user
+			-- is in a shell pane, {last} points to Neovim's own pane — causing the
+			-- timer to override the Fish hook's correct result with Neovim's cwd.
 			start_follow_timer = function()
 				follow_timer_refs = follow_timer_refs + 1
 				if follow_timer then
@@ -1919,7 +1952,10 @@ return {
 				-- vim.schedule_wrap: timer callbacks run from the Vim event loop,
 				-- but wrap for safety in case future Neovim versions change this.
 				follow_timer = vim.fn.timer_start(2000, vim.schedule_wrap(function()
-					check_tmux_pane_and_retarget()
+					local cwd = get_tmux_active_pane_cwd()
+					if cwd then
+						check_tmux_pane_and_retarget(cwd)
+					end
 				end), { ["repeat"] = -1 })
 			end
 

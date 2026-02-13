@@ -75,6 +75,58 @@ local function get_git_root()
   return nil
 end
 
+-- ============================================================================
+-- Shared git helpers
+-- ============================================================================
+
+-- Parse git remote URL into GitHub owner/repo
+local function get_github_repo()
+  local handle = io.popen("git -C " .. vim.fn.shellescape(vim.fn.getcwd()) .. " remote get-url origin 2>/dev/null")
+  if not handle then return nil end
+  local url = handle:read("*a"):gsub("%s+$", "")
+  handle:close()
+  if url == "" then return nil end
+
+  -- SSH: git@github.com:owner/repo.git
+  local owner, repo = url:match("git@github%.com:([^/]+)/(.+)$")
+  if not owner then
+    -- HTTPS: https://github.com/owner/repo.git
+    owner, repo = url:match("github%.com/([^/]+)/(.+)$")
+  end
+  if not owner then return nil end
+  repo = repo:gsub("%.git$", "")
+  return owner .. "/" .. repo
+end
+
+-- Get current commit SHA
+local function get_commit_sha()
+  local handle = io.popen("git -C " .. vim.fn.shellescape(vim.fn.getcwd()) .. " rev-parse HEAD 2>/dev/null")
+  if not handle then return nil end
+  local sha = handle:read("*a"):gsub("%s+$", "")
+  handle:close()
+  return sha ~= "" and sha or nil
+end
+
+-- Get file path relative to git root
+local function get_git_relative_path()
+  local git_root = get_git_root()
+  if not git_root then return nil end
+  local abs_path = vim.fn.expand("%:p")
+  return abs_path:sub(#git_root + 2)
+end
+
+-- Format a line range string
+local function format_line_range(start_line, end_line)
+  if start_line == end_line then
+    return tostring(start_line)
+  end
+  return string.format("%d-%d", start_line, end_line)
+end
+
+-- ============================================================================
+-- Yank with file path and line numbers (for Claude Code)
+-- ============================================================================
+
 -- Yank selection with file path (relative or absolute)
 local function yank_with_path(use_relative)
   -- Exit visual mode to set '< and '> marks
@@ -92,23 +144,14 @@ local function yank_with_path(use_relative)
   end
 
   -- Get file path
-  local file_path = vim.fn.expand("%:p")
+  local file_path
   if use_relative then
-    local git_root = get_git_root()
-    if git_root then
-      file_path = file_path:sub(#git_root + 2) -- +2 to skip trailing /
-    else
-      file_path = vim.fn.expand("%:.")
-    end
+    file_path = get_git_relative_path() or vim.fn.expand("%:.")
+  else
+    file_path = vim.fn.expand("%:p")
   end
 
-  -- Format line range
-  local line_range
-  if start_line == end_line then
-    line_range = tostring(start_line)
-  else
-    line_range = string.format("%d-%d", start_line, end_line)
-  end
+  local line_range = format_line_range(start_line, end_line)
 
   -- Build output: path:lines\n\ncode
   local code = table.concat(lines, "\n")
@@ -125,3 +168,86 @@ end
 -- Visual mode keymaps for yanking with paths
 keymap("v", "<leader>yr", function() yank_with_path(true) end, { desc = "Yank with relative path" })
 keymap("v", "<leader>ya", function() yank_with_path(false) end, { desc = "Yank with absolute path" })
+
+-- Build a GitHub permalink for current file + lines
+local function github_permalink(opts)
+  opts = opts or {}
+  local repo = get_github_repo()
+  if not repo then
+    vim.notify("Not a GitHub repository", vim.log.levels.WARN)
+    return
+  end
+
+  local sha = get_commit_sha()
+  if not sha then
+    vim.notify("Could not determine commit SHA", vim.log.levels.WARN)
+    return
+  end
+
+  local rel_path = get_git_relative_path()
+  if not rel_path then
+    vim.notify("Could not determine file path relative to git root", vim.log.levels.WARN)
+    return
+  end
+
+  local url = string.format("https://github.com/%s/blob/%s/%s", repo, sha, rel_path)
+
+  -- Add line anchor
+  if opts.start_line then
+    if opts.end_line and opts.end_line ~= opts.start_line then
+      url = url .. string.format("#L%d-L%d", opts.start_line, opts.end_line)
+    else
+      url = url .. string.format("#L%d", opts.start_line)
+    end
+  end
+
+  return url
+end
+
+-- Copy GitHub permalink for current line (normal mode)
+keymap("n", "<leader>yl", function()
+  local url = github_permalink({ start_line = vim.fn.line(".") })
+  if url then
+    vim.fn.setreg("+", url)
+    vim.notify(url, vim.log.levels.INFO)
+  end
+end, { desc = "Copy GitHub permalink" })
+
+-- Copy GitHub permalink for selection (visual mode)
+keymap("v", "<leader>yl", function()
+  -- Exit visual to set marks
+  vim.cmd("normal! \27")
+  local start_line = vim.fn.line("'<")
+  local end_line = vim.fn.line("'>")
+  local url = github_permalink({ start_line = start_line, end_line = end_line })
+  if url then
+    vim.fn.setreg("+", url)
+    vim.notify(url, vim.log.levels.INFO)
+  end
+end, { desc = "Copy GitHub permalink (selection)" })
+
+-- Copy GitHub permalink as markdown link (normal mode)
+keymap("n", "<leader>yL", function()
+  local line = vim.fn.line(".")
+  local url = github_permalink({ start_line = line })
+  if url then
+    local rel_path = get_git_relative_path()
+    local md = string.format("[`%s:%d`](%s)", rel_path, line, url)
+    vim.fn.setreg("+", md)
+    vim.notify(md, vim.log.levels.INFO)
+  end
+end, { desc = "Copy GitHub permalink (markdown)" })
+
+-- Copy GitHub permalink as markdown link (visual mode)
+keymap("v", "<leader>yL", function()
+  vim.cmd("normal! \27")
+  local start_line = vim.fn.line("'<")
+  local end_line = vim.fn.line("'>")
+  local url = github_permalink({ start_line = start_line, end_line = end_line })
+  if url then
+    local rel_path = get_git_relative_path()
+    local md = string.format("[`%s:%s`](%s)", rel_path, format_line_range(start_line, end_line), url)
+    vim.fn.setreg("+", md)
+    vim.notify(md, vim.log.levels.INFO)
+  end
+end, { desc = "Copy GitHub permalink (markdown, selection)" })

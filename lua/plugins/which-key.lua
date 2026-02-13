@@ -163,6 +163,13 @@ return {
 				-- Window management
 				{ "<C-z>", desc = "Toggle Zoom Window" },
 
+				-- Yank operations
+				{ "<leader>y", group = "yank/copy" },
+				{ "<leader>yl", desc = "GitHub permalink" },
+				{ "<leader>yL", desc = "GitHub permalink (markdown)" },
+				{ "<leader>yr", desc = "Yank with relative path", mode = "v" },
+				{ "<leader>ya", desc = "Yank with absolute path", mode = "v" },
+
 				-- Oil path yanking (C-y followed by l/s/g)
 				{ "<C-y>", group = "yank path", mode = "n" },
 			})

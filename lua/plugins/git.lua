@@ -122,10 +122,11 @@ local cross_worktree_state = {
 -- Repo-following state: tracks which repo root Diffview is currently showing,
 -- so BufEnter can detect when the user switches to a buffer in a different repo.
 local diffview_current_root = nil
--- Timestamp of the last RPC event from Fish hook (monotonic clock).
--- The timer skips when a recent RPC already provided authoritative data,
--- preventing the fallback from overriding a fresh hook result.
-local last_rpc_time = 0
+-- Monotonic sequence for RPC vs timer deconfliction.
+-- RPC increments follow_rpc_seq on each event; the timer skips when new
+-- RPC events have arrived since its last tick (sequence-based, not time-based).
+local follow_rpc_seq = 0
+local follow_timer_seen_seq = 0
 
 -- Find the repo/worktree root by walking up from dir to find .git.
 -- Returns the directory containing .git (the working tree root), or nil.
@@ -183,16 +184,40 @@ local function get_terminal_cwd()
 	return nil
 end
 
--- Get the current working directory of the last-active tmux pane.
--- Uses tmux's built-in pane_current_path tracking — no external tools needed.
--- Returns nil if not running inside tmux or if the query fails.
--- Best for FocusGained: when Neovim just gained focus, {last} = the shell
--- pane the user was just in.
-local function get_tmux_last_pane_cwd()
-	if not vim.env.TMUX then
+-- Resolve the tmux window ID containing Neovim's pane ($TMUX_PANE).
+-- All pane queries are scoped to this window to avoid cross-window/client
+-- bleed when multiple clients or windows are attached to the same session.
+local function get_neovim_window_id()
+	if not vim.env.TMUX or not vim.env.TMUX_PANE then
 		return nil
 	end
-	local out = vim.fn.system("tmux display-message -p -t '{last}' '#{pane_current_path}' 2>/dev/null")
+	local out = vim.fn.system(
+		"tmux display-message -p -t " .. vim.fn.shellescape(vim.env.TMUX_PANE) .. " '#{window_id}' 2>/dev/null"
+	)
+	if vim.v.shell_error ~= 0 then
+		return nil
+	end
+	local wid = out:gsub("\n$", "")
+	if wid == "" then
+		return nil
+	end
+	return wid
+end
+
+-- Get the cwd of the last-selected pane in Neovim's window.
+-- Scoped via window ID derived from $TMUX_PANE (not global {last}).
+-- Best for FocusGained: when Neovim just gained focus, {last} within its
+-- window = the shell pane the user was just in.
+local function get_tmux_last_pane_cwd()
+	local wid = get_neovim_window_id()
+	if not wid then
+		return nil
+	end
+	-- Target: <window_id>.{last} — the previously selected pane in this window.
+	local target = wid .. ".{last}"
+	local out = vim.fn.system(
+		"tmux display-message -p -t " .. vim.fn.shellescape(target) .. " '#{pane_current_path}' 2>/dev/null"
+	)
 	if vim.v.shell_error ~= 0 then
 		return nil
 	end
@@ -203,15 +228,20 @@ local function get_tmux_last_pane_cwd()
 	return path
 end
 
--- Get the cwd of the currently active (focused) tmux pane, skipping if it's
--- Neovim's own pane. Best for timer polling: when the user is in a shell pane,
--- active = the shell pane (correct). {last} would return Neovim's own pane
--- (wrong), causing the timer to override Fish hook results with stale data.
+-- Get the cwd of the currently active (focused) pane in Neovim's window,
+-- skipping if it's Neovim's own pane. Scoped to Neovim's window via -t.
+-- Best for timer polling: when the user is in a shell pane, the active pane
+-- in Neovim's window is the shell (correct). {last} would return Neovim's
+-- own pane (wrong), causing the timer to override Fish hook results.
 local function get_tmux_active_pane_cwd()
-	if not vim.env.TMUX then
+	local wid = get_neovim_window_id()
+	if not wid then
 		return nil
 	end
-	local out = vim.fn.system("tmux list-panes -F '#{pane_active} #{pane_id} #{pane_current_path}' 2>/dev/null")
+	local out = vim.fn.system(
+		"tmux list-panes -t " .. vim.fn.shellescape(wid)
+			.. " -F '#{pane_active} #{pane_id} #{pane_current_path}' 2>/dev/null"
+	)
 	if vim.v.shell_error ~= 0 then
 		return nil
 	end
@@ -1956,10 +1986,10 @@ return {
 				-- vim.schedule_wrap: timer callbacks run from the Vim event loop,
 				-- but wrap for safety in case future Neovim versions change this.
 				follow_timer = vim.fn.timer_start(2000, vim.schedule_wrap(function()
-					-- Skip if RPC hook fired within the last 3 seconds (it already
-					-- provided authoritative data; timer would be redundant/stale).
-					local elapsed_ns = vim.uv.hrtime() - last_rpc_time
-					if elapsed_ns < 3e9 then
+					-- Skip if RPC hook fired since last timer tick (it already
+					-- provided authoritative cwd; timer would be redundant).
+					if follow_rpc_seq > follow_timer_seen_seq then
+						follow_timer_seen_seq = follow_rpc_seq
 						return
 					end
 					local cwd = get_tmux_active_pane_cwd()
@@ -1985,9 +2015,9 @@ return {
 			-- Accepts optional cwd from the caller (Fish hook passes $PWD directly,
 			-- avoiding the {last} pane ambiguity when Neovim queries tmux itself).
 			-- vim.schedule ensures we run in the main loop (safe from RPC context).
-			-- Records timestamp so the timer fallback defers to fresh RPC data.
+			-- Increments follow_rpc_seq so the timer defers to this authoritative data.
 			_G.diffview_check_pane = function(cwd)
-				last_rpc_time = vim.uv.hrtime()
+				follow_rpc_seq = follow_rpc_seq + 1
 				vim.schedule(function()
 					check_tmux_pane_and_retarget(cwd)
 				end)

@@ -122,9 +122,6 @@ local cross_worktree_state = {
 -- Repo-following state: tracks which repo root Diffview is currently showing,
 -- so BufEnter can detect when the user switches to a buffer in a different repo.
 local diffview_current_root = nil
--- When retarget_diffview opens Diffview with -C<path>, this override tells
--- view_opened to use the retarget root instead of vim.fn.getcwd().
-local retarget_root_override = nil
 
 -- Find the repo/worktree root by walking up from dir to find .git.
 -- Returns the directory containing .git (the working tree root), or nil.
@@ -1438,14 +1435,17 @@ return {
 					view_opened = function(view)
 						vim.notify("Diffview opened", vim.log.levels.DEBUG)
 						-- Track which repo root this Diffview is showing (for repo-following).
-						-- retarget_root_override is set by retarget_diffview when opening
-						-- Diffview with -C<path> for a different repo than cwd.
-						if retarget_root_override then
-							diffview_current_root = retarget_root_override
-							retarget_root_override = nil
+						-- Read directly from Diffview's adapter context — this correctly
+						-- reflects the -C<path> flag used by retarget_diffview, without
+						-- needing a module-level override variable.
+						local toplevel = view.adapter and view.adapter.ctx and view.adapter.ctx.toplevel
+						if toplevel then
+							diffview_current_root = vim.fn.resolve(toplevel):gsub("/$", "")
 						else
-							local root = find_repo_root(vim.fn.getcwd())
-							diffview_current_root = root and vim.fn.resolve(root) or nil
+							-- Fallback for non-git adapters (hg) or unexpected states.
+							-- getcwd(0, 0) = current window in current tab, respects :lcd/:tcd.
+							local root = find_repo_root(vim.fn.getcwd(0, 0))
+							diffview_current_root = root and vim.fn.resolve(root):gsub("/$", "") or nil
 						end
 						-- Track whether we're in a conflict state (to detect transitions)
 						-- Checks MERGE_HEAD, REBASE_HEAD, CHERRY_PICK_HEAD, REVERT_HEAD
@@ -1805,11 +1805,10 @@ return {
 				diffview_current_root = new_root
 				pcall(vim.cmd, "DiffviewClose")
 				vim.defer_fn(function()
-					retarget_root_override = new_root
-					local open_ok = pcall(vim.cmd, "DiffviewOpen -C" .. vim.fn.fnameescape(new_root))
+					local open_ok, err = pcall(vim.cmd, "DiffviewOpen -C" .. vim.fn.fnameescape(new_root))
 					if not open_ok then
 						diffview_current_root = prev_root
-						retarget_root_override = nil
+						vim.notify("Diffview retarget failed: " .. tostring(err), vim.log.levels.WARN)
 					end
 					repo_switch_in_progress = false
 				end, 100)
@@ -1825,7 +1824,9 @@ return {
 					-- Conflict detection (existing)
 					vim.defer_fn(poll_with_retry, 200)
 
-					-- Tmux repo-following
+					-- Tmux repo-following: read the active view's root live from
+					-- the adapter (not the cached diffview_current_root) so this
+					-- is correct even with multiple Diffview tabs.
 					if vim.g.diffview_follow_repo == false then
 						return
 					end
@@ -1833,7 +1834,11 @@ return {
 						return
 					end
 					local ok, lib = pcall(require, "diffview.lib")
-					if not ok or not lib.get_current_view() then
+					if not ok then
+						return
+					end
+					local current_view = lib.get_current_view()
+					if not current_view then
 						return
 					end
 					local pane_cwd = get_tmux_last_pane_cwd()
@@ -1841,15 +1846,23 @@ return {
 						return
 					end
 					pane_cwd = vim.fn.resolve(pane_cwd)
-					if path_is_under(pane_cwd, diffview_current_root) then
+					-- Read root from the active view's adapter (multi-tab safe).
+					local view_root = current_view.adapter
+						and current_view.adapter.ctx
+						and current_view.adapter.ctx.toplevel
+					if view_root then
+						view_root = vim.fn.resolve(view_root):gsub("/$", "")
+					end
+					if path_is_under(pane_cwd, view_root) then
 						return
 					end
 					local pane_root = find_repo_root(pane_cwd)
 					if not pane_root then
 						return
 					end
-					pane_root = vim.fn.resolve(pane_root)
-					if not diffview_current_root or pane_root ~= diffview_current_root then
+					-- Normalize: resolve symlinks, strip trailing slash.
+					pane_root = vim.fn.resolve(pane_root):gsub("/$", "")
+					if not view_root or pane_root ~= view_root then
 						retarget_diffview(pane_root)
 					end
 				end,

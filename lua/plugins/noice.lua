@@ -126,54 +126,16 @@ return {
 
     require("noice").setup(opts)
 
-    -- Monkey-patch the mini backend to use dynamic timeouts
-    -- Immediate execution (no defer) to prevent race conditions with early notifications
-    local ok, Mini = pcall(require, "noice.view.backend.mini")
-    if ok and Mini then
-      local original_show = Mini.show
-
-      Mini.show = function(self)
-        -- Override timeout before showing
-        if self._opts then
-          self._opts.timeout = vim.g.noice_persistent_messages and 30000 or 3000
-        end
-        -- Call original show and schedule redraw
-        local result = original_show(self)
-        vim.schedule(function() vim.cmd("redraw") end)
-        return result
-      end
-    end
-
-    -- Monkey-patch the notify backend for synchronous rendering
-    local ok_notify, Notify = pcall(require, "noice.view.backend.notify")
-    if ok_notify and Notify then
-      local original_show_notify = Notify.show
-
-      Notify.show = function(self)
-        -- Call original show
-        local result = original_show_notify(self)
-        -- Schedule redraw to avoid blocking
-        vim.schedule(function() vim.cmd("redraw") end)
-        return result
-      end
-    end
-
-    -- Store the original notify function
+    -- Single vim.notify override for persistent mode timeout control
     local notify = require("notify")
-
-    -- Override vim.notify to use dynamic timeout
-    local original_notify = vim.notify
-    vim.notify = function(msg, level, opts)
-      opts = opts or {}
-      -- Set timeout based on persistent mode
+    vim.notify = function(msg, level, nopts)
+      nopts = nopts or {}
       if vim.g.noice_persistent_messages then
-        opts.timeout = 30000  -- 30 seconds in persistent mode
-        opts.animate = false  -- No animation in persistent mode
+        nopts.timeout = 30000
       else
-        opts.timeout = opts.timeout or 3000  -- 3 seconds by default
-        opts.animate = true
+        nopts.timeout = nopts.timeout or 3000
       end
-      return notify(msg, level, opts)
+      return notify(msg, level, nopts)
     end
 
     
@@ -451,6 +413,7 @@ return {
             { find = "LSP .* not available from Nix" },
             { find = "LSPs not available from Nix" },
             { find = "vim%.lsp%.buf_get_clients.*deprecated" },
+            { find = "quicker%.nvim" },
             { find = "Run \":checkhealth vim%.deprecated\"" },
             { find = "%-%-  ?More  ?%-%-" },  -- Skip "-- More --" pagination messages
             { find = "Press ENTER or type command to continue" },  -- Skip press enter messages

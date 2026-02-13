@@ -8,16 +8,6 @@ return {
   {
     "stevearc/quicker.nvim",
     event = "VeryLazy",
-    init = function()
-      -- Suppress quicker.nvim display errors (conflicts with nvim-pqf formatting)
-      local original_notify = vim.notify
-      vim.notify = function(msg, level, opts)
-        if type(msg) == "string" and msg:match("quicker.nvim/lua/quicker/display.lua") then
-          return -- Silence quicker display errors
-        end
-        original_notify(msg, level, opts)
-      end
-    end,
     opts = {
       opts = {
         buflisted = false,

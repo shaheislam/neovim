@@ -1235,6 +1235,17 @@ return {
 		config = function()
 			local actions = require("diffview.actions")
 
+			-- Forward declarations: auto-follow functions referenced in
+			-- view_opened/view_closed callbacks below.  The callbacks are inline
+			-- closures (function(view) start_follow_timer() end) so Lua captures
+			-- the upvalue *slot*, not the current value — the actual lookup happens
+			-- at call-time (view open/close), by which point these are assigned.
+			local check_tmux_pane_and_retarget
+			local follow_timer = nil
+			local follow_timer_refs = 0
+			local start_follow_timer
+			local stop_follow_timer
+
 			require("diffview").setup({
 				diff_binaries = false, -- Show diffs for binaries
 				enhanced_diff_hl = true, -- Better syntax highlighting in diffs
@@ -1841,7 +1852,7 @@ return {
 			-- compare against the current Diffview's adapter root, and retarget
 			-- if the pane is in a different repo. Multi-tab safe.
 			-- Called by: FocusGained, timer polling, and RPC from Fish hook.
-			local function check_tmux_pane_and_retarget()
+			check_tmux_pane_and_retarget = function()
 				if vim.g.diffview_follow_repo == false then
 					return
 				end
@@ -1884,10 +1895,7 @@ return {
 			-- Timer-based polling: check tmux pane cwd every 2 seconds.
 			-- Starts when Diffview opens, stops when ALL views close (ref-counted).
 			-- Acts as a reliable fallback; Fish hook provides instant response.
-			local follow_timer = nil
-			local follow_timer_refs = 0
-
-			local function start_follow_timer()
+			start_follow_timer = function()
 				follow_timer_refs = follow_timer_refs + 1
 				if follow_timer then
 					return
@@ -1902,7 +1910,7 @@ return {
 				end), { ["repeat"] = -1 })
 			end
 
-			local function stop_follow_timer()
+			stop_follow_timer = function()
 				follow_timer_refs = math.max(0, follow_timer_refs - 1)
 				if follow_timer_refs > 0 then
 					return

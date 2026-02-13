@@ -179,6 +179,24 @@ local function get_terminal_cwd()
 	return nil
 end
 
+-- Get the current working directory of the last-active tmux pane.
+-- Uses tmux's built-in pane_current_path tracking — no external tools needed.
+-- Returns nil if not running inside tmux or if the query fails.
+local function get_tmux_last_pane_cwd()
+	if not vim.env.TMUX then
+		return nil
+	end
+	local out = vim.fn.system("tmux display-message -p -t '{last}' '#{pane_current_path}' 2>/dev/null")
+	if vim.v.shell_error ~= 0 then
+		return nil
+	end
+	local path = out:gsub("\n$", "")
+	if path == "" then
+		return nil
+	end
+	return path
+end
+
 -- User toggle: set vim.g.diffview_auto_switch = false to disable
 -- automatic conflict detection and view switching.
 -- Default: true (enabled). Can be toggled at runtime via:
@@ -1763,16 +1781,7 @@ return {
 				end, 800)
 			end
 
-			-- FocusGained: catches external app switches (tmux pane, terminal app focus)
-			vim.api.nvim_create_autocmd('FocusGained', {
-				group = dv_focus_group,
-				callback = function()
-					vim.defer_fn(poll_with_retry, 200)
-				end,
-				desc = 'Refresh Diffview on focus gain (conflict detection)',
-			})
-
-			-- Shared reentrancy guard for repo-following (used by BufEnter and TermLeave).
+			-- Shared reentrancy guard for repo-following (used by FocusGained, BufEnter, TermLeave).
 			local repo_switch_in_progress = false
 
 			-- Shared retarget helper: close current Diffview, open for new_root.
@@ -1793,6 +1802,47 @@ return {
 					repo_switch_in_progress = false
 				end, 100)
 			end
+
+			-- FocusGained: conflict detection + tmux pane repo-following.
+			-- When you switch back to the Neovim tmux pane from another pane,
+			-- Neovim receives FocusGained. We query tmux for the last-active
+			-- pane's cwd and retarget Diffview if it's in a different repo.
+			vim.api.nvim_create_autocmd('FocusGained', {
+				group = dv_focus_group,
+				callback = function()
+					-- Conflict detection (existing)
+					vim.defer_fn(poll_with_retry, 200)
+
+					-- Tmux repo-following
+					if vim.g.diffview_follow_repo == false then
+						return
+					end
+					if repo_switch_in_progress then
+						return
+					end
+					local ok, lib = pcall(require, "diffview.lib")
+					if not ok or not lib.get_current_view() then
+						return
+					end
+					local pane_cwd = get_tmux_last_pane_cwd()
+					if not pane_cwd then
+						return
+					end
+					pane_cwd = vim.fn.resolve(pane_cwd)
+					if path_is_under(pane_cwd, diffview_current_root) then
+						return
+					end
+					local pane_root = find_repo_root(pane_cwd)
+					if not pane_root then
+						return
+					end
+					pane_root = vim.fn.resolve(pane_root)
+					if not diffview_current_root or pane_root ~= diffview_current_root then
+						retarget_diffview(pane_root)
+					end
+				end,
+				desc = 'Refresh Diffview on focus gain (conflict detection + tmux repo following)',
+			})
 
 			-- TermClose: detect conflicts started from :terminal splits.
 			-- Fires when the terminal job exits.

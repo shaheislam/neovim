@@ -76,35 +76,42 @@ local function get_git_root()
 end
 
 -- ============================================================================
--- Shared git helpers
+-- Shared git helpers (cached, non-blocking)
 -- ============================================================================
+
+-- Cache git remote URL per cwd (rarely changes during a session)
+local _git_cache = {}
+
+local function git_cmd(args)
+  local result = vim.fn.system(args)
+  if vim.v.shell_error ~= 0 then return nil end
+  return vim.trim(result)
+end
 
 -- Parse git remote URL into GitHub owner/repo
 local function get_github_repo()
-  local handle = io.popen("git -C " .. vim.fn.shellescape(vim.fn.getcwd()) .. " remote get-url origin 2>/dev/null")
-  if not handle then return nil end
-  local url = handle:read("*a"):gsub("%s+$", "")
-  handle:close()
-  if url == "" then return nil end
+  local cwd = vim.fn.getcwd()
+  if _git_cache[cwd] then return _git_cache[cwd] end
 
-  -- SSH: git@github.com:owner/repo.git
-  local owner, repo = url:match("git@github%.com:([^/]+)/(.+)$")
+  local url = git_cmd({ "git", "-C", cwd, "remote", "get-url", "origin" })
+  if not url then return nil end
+
+  -- SSH: git@github.com:owner/repo.git (also handles aliases like github.com-personal)
+  local owner, repo = url:match("git@github%.com[^:]*:([^/]+)/(.+)$")
   if not owner then
     -- HTTPS: https://github.com/owner/repo.git
     owner, repo = url:match("github%.com/([^/]+)/(.+)$")
   end
   if not owner then return nil end
   repo = repo:gsub("%.git$", "")
-  return owner .. "/" .. repo
+  local result = owner .. "/" .. repo
+  _git_cache[cwd] = result
+  return result
 end
 
 -- Get current commit SHA
 local function get_commit_sha()
-  local handle = io.popen("git -C " .. vim.fn.shellescape(vim.fn.getcwd()) .. " rev-parse HEAD 2>/dev/null")
-  if not handle then return nil end
-  local sha = handle:read("*a"):gsub("%s+$", "")
-  handle:close()
-  return sha ~= "" and sha or nil
+  return git_cmd({ "git", "-C", vim.fn.getcwd(), "rev-parse", "HEAD" })
 end
 
 -- Get file path relative to git root

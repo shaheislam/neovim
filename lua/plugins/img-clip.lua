@@ -3,7 +3,7 @@
 
 return {
   "HakonHarnes/img-clip.nvim",
-  event = "VeryLazy",
+  cmd = { "PasteImage" },
   opts = {
     -- Default options
     default = {

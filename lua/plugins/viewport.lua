@@ -4,7 +4,13 @@
 return {
   {
     "chancez/viewport.nvim",
-    lazy = false,
+    lazy = true,
+    keys = {
+      { "<C-z>", desc = "Toggle maximize current window" },
+      { "<leader>wv", desc = "Viewport Resize Mode" },
+      { "<leader>wn", desc = "Viewport Navigate Mode" },
+      { "<leader>ws", desc = "Viewport Select Mode" },
+    },
     config = function()
       local viewport = require("viewport")
 

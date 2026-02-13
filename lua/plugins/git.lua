@@ -1852,7 +1852,9 @@ return {
 			-- compare against the current Diffview's adapter root, and retarget
 			-- if the pane is in a different repo. Multi-tab safe.
 			-- Called by: FocusGained, timer polling, and RPC from Fish hook.
-			check_tmux_pane_and_retarget = function()
+			-- Optional cwd parameter: when provided (e.g. from Fish hook RPC),
+			-- skips tmux pane query. Falls back to tmux {last} pane otherwise.
+			check_tmux_pane_and_retarget = function(cwd)
 				if vim.g.diffview_follow_repo == false then
 					return
 				end
@@ -1867,7 +1869,7 @@ return {
 				if not current_view then
 					return
 				end
-				local pane_cwd = get_tmux_last_pane_cwd()
+				local pane_cwd = cwd or get_tmux_last_pane_cwd()
 				if not pane_cwd then
 					return
 				end
@@ -1922,10 +1924,14 @@ return {
 			end
 
 			-- RPC endpoint for Fish hook: called via
-			--   nvim --server $socket --remote-expr 'v:lua.diffview_check_pane()'
+			--   nvim --server $socket --remote-expr 'v:lua.diffview_check_pane("/path")'
+			-- Accepts optional cwd from the caller (Fish hook passes $PWD directly,
+			-- avoiding the {last} pane ambiguity when Neovim queries tmux itself).
 			-- vim.schedule ensures we run in the main loop (safe from RPC context).
-			_G.diffview_check_pane = function()
-				vim.schedule(check_tmux_pane_and_retarget)
+			_G.diffview_check_pane = function(cwd)
+				vim.schedule(function()
+					check_tmux_pane_and_retarget(cwd)
+				end)
 				return "ok"
 			end
 

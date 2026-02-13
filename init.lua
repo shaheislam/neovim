@@ -47,6 +47,12 @@ require("lazy").setup({
         "tohtml",
         "tutor",
         "zipPlugin",
+        "netrwPlugin",    -- oil.nvim replaces netrw
+        "matchit",        -- blink.pairs handles matching
+        "matchparen",     -- blink.pairs handles matching
+        "2html_plugin",
+        "spellfile_plugin",
+        "rplugin",
       },
     },
   },

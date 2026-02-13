@@ -79,8 +79,11 @@ end
 -- Shared git helpers (cached, non-blocking)
 -- ============================================================================
 
--- Cache git remote URL per cwd (rarely changes during a session)
+-- Cache git remote URL per cwd (invalidated on DirChanged)
 local _git_cache = {}
+vim.api.nvim_create_autocmd('DirChanged', {
+  callback = function() _git_cache = {} end,
+})
 
 local function git_cmd(args)
   local result = vim.fn.system(args)

@@ -47,9 +47,8 @@ require("lazy").setup({
         "tohtml",
         "tutor",
         "zipPlugin",
-        "netrwPlugin",    -- oil.nvim replaces netrw
-        "matchit",        -- blink.pairs handles matching
-        "matchparen",     -- blink.pairs handles matching
+        "netrwPlugin",    -- oil.nvim replaces file browsing; gx is built-in since nvim 0.11
+        "matchparen",     -- blink.pairs matchparen replaces this
         "2html_plugin",
         "spellfile_plugin",
         "rplugin",

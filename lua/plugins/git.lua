@@ -122,6 +122,10 @@ local cross_worktree_state = {
 -- Repo-following state: tracks which repo root Diffview is currently showing,
 -- so BufEnter can detect when the user switches to a buffer in a different repo.
 local diffview_current_root = nil
+-- Timestamp of the last RPC event from Fish hook (monotonic clock).
+-- The timer skips when a recent RPC already provided authoritative data,
+-- preventing the fallback from overriding a fresh hook result.
+local last_rpc_time = 0
 
 -- Find the repo/worktree root by walking up from dir to find .git.
 -- Returns the directory containing .git (the working tree root), or nil.
@@ -1952,6 +1956,12 @@ return {
 				-- vim.schedule_wrap: timer callbacks run from the Vim event loop,
 				-- but wrap for safety in case future Neovim versions change this.
 				follow_timer = vim.fn.timer_start(2000, vim.schedule_wrap(function()
+					-- Skip if RPC hook fired within the last 3 seconds (it already
+					-- provided authoritative data; timer would be redundant/stale).
+					local elapsed_ns = vim.uv.hrtime() - last_rpc_time
+					if elapsed_ns < 3e9 then
+						return
+					end
 					local cwd = get_tmux_active_pane_cwd()
 					if cwd then
 						check_tmux_pane_and_retarget(cwd)
@@ -1975,7 +1985,9 @@ return {
 			-- Accepts optional cwd from the caller (Fish hook passes $PWD directly,
 			-- avoiding the {last} pane ambiguity when Neovim queries tmux itself).
 			-- vim.schedule ensures we run in the main loop (safe from RPC context).
+			-- Records timestamp so the timer fallback defers to fresh RPC data.
 			_G.diffview_check_pane = function(cwd)
+				last_rpc_time = vim.uv.hrtime()
 				vim.schedule(function()
 					check_tmux_pane_and_retarget(cwd)
 				end)

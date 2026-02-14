@@ -138,89 +138,33 @@ return {
       return notify(msg, level, nopts)
     end
 
-    
-    -- Track manual scrolling to avoid interfering
-    local noice_manually_scrolled = {}
-    
-    -- Function to scroll to bottom only if not manually scrolled
-    local function scroll_to_bottom(force)
+    -- Scroll noice windows to bottom
+    local function scroll_to_bottom()
       for _, win in ipairs(vim.api.nvim_list_wins()) do
         local buf = vim.api.nvim_win_get_buf(win)
         local ft = vim.bo[buf].filetype
-        local bufname = vim.api.nvim_buf_get_name(buf)
-        if ft == "noice" or ft == "NoiceHistory" or ft == "NoiceSplit" or 
-           bufname:match("Noice") or bufname:match("noice") then
-          
-          -- Skip if manually scrolled (unless forced)
-          if not force and noice_manually_scrolled[win] then
-            -- Check if we're already at the bottom
-            local cursor = vim.api.nvim_win_get_cursor(win)
-            local line_count = vim.api.nvim_buf_line_count(buf)
-            if cursor[1] >= line_count - 1 then
-              -- We're near the bottom, clear the manual scroll flag
-              noice_manually_scrolled[win] = nil
-            else
-              -- Still manually scrolled, don't auto-scroll
-              return
-            end
-          end
-          
+        if ft == "noice" or ft == "NoiceHistory" or ft == "NoiceSplit" then
           local line_count = vim.api.nvim_buf_line_count(buf)
-          -- Save current window to restore later
-          local current_win = vim.api.nvim_get_current_win()
-          -- Move to last line
           vim.api.nvim_win_set_cursor(win, { line_count, 0 })
-          -- Only switch windows if needed for scrolling
-          if current_win == win then
+          if vim.api.nvim_get_current_win() == win then
             vim.cmd("normal! Gzb")
           end
         end
       end
     end
-    
-    -- Detect manual scrolling
-    vim.api.nvim_create_autocmd({ "WinScrolled" }, {
-      callback = function()
-        local win = vim.api.nvim_get_current_win()
-        -- Skip if no noice windows are tracked and this isn't a noice buffer
-        local buf = vim.api.nvim_win_get_buf(win)
-        local ft = vim.bo[buf].filetype
-        if ft == "noice" or ft == "NoiceHistory" or ft == "NoiceSplit" then
-          local cursor = vim.api.nvim_win_get_cursor(win)
-          local line_count = vim.api.nvim_buf_line_count(buf)
-          -- If we're not at the bottom, mark as manually scrolled
-          if cursor[1] < line_count - 2 then
-            noice_manually_scrolled[win] = true
-          else
-            noice_manually_scrolled[win] = nil
-          end
-        end
-      end,
-    })
-    
-    -- Initial scroll to bottom when opening
+
+    -- Scroll to bottom when opening noice windows or new messages arrive
     vim.api.nvim_create_autocmd({ "FileType", "BufWinEnter" }, {
       pattern = { "noice", "NoiceHistory", "NoiceSplit" },
       callback = function()
-        vim.defer_fn(function() scroll_to_bottom(true) end, 1)
+        vim.defer_fn(scroll_to_bottom, 1)
       end,
     })
-    
-    -- Scroll to bottom only when new messages are added
+
     vim.api.nvim_create_autocmd("User", {
       pattern = { "NoiceMessageAdded" },
       callback = function()
-        vim.defer_fn(function() scroll_to_bottom(false) end, 1)
-      end,
-    })
-    
-    -- Reset manual scroll flag when window is closed
-    vim.api.nvim_create_autocmd({ "WinClosed" }, {
-      callback = function()
-        local win = tonumber(vim.fn.expand("<afile>"))
-        if win then
-          noice_manually_scrolled[win] = nil
-        end
+        vim.defer_fn(scroll_to_bottom, 1)
       end,
     })
 

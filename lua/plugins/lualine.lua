@@ -10,6 +10,32 @@ return {
 			"lewis6991/gitsigns.nvim",
 		},
 		config = function()
+			-- Cache aerial status to avoid pcall(require) + symbol lookup on every refresh
+			local aerial_cache = { text = "", tick = 0 }
+			local function cached_aerial()
+				local tick = vim.b.changedtick or 0
+				if tick ~= aerial_cache.tick then
+					aerial_cache.tick = tick
+					local ok, aerial = pcall(require, "aerial")
+					if ok then
+						local symbols = aerial.get_location(true)
+						if symbols and #symbols > 0 then
+							local parts = {}
+							for i, s in ipairs(symbols) do
+								if i > 5 then break end
+								parts[#parts + 1] = (s.icon or "") .. " " .. s.name
+							end
+							aerial_cache.text = table.concat(parts, " ")
+						else
+							aerial_cache.text = ""
+						end
+					else
+						aerial_cache.text = ""
+					end
+				end
+				return aerial_cache.text
+			end
+
 			require("lualine").setup({
 				options = {
 					theme = "auto",
@@ -79,38 +105,10 @@ return {
 								return path .. modified_sign .. readonly_sign
 							end,
 						},
-						-- Aerial breadcrumb (current function/class/scope)
+						-- Aerial breadcrumb (cached — only recalculates on buffer change tick, not every CursorMoved)
 						{
-							"aerial",
-							sep = " ", -- separator between symbols
-							sep_icon = "", -- separator between icon and symbol
-							depth = 5, -- show up to 5 levels deep
-							dense = false, -- show full breadcrumb path
-							colored = true, -- color the symbol icons
-							cond = function()
-								-- Only show if aerial is loaded and has symbols
-								local ok, _ = pcall(require, "aerial")
-								return ok
-							end,
-						},
-						-- Session status from nvim-possession
-						{
-							function()
-								local ok, possession = pcall(require, "nvim-possession")
-								if ok then
-									return possession.status()
-								end
-								return ""
-							end,
-							cond = function()
-								local ok, possession = pcall(require, "nvim-possession")
-								if ok then
-									return possession.status() ~= nil and possession.status() ~= ""
-								end
-								return false
-							end,
-							color = { fg = "#7aa2f7", gui = "bold" },  -- Tokyo Night blue
-							icon = "📌",
+							cached_aerial,
+							cond = function() return aerial_cache.text ~= "" end,
 						},
 					},
 					lualine_x = {
@@ -162,6 +160,13 @@ return {
 					lualine_z = {},
 				},
 				extensions = { "lazy", "quickfix" },
+				-- Throttle statusline refresh to reduce per-scroll-frame overhead
+				-- Default is 100ms; 250ms still feels responsive but fires less during fast scrolling
+				refresh = {
+					statusline = 250,
+					tabline = 1000,
+					winbar = 1000,
+				},
 			})
 		end,
 	},

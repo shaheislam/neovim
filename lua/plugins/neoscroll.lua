@@ -16,9 +16,12 @@ return {
     keys = {
       -- Custom mappings with swapped scroll direction
       -- <C-d> scrolls UP (negative scroll value)
-      { "<C-d>", function() require('neoscroll').scroll(-vim.wo.scroll, true, 250) end, desc = "Scroll up (smooth)" },
+      -- Duration reduced from 250ms to 100ms to minimize CursorMoved autocmd triggers
+      -- (neoscroll fires CursorMoved per animation frame, each triggering blink.pairs,
+      -- LSP highlight clear, lualine refresh, and incline render)
+      { "<C-d>", function() require('neoscroll').scroll(-vim.wo.scroll, true, 100) end, desc = "Scroll up (smooth)" },
       -- <C-f> scrolls DOWN (positive scroll value)
-      { "<C-f>", function() require('neoscroll').scroll(vim.wo.scroll, true, 250) end, desc = "Scroll down (smooth)" },
+      { "<C-f>", function() require('neoscroll').scroll(vim.wo.scroll, true, 100) end, desc = "Scroll down (smooth)" },
     },
   },
 }

@@ -25,6 +25,7 @@ vim.opt.rtp:prepend(lazypath)
 -- Disable built-in plugins early (before runtime sources them)
 -- lazy.nvim's disabled_plugins handles gzip/tar/zip/tohtml/tutor,
 -- but these need explicit guards to prevent $VIMRUNTIME/plugin/ sourcing
+vim.g.loaded_netrw = 1          -- disable netrw library
 vim.g.loaded_netrwPlugin = 1    -- oil.nvim replaces file browsing; gx is built-in since nvim 0.11
 vim.g.loaded_matchparen = 1     -- blink.pairs matchparen replaces this
 vim.g.loaded_2html_plugin = 1
@@ -50,17 +51,14 @@ require("lazy").setup({
   checker = { enabled = false },             -- disable automatic update checks
   performance = {
     rtp = {
-      disabled_plugins = {
+disabled_plugins = {
         "gzip",
         "tarPlugin",
         "tohtml",
         "tutor",
         "zipPlugin",
-        "netrwPlugin",    -- oil.nvim replaces file browsing; gx is built-in since nvim 0.11
-        "matchparen",     -- blink.pairs matchparen replaces this
-        "2html_plugin",
-        "spellfile_plugin",
-        "rplugin",
+        -- netrwPlugin, matchparen, 2html_plugin, spellfile_plugin, rplugin
+        -- are disabled via vim.g.loaded_* guards above (more reliable)
       },
     },
   },

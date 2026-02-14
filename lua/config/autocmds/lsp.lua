@@ -60,19 +60,16 @@ function M.setup()
   -- Document Highlighting
   -- ============================================================================
 
-  -- Highlight symbol references under cursor
-  vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
+  -- Highlight symbol references under cursor (normal mode only)
+  vim.api.nvim_create_autocmd("CursorHold", {
     group = augroup("document_highlight"),
     callback = function()
       if is_diff_buf() then return end
       local clients = vim.lsp.get_clients({ bufnr = 0 })
       for _, client in pairs(clients) do
         if client.server_capabilities.documentHighlightProvider then
-          local ok, _ = pcall(vim.lsp.buf.document_highlight)
-          if not ok then
-            -- Silently fail if document highlight fails
-            return
-          end
+          pcall(vim.lsp.buf.document_highlight)
+          return -- one successful call is enough
         end
       end
     end,
@@ -97,32 +94,32 @@ function M.setup()
   -- Diagnostics Display
   -- ============================================================================
 
+  -- Boolean flag to track whether our diagnostic float is open.
+  -- Replaces the previous O(n) window scan (nvim_list_wins + nvim_win_get_config per window).
+  local diagnostic_float_open = false
+
+  -- Reset flag when cursor moves or we leave the context
+  vim.api.nvim_create_autocmd({ "CursorMoved", "InsertEnter", "BufLeave" }, {
+    group = augroup("diagnostic_hover_reset"),
+    callback = function()
+      diagnostic_float_open = false
+    end,
+  })
+
   -- Show diagnostics in hover window when cursor is on a line with diagnostics
   vim.api.nvim_create_autocmd("CursorHold", {
     group = augroup("diagnostic_hover"),
     callback = function()
       if is_diff_buf() then return end
-      -- Check if diagnostics are enabled globally
-      local diagnostics_enabled = true
-      if vim.diagnostic.is_enabled then
-        diagnostics_enabled = vim.diagnostic.is_enabled()
-      end
+      if diagnostic_float_open then return end
 
-      -- Only show if diagnostics are enabled AND there are diagnostics on the current line
-      if not diagnostics_enabled then
+      -- Check if diagnostics are enabled globally
+      if vim.diagnostic.is_enabled and not vim.diagnostic.is_enabled() then
         return
       end
 
       local diagnostics = vim.diagnostic.get(0, { lnum = vim.fn.line(".") - 1 })
       if #diagnostics > 0 then
-        -- Check if any floating window is already open
-        for _, win in ipairs(vim.api.nvim_list_wins()) do
-          local config = vim.api.nvim_win_get_config(win)
-          if config.relative ~= "" then
-            return -- Don't open if a floating window exists
-          end
-        end
-
         vim.diagnostic.open_float(nil, {
           focusable = false,
           close_events = { "BufLeave", "CursorMoved", "InsertEnter", "FocusLost" },
@@ -131,6 +128,7 @@ function M.setup()
           prefix = " ",
           scope = "cursor",
         })
+        diagnostic_float_open = true
       end
     end,
   })
@@ -163,11 +161,15 @@ function M.setup()
     end
   end
 
-  -- Auto-refresh code lens on specific events (opt-in via global variable)
+  -- Auto-refresh code lens (debounced, no BufEnter to avoid spurious fires)
   if vim.g.auto_refresh_codelens then
-    vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "BufWritePost" }, {
+    local codelens_timer = vim.uv.new_timer()
+    vim.api.nvim_create_autocmd({ "InsertLeave", "BufWritePost" }, {
       group = augroup("codelens_refresh"),
-      callback = refresh_codelens,
+      callback = function()
+        codelens_timer:stop()
+        codelens_timer:start(500, 0, vim.schedule_wrap(refresh_codelens))
+      end,
     })
   end
 
@@ -299,32 +301,9 @@ function M.setup()
     end,
   })
 
-  -- ============================================================================
-  -- Semantic Tokens
-  -- ============================================================================
-
-  -- Refresh semantic tokens periodically for better highlighting
-  vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "InsertLeave" }, {
-    group = augroup("semantic_tokens"),
-    callback = function()
-      if is_diff_buf() then return end
-      -- Skip markdown files (Marksman doesn't support semantic tokens)
-      if vim.bo.filetype == "markdown" then
-        return
-      end
-      local clients = vim.lsp.get_clients({ bufnr = 0 })
-      for _, client in pairs(clients) do
-        if client.server_capabilities.semanticTokensProvider then
-          vim.schedule(function()
-            pcall(vim.lsp.buf_request, 0, "textDocument/semanticTokens/full", {
-              textDocument = vim.lsp.util.make_text_document_params(),
-            })
-          end)
-          break
-        end
-      end
-    end,
-  })
+  -- Semantic tokens: handled natively by Neovim 0.11+ via
+  -- workspace/semanticTokens/refresh notifications from the LSP server.
+  -- No manual autocmd needed.
 end
 
 return M

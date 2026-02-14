@@ -103,6 +103,7 @@ opt.cursorline = true
 opt.scrolloff = 8
 opt.sidescrolloff = 8
 opt.wrap = false
+opt.synmaxcol = 300 -- Limit syntax highlighting to first 300 columns (off-screen with wrap=false)
 opt.fillchars:append({ diff = "╱" }) -- Diagonal lines for deleted diff regions
 
 -- Diff options for better diff visualization

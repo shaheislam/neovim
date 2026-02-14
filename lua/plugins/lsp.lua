@@ -214,10 +214,12 @@ return {
                 enableCodeLens = true,
                 autoSearchPaths = true,
                 useLibraryCodeForTypes = true,
-                -- Enable inlay hints for type information
-                inlayHints = {
-                  variableTypes = true,
-                  functionReturnTypes = true,
+                -- Inlay hints disabled: each hint adds an inline extmark that
+              -- Neovim must render per scroll frame, causing jank in Python files.
+              -- Use K (hover) to see types on demand instead.
+              inlayHints = {
+                  variableTypes = false,
+                  functionReturnTypes = false,
                 },
               },
             },

@@ -48,7 +48,7 @@ return {
     require("symbol-usage").setup({
       text_format = text_format,
       vt_position = "end_of_line",
-      disable = { lsp = { "pylsp", "pyright" } }, -- Disabled for some LSPs that don't support it well
+      disable = { lsp = { "pylsp", "pyright", "basedpyright" } }, -- basedpyright already provides inlay hints; symbol-usage adds redundant extmarks causing scroll jank
       filetypes = { -- Enable only for specific filetypes
         "rust",
         "go",

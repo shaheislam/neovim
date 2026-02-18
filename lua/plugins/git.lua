@@ -187,7 +187,12 @@ end
 -- Resolve the tmux window ID containing Neovim's pane ($TMUX_PANE).
 -- All pane queries are scoped to this window to avoid cross-window/client
 -- bleed when multiple clients or windows are attached to the same session.
+-- PERF: Cached for session lifetime — window ID never changes for a Neovim instance.
+local _cached_window_id = nil
 local function get_neovim_window_id()
+	if _cached_window_id then
+		return _cached_window_id
+	end
 	if not vim.env.TMUX or not vim.env.TMUX_PANE then
 		return nil
 	end
@@ -201,6 +206,7 @@ local function get_neovim_window_id()
 	if wid == "" then
 		return nil
 	end
+	_cached_window_id = wid
 	return wid
 end
 
@@ -226,6 +232,31 @@ local function get_tmux_last_pane_cwd()
 		return nil
 	end
 	return path
+end
+
+-- Async version of get_tmux_last_pane_cwd: non-blocking tmux IPC.
+-- Calls callback(cwd_or_nil) when complete.
+local function get_tmux_last_pane_cwd_async(callback)
+	local wid = get_neovim_window_id()
+	if not wid then
+		callback(nil)
+		return
+	end
+	local target = wid .. ".{last}"
+	vim.system(
+		{ "tmux", "display-message", "-p", "-t", target, "#{pane_current_path}" },
+		{ text = true },
+		function(result)
+			vim.schedule(function()
+				if result.code ~= 0 or not result.stdout then
+					callback(nil)
+					return
+				end
+				local path = result.stdout:gsub("\n$", "")
+				callback(path ~= "" and path or nil)
+			end)
+		end
+	)
 end
 
 -- Get the cwd of the currently active (focused) pane in Neovim's window,
@@ -259,6 +290,43 @@ local function get_tmux_active_pane_cwd()
 		end
 	end
 	return nil
+end
+
+-- Async version of get_tmux_active_pane_cwd: non-blocking tmux IPC.
+-- PERF: This is the hot path — called every timer tick. Using vim.system()
+-- prevents blocking Neovim's UI thread, which is critical when multiple
+-- Neovim instances all poll tmux's single-threaded server simultaneously.
+-- Calls callback(cwd_or_nil) when complete.
+local function get_tmux_active_pane_cwd_async(callback)
+	local wid = get_neovim_window_id()
+	if not wid then
+		callback(nil)
+		return
+	end
+	vim.system(
+		{ "tmux", "list-panes", "-t", wid, "-F", "#{pane_active} #{pane_id} #{pane_current_path}" },
+		{ text = true },
+		function(result)
+			vim.schedule(function()
+				if result.code ~= 0 or not result.stdout then
+					callback(nil)
+					return
+				end
+				for line in result.stdout:gmatch("[^\n]+") do
+					local active, pane_id, path = line:match("^(%d) (%%%d+) (.+)$")
+					if active == "1" then
+						if pane_id == vim.env.TMUX_PANE or path == "" then
+							callback(nil)
+							return
+						end
+						callback(path)
+						return
+					end
+				end
+				callback(nil)
+			end)
+		end
+	)
 end
 
 -- User toggle: set vim.g.diffview_auto_switch = false to disable
@@ -1969,12 +2037,18 @@ return {
 				end
 			end
 
-			-- Timer-based polling: check tmux pane cwd every 2 seconds.
+			-- Timer-based polling: check tmux pane cwd periodically.
 			-- Starts when Diffview opens, stops when ALL views close (ref-counted).
 			-- Acts as a reliable fallback; Fish hook provides instant response.
-			-- Uses get_tmux_active_pane_cwd() (not {last}) because when the user
-			-- is in a shell pane, {last} points to Neovim's own pane — causing the
-			-- timer to override the Fish hook's correct result with Neovim's cwd.
+			-- Uses get_tmux_active_pane_cwd_async() to avoid blocking Neovim's UI
+			-- thread — critical when multiple worktrees each run Diffview, as all
+			-- their timers hit tmux's single-threaded server simultaneously.
+			-- Adaptive interval: 3s base, backs off to 5s after 5 idle ticks.
+			local FOLLOW_TIMER_BASE_MS = 3000
+			local FOLLOW_TIMER_IDLE_MS = 5000
+			local follow_idle_ticks = 0
+			local follow_async_in_flight = false
+
 			start_follow_timer = function()
 				follow_timer_refs = follow_timer_refs + 1
 				if follow_timer then
@@ -1983,19 +2057,59 @@ return {
 				if not vim.env.TMUX then
 					return
 				end
-				-- vim.schedule_wrap: timer callbacks run from the Vim event loop,
-				-- but wrap for safety in case future Neovim versions change this.
-				follow_timer = vim.fn.timer_start(2000, vim.schedule_wrap(function()
+				follow_idle_ticks = 0
+				follow_timer = vim.fn.timer_start(FOLLOW_TIMER_BASE_MS, vim.schedule_wrap(function()
 					-- Skip if RPC hook fired since last timer tick (it already
 					-- provided authoritative cwd; timer would be redundant).
 					if follow_rpc_seq > follow_timer_seen_seq then
 						follow_timer_seen_seq = follow_rpc_seq
+						follow_idle_ticks = 0
 						return
 					end
-					local cwd = get_tmux_active_pane_cwd()
-					if cwd then
-						check_tmux_pane_and_retarget(cwd)
+					-- Skip if previous async query still in flight (prevents pile-up)
+					if follow_async_in_flight then
+						return
 					end
+					follow_async_in_flight = true
+					get_tmux_active_pane_cwd_async(function(cwd)
+						follow_async_in_flight = false
+						if cwd then
+							follow_idle_ticks = 0
+							check_tmux_pane_and_retarget(cwd)
+						else
+							follow_idle_ticks = follow_idle_ticks + 1
+						end
+						-- Adaptive interval: back off when idle to reduce tmux IPC pressure
+						if follow_timer and follow_idle_ticks > 5 then
+							vim.fn.timer_stop(follow_timer)
+							follow_timer = vim.fn.timer_start(FOLLOW_TIMER_IDLE_MS, vim.schedule_wrap(function()
+								-- Re-check with same logic; reset to base on activity
+								if follow_rpc_seq > follow_timer_seen_seq then
+									follow_timer_seen_seq = follow_rpc_seq
+									follow_idle_ticks = 0
+									return
+								end
+								if follow_async_in_flight then
+									return
+								end
+								follow_async_in_flight = true
+								get_tmux_active_pane_cwd_async(function(cwd2)
+									follow_async_in_flight = false
+									if cwd2 then
+										follow_idle_ticks = 0
+										-- Switch back to base interval on activity
+										if follow_timer then
+											vim.fn.timer_stop(follow_timer)
+											start_follow_timer()
+											-- Adjust ref count since start_follow_timer increments it
+											follow_timer_refs = follow_timer_refs - 1
+										end
+										check_tmux_pane_and_retarget(cwd2)
+									end
+								end)
+							end), { ["repeat"] = -1 })
+						end
+					end)
 				end), { ["repeat"] = -1 })
 			end
 
@@ -2041,16 +2155,28 @@ return {
 			-- When you switch back to the Neovim tmux pane from another pane,
 			-- Neovim receives FocusGained. We query tmux for the last-active
 			-- pane's cwd and retarget Diffview if it's in a different repo.
+			-- PERF: Uses async tmux query to avoid blocking UI during focus gain.
 			vim.api.nvim_create_autocmd('FocusGained', {
 				group = dv_focus_group,
 				callback = function()
 					-- Conflict detection (existing)
 					vim.defer_fn(poll_with_retry, 200)
 
-					-- Tmux repo-following (shared logic)
-					check_tmux_pane_and_retarget()
+					-- Tmux repo-following (async to avoid blocking on focus gain)
+					if vim.g.diffview_follow_repo == false or repo_switch_in_progress then
+						return
+					end
+					local ok, lib = pcall(require, "diffview.lib")
+					if not ok or not lib.get_current_view() then
+						return
+					end
+					get_tmux_last_pane_cwd_async(function(cwd)
+						if cwd then
+							check_tmux_pane_and_retarget(cwd)
+						end
+					end)
 				end,
-				desc = 'Refresh Diffview on focus gain (conflict detection + tmux repo following)',
+				desc = 'Refresh Diffview on focus gain (conflict detection + async tmux repo following)',
 			})
 
 			-- TermClose: detect conflicts started from :terminal splits.

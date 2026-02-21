@@ -19,11 +19,18 @@ return {
 
       -- Sources
       sources = {
-        default = { "lsp", "path", "snippets", "buffer", "git" },
+        default = { "lsp", "path", "snippets", "buffer", "git", "codecompanion" },
         per_filetype = {
           markdown = { "obsidian", "obsidian_new", "obsidian_tags", "lsp", "path", "snippets", "buffer", "git" },
         },
         providers = {
+          codecompanion = {
+            name = "CodeCompanion",
+            module = "codecompanion.providers.completion.blink",
+            enabled = function()
+              return vim.bo.filetype == "codecompanion"
+            end,
+          },
           git = {
             module = "blink-cmp-git",
             name = "Git",

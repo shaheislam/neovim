@@ -48,6 +48,7 @@ return {
 			-- Define key groups (leader key mappings)
 			wk.add({
 				-- Core groups
+				{ "<leader>a", group = "ai (CodeCompanion)" },
 				{ "<leader>c", group = "code/lsp" },
 				{ "<leader>f", group = "find/file" },
 				{ "<leader>g", group = "git" },

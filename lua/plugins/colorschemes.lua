@@ -2,11 +2,11 @@
 -- Multiple themes for fzf-lua colorscheme picker
 
 return {
-  -- OneDark
+  -- OneDark (default theme)
   {
     "navarasu/onedark.nvim",
-    lazy = true,
-    priority = 996,
+    lazy = false,
+    priority = 1000,
     opts = {
       style = 'dark',
       transparent = true,
@@ -20,6 +20,10 @@ return {
         variables = 'none'
       },
     },
+    config = function(_, opts)
+      require("onedark").setup(opts)
+      require("onedark").load()
+    end,
   },
 
   -- Catppuccin Mocha
@@ -38,11 +42,11 @@ return {
     end,
   },
 
-  -- Tokyo Night Storm (default theme)
+  -- Tokyo Night Storm
   {
     "folke/tokyonight.nvim",
-    lazy = false,
-    priority = 1000,
+    lazy = true,
+    priority = 996,
     opts = {
       style = "storm",
       transparent = true,
@@ -50,7 +54,6 @@ return {
     },
     config = function(_, opts)
       require("tokyonight").setup(opts)
-      vim.cmd([[colorscheme tokyonight]])
     end,
   },
 

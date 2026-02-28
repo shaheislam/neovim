@@ -46,7 +46,7 @@ return {
   {
     "folke/tokyonight.nvim",
     lazy = true,
-    priority = 996,
+    priority = 997,
     opts = {
       style = "storm",
       transparent = true,

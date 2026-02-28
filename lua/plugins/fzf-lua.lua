@@ -1223,6 +1223,29 @@ return {
                     end
                   end, { buffer = preview_buf, silent = true })
 
+                  -- Esc/q: Close the picker from preview window
+                  -- Sends raw escape byte to fzf terminal channel, causing fzf to abort.
+                  -- Guard chain: self alive → buf valid → buf is terminal → channel alive → pcall send.
+                  local function close_picker_from_preview()
+                    local cur_self = win.__SELF()
+                    if not cur_self then return end
+                    local fzf_buf = cur_self.fzf_bufnr
+                    if not fzf_buf or not vim.api.nvim_buf_is_valid(fzf_buf) then return end
+                    -- Confirm this is actually a terminal buffer (proves channel ownership)
+                    if vim.bo[fzf_buf].buftype ~= "terminal" then return end
+                    local chan = vim.bo[fzf_buf].channel
+                    if not chan or chan <= 0 then return end
+                    local ok = pcall(vim.fn.chansend, chan, "\27")
+                    if not ok then
+                      -- Channel dead/stale — fallback: close fzf window directly
+                      pcall(vim.api.nvim_win_close, cur_self.fzf_winid, true)
+                    end
+                  end
+                  vim.keymap.set("n", "<Esc>", close_picker_from_preview,
+                    { buffer = preview_buf, silent = true, desc = "Close picker" })
+                  vim.keymap.set("n", "q", close_picker_from_preview,
+                    { buffer = preview_buf, silent = true, desc = "Close picker" })
+
                   -- i: Make preview buffer editable and enter insert mode
                   vim.keymap.set("n", "i", function()
                     -- Get the currently previewed entry from the previewer

@@ -1380,7 +1380,7 @@ return {
 
 			require("diffview").setup({
 				diff_binaries = false, -- Show diffs for binaries
-				enhanced_diff_hl = true, -- Better syntax highlighting in diffs
+				enhanced_diff_hl = false, -- Disabled: adds per-line extra highlight pass; treesitter is stopped in diff_buf_read anyway
 				git_cmd = { "git" },
 				hg_cmd = { "hg" },
 				use_icons = true, -- File icons in file panel
@@ -1577,6 +1577,12 @@ return {
 					-- Called when diffview is opened
 					view_opened = function(view)
 						vim.notify("Diffview opened", vim.log.levels.DEBUG)
+						-- Disable incline globally while DiffView is open.
+						-- The filetype-based exclusion (DiffviewFiles/DiffviewFileHistory)
+						-- only catches the file panel, not the actual diff buffer views
+						-- which have no special filetype. incline's render() fires on
+						-- every redraw (every scroll frame), so this is critical for perf.
+						pcall(function() require("incline").disable() end)
 						-- Track which repo root this Diffview is showing (for repo-following).
 						-- Read directly from Diffview's adapter context — this correctly
 						-- reflects the -C<path> flag used by retarget_diffview, without
@@ -1730,6 +1736,8 @@ return {
 					-- Called when diffview is closed
 					view_closed = function(view)
 						vim.notify("Diffview closed", vim.log.levels.DEBUG)
+						-- Re-enable incline (disabled in view_opened for scroll perf)
+						pcall(function() require("incline").enable() end)
 						diffview_current_root = nil
 						-- Stop follow timer (ref-counted: only stops on last view close).
 						-- Only remove tmux socket when no views remain.
@@ -1773,6 +1781,8 @@ return {
 									end
 									-- Re-enable diagnostics
 									pcall(vim.diagnostic.enable, true, { bufnr = bufnr })
+									-- Re-enable blink.pairs matchparen
+									vim.b[bufnr].blink_pairs = nil
 									-- Re-attach gitsigns
 									if package.loaded.gitsigns then
 										pcall(require("gitsigns").attach, bufnr)
@@ -1809,6 +1819,18 @@ return {
 						-- Clear custom statuscolumn — native 'number' option renders
 						-- line numbers in C without per-line expression evaluation
 						vim.wo.statuscolumn = ""
+
+						-- Disable blink.pairs matchparen per-buffer.
+						-- Matchparen re-evaluates on every CursorMoved, and neoscroll
+						-- fires CursorMoved per animation frame, creating a cascade.
+						vim.b[bufnr].blink_pairs = false
+
+						-- Replace neoscroll's smooth scroll with native scrolling in diff buffers.
+						-- Neoscroll fires CursorMoved per animation frame (~6 events per scroll),
+						-- each triggering blink.pairs, lualine, and other CursorMoved listeners.
+						-- Native <C-u>/<C-d> fires a single CursorMoved, eliminating the cascade.
+						vim.keymap.set("n", "<C-d>", "<C-u>", { buffer = bufnr, desc = "Native scroll up (diff)" })
+						vim.keymap.set("n", "<C-f>", "<C-d>", { buffer = bufnr, desc = "Native scroll down (diff)" })
 
 						-- Detach gitsigns from diff buffers (prevents blame/word_diff per-buffer)
 						vim.defer_fn(function()

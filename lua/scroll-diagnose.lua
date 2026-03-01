@@ -5,12 +5,12 @@
 
 _G.ScrollDiag = _G.ScrollDiag or {}
 local tests = {
-  { name = "neoscroll",    desc = "Disable smooth scroll animation (neoscroll.nvim)" },
-  { name = "incline",      desc = "Disable floating filename bar (incline.nvim)" },
+  { name = "neoscroll",    desc = "Disable smooth scroll animation (neoscroll.nvim) [auto-disabled in DiffView]" },
+  { name = "incline",      desc = "Disable floating filename bar (incline.nvim) [auto-disabled in DiffView]" },
   { name = "blink_indent", desc = "Disable indent scope guides (blink.indent)" },
-  { name = "blink_pairs",  desc = "Disable rainbow matchparen (blink.pairs)" },
-  { name = "cursorline",   desc = "Disable cursor line highlight" },
-  { name = "relativenumber", desc = "Disable relative line numbers" },
+  { name = "blink_pairs",  desc = "Disable rainbow matchparen (blink.pairs) [auto-disabled in DiffView]" },
+  { name = "cursorline",   desc = "Disable cursor line highlight [auto-disabled in DiffView]" },
+  { name = "relativenumber", desc = "Disable relative line numbers [auto-disabled in DiffView]" },
   { name = "lualine_aerial", desc = "Remove aerial breadcrumb from statusline" },
 }
 

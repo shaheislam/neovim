@@ -39,6 +39,8 @@ return {
       "prompt",      -- Prompt buffers
       "TelescopePrompt",
       "TelescopeResults",
+      "DiffviewFiles",       -- DiffView file panel (scroll perf)
+      "DiffviewFileHistory", -- DiffView history panel (scroll perf)
     },
 
     -- Exclude certain buffer types

@@ -303,18 +303,18 @@ Other optimizations already in place:
 - statuscolumn uses %l instead of %{v:lnum} (avoids Vimscript eval)
 - synmaxcol=300 limits syntax highlighting to visible columns
 - blink.indent has static guides disabled (scope-only)
-- incline.nvim is disabled in diffview filetypes
-- neoscroll uses 250ms animation duration
+- incline.nvim disabled globally in DiffView view_opened hook
+- neoscroll replaced with native scrolling in diff buffers
+- blink.pairs matchparen disabled per-buffer in diff views
+- enhanced_diff_hl disabled (redundant with treesitter stop)
+- marks.nvim excludes DiffView filetypes
 - built-in plugins disabled early via vim.g.loaded_* guards
 - vim.loader enabled for faster Lua module loading
 
-If scrolling still feels janky after this fix, the next things to
-investigate would be:
-1. Disable neoscroll.nvim temporarily (smooth scroll overhead)
-2. Disable incline.nvim temporarily (per-redraw diagnostic fetch)
-3. Check if a specific treesitter parser is slow
-4. Profile with :lua vim.lsp.set_log_level("off") to rule out LSP
-5. Use :Lazy profile to identify slow plugin loads
+If scrolling still feels janky after these fixes, investigate:
+1. Check if a specific treesitter parser is slow (non-diff buffers)
+2. Profile with :lua vim.lsp.set_log_level("off") to rule out LSP
+3. Use :Lazy profile to identify slow plugin loads
 
 You can profile Neovim's redraw with:
   :set eventignore=WinScrolled

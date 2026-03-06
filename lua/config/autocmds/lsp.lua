@@ -206,6 +206,7 @@ function M.setup()
             group = augroup("inlay_hints_normal"),
             buffer = args.buf,
             callback = function()
+              if is_diff_buf(args.buf) then return end
               if vim.lsp.inlay_hint then
                 vim.lsp.inlay_hint.enable(true, { bufnr = args.buf })
               end

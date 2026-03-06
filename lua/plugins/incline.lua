@@ -126,8 +126,9 @@ return {
           return
         end
         -- Secondary: check DiffView view state (covers non-diff panels like file list).
-        -- Note: incline.disable()/enable() are global operations — there is no
-        -- per-window control. The global guard matches the global disable in view_opened.
+        -- get_current_view() is tab-scoped (checks nvim_get_current_tabpage), so
+        -- this only suppresses re-enable in the tab containing DiffView, not globally.
+        -- incline.disable()/enable() are themselves global, matching view_opened's disable.
         -- Fully defensive: pcall the require AND guard against API shape changes.
         local dv_ok, dv_lib = pcall(require, "diffview.lib")
         if dv_ok and type(dv_lib.get_current_view) == "function" and dv_lib.get_current_view() then

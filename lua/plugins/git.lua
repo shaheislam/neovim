@@ -1782,12 +1782,9 @@ return {
 									end
 									-- Re-enable diagnostics
 									pcall(vim.diagnostic.enable, true, { bufnr = bufnr })
-									-- Re-enable blink.pairs matchparen and indent guides.
-									-- nil = "defer to global config" which is the default enabled state.
-									-- Unlike inlay hints, these don't support per-buffer user toggles,
-									-- so nil restoration is always correct.
-									vim.b[bufnr].blink_pairs = nil
-									vim.b[bufnr].indent_guide = nil
+									-- Restore blink.pairs and indent guide to exact prior state
+									vim.b[bufnr].blink_pairs = prior.blink_pairs
+									vim.b[bufnr].indent_guide = prior.indent_guide
 									-- Restore inlay hints only if they were enabled before
 									if vim.lsp.inlay_hint and prior.inlay_hints then
 										pcall(vim.lsp.inlay_hint.enable, true, { bufnr = bufnr })
@@ -1817,8 +1814,11 @@ return {
 						end)
 					end,
 					diff_buf_read = function(bufnr)
-						-- Track this buffer with prior state for restoration
+						-- Track this buffer with prior state for exact restoration
 						local prior = {}
+						-- Capture buffer-local toggle state (nil = "use global default")
+						prior.blink_pairs = vim.b[bufnr].blink_pairs
+						prior.indent_guide = vim.b[bufnr].indent_guide
 						-- Capture inlay hint state before disabling
 						if vim.lsp.inlay_hint then
 							prior.inlay_hints = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })

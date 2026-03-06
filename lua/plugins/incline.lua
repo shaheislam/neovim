@@ -125,9 +125,12 @@ return {
         if vim.wo.diff then
           return
         end
-        -- Secondary: check DiffView view state (covers non-diff panels like file list)
+        -- Secondary: check DiffView view state (covers non-diff panels like file list).
+        -- Note: incline.disable()/enable() are global operations — there is no
+        -- per-window control. The global guard matches the global disable in view_opened.
+        -- Fully defensive: pcall the require AND guard against API shape changes.
         local dv_ok, dv_lib = pcall(require, "diffview.lib")
-        if dv_ok and dv_lib.get_current_view() then
+        if dv_ok and type(dv_lib.get_current_view) == "function" and dv_lib.get_current_view() then
           return
         end
         require("incline").enable()

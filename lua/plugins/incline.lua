@@ -115,9 +115,17 @@ return {
       pattern = "*",
       callback = function()
         local ft = vim.bo.filetype
-        if not vim.tbl_contains(excluded_fts, ft) then
-          require("incline").enable()
+        if vim.tbl_contains(excluded_fts, ft) then
+          return
         end
+        -- Don't re-enable while DiffView is open (view_opened disables for scroll perf;
+        -- diff panes have the original file's filetype, not DiffviewFiles, so the
+        -- filetype check above misses them).
+        local dv_ok, dv_lib = pcall(require, "diffview.lib")
+        if dv_ok and dv_lib.get_current_view() then
+          return
+        end
+        require("incline").enable()
       end,
     })
   end,

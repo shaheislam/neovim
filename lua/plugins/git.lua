@@ -1781,8 +1781,19 @@ return {
 									end
 									-- Re-enable diagnostics
 									pcall(vim.diagnostic.enable, true, { bufnr = bufnr })
-									-- Re-enable blink.pairs matchparen
+									-- Re-enable blink.pairs matchparen and indent guides
 									vim.b[bufnr].blink_pairs = nil
+									vim.b[bufnr].indent_guide = nil
+									-- Re-enable inlay hints
+									if vim.lsp.inlay_hint then
+										pcall(vim.lsp.inlay_hint.enable, true, { bufnr = bufnr })
+									end
+									-- Re-attach symbol-usage
+									if package.loaded["symbol-usage"] then
+										pcall(function()
+											require("symbol-usage.buf").attach_buffer(bufnr)
+										end)
+									end
 									-- Re-attach gitsigns
 									if package.loaded.gitsigns then
 										pcall(require("gitsigns").attach, bufnr)
@@ -1832,6 +1843,10 @@ return {
 						vim.keymap.set("n", "<C-d>", "<C-u>", { buffer = bufnr, desc = "Native scroll up (diff)" })
 						vim.keymap.set("n", "<C-f>", "<C-d>", { buffer = bufnr, desc = "Native scroll down (diff)" })
 
+						-- Disable blink.indent scope guides per-buffer
+						-- (blocked filetypes only cover DiffviewFiles panel, not diff panes)
+						vim.b[bufnr].indent_guide = false
+
 						-- Detach gitsigns from diff buffers (prevents blame/word_diff per-buffer)
 						vim.defer_fn(function()
 							if package.loaded.gitsigns then
@@ -1856,6 +1871,18 @@ return {
 						local ok, err = pcall(vim.diagnostic.enable, false, { bufnr = bufnr })
 						if not ok then
 							vim.notify("diagnostic disable failed (buf " .. bufnr .. "): " .. tostring(err), vim.log.levels.DEBUG)
+						end
+
+						-- Disable inlay hints (extmarks redrawn every scroll frame)
+						if vim.lsp.inlay_hint then
+							pcall(vim.lsp.inlay_hint.enable, false, { bufnr = bufnr })
+						end
+
+						-- Detach symbol-usage extmarks (reference/implementation counts)
+						if package.loaded["symbol-usage"] then
+							pcall(function()
+								require("symbol-usage.buf").clear_buffer(bufnr)
+							end)
 						end
 
 						-- Detach terraform-ls from diff buffers (crashes on diffview:// URIs).

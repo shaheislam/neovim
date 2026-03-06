@@ -118,9 +118,14 @@ return {
         if vim.tbl_contains(excluded_fts, ft) then
           return
         end
-        -- Don't re-enable while DiffView is open (view_opened disables for scroll perf;
-        -- diff panes have the original file's filetype, not DiffviewFiles, so the
-        -- filetype check above misses them).
+        -- Don't re-enable while in a diff buffer or while DiffView is open.
+        -- view_opened disables incline globally for scroll perf; diff panes keep
+        -- the original file's filetype, so the filetype check above misses them.
+        -- Primary: window-local diff mode (works for any diff UI, no plugin dependency)
+        if vim.wo.diff then
+          return
+        end
+        -- Secondary: check DiffView view state (covers non-diff panels like file list)
         local dv_ok, dv_lib = pcall(require, "diffview.lib")
         if dv_ok and dv_lib.get_current_view() then
           return

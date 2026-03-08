@@ -5,7 +5,7 @@
 
 _G.ScrollDiag = _G.ScrollDiag or {}
 local tests = {
-  { name = "neoscroll",    desc = "Disable smooth scroll animation (neoscroll.nvim) [auto-disabled in DiffView]" },
+  { name = "neoscroll",    desc = "Disable neoscroll for C-b (C-d/C-f already use native scrolling)" },
   { name = "incline",      desc = "Disable floating filename bar (incline.nvim) [auto-disabled in DiffView]" },
   { name = "blink_indent", desc = "Disable indent scope guides (blink.indent)" },
   { name = "blink_pairs",  desc = "Disable rainbow matchparen (blink.pairs) [auto-disabled in DiffView]" },

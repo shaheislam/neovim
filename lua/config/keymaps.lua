@@ -31,24 +31,22 @@ keymap("n", "<leader>q", ":q<CR>", { desc = "Quit" })
 
 -- Global scroll direction swap (works in all buffers and windows)
 -- <C-d> = scroll UP, <C-f> = scroll DOWN
+-- Uses native Vim scrolling (not neoscroll) — neoscroll fires CursorMoved per
+-- animation frame causing lag when keys are held at fast repeat rates.
 local function setup_scroll_mappings()
-  -- For normal buffers: neoscroll provides smooth animations
-  -- For floating windows/popups (which-key, help, etc.): these keymaps provide the swap
   local modes = { "n", "v", "x" }
 
   for _, mode in ipairs(modes) do
-    -- <C-d> scrolls UP (use native <C-u>)
+    -- <C-d> scrolls UP (native <C-u> = half page up)
     vim.keymap.set(mode, "<C-d>", "<C-u>", {
       desc = "Scroll up",
       silent = true,
-      remap = true -- Allow neoscroll to intercept in normal buffers
     })
 
-    -- <C-f> scrolls DOWN (use native <C-d>)
+    -- <C-f> scrolls DOWN (native <C-d> = half page down)
     vim.keymap.set(mode, "<C-f>", "<C-d>", {
       desc = "Scroll down",
       silent = true,
-      remap = true -- Allow neoscroll to intercept in normal buffers
     })
   end
 end

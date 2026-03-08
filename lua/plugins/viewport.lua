@@ -41,6 +41,21 @@ return {
       vim.keymap.set('n', '<C-z>', function()
         require('viewport.actions').toggle_maximize()
       end, { desc = "Toggle maximize current window" })
+
+      -- Terminal-mode zoom for opencode.nvim (buffer-local to opencode terminals)
+      vim.api.nvim_create_autocmd("TermOpen", {
+        callback = function(ev)
+          vim.schedule(function()
+            local bufname = vim.api.nvim_buf_get_name(ev.buf)
+            if bufname:match("opencode") then
+              vim.keymap.set('t', '<C-z>', [[<C-\><C-n><cmd>lua require('viewport.actions').toggle_maximize()<cr>]], {
+                buffer = ev.buf,
+                desc = "Toggle maximize opencode window",
+              })
+            end
+          end)
+        end,
+      })
       vim.keymap.set('n', '<leader>wv', viewport.start_resize_mode, { desc = "Viewport Resize Mode" })
       vim.keymap.set('n', '<leader>wn', viewport.start_navigate_mode, { desc = "Viewport Navigate Mode" })
       vim.keymap.set('n', '<leader>ws', viewport.start_select_mode, { desc = "Viewport Select Mode" })

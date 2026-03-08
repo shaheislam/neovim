@@ -108,7 +108,8 @@ local commit_cycle_state = {
 -- Buffer for commit info display
 local commit_info_bufnr = nil
 
--- Track buffers modified by diff_buf_read for restoration on view_closed
+-- Track buffers modified by diff_buf_read for restoration on view_closed.
+-- Values store prior state: { inlay_hints = bool, symbol_usage = bool }
 local diffview_modified_bufs = {}
 
 -- Cross-worktree merge detection state
@@ -1773,7 +1774,7 @@ return {
 						-- Restore treesitter/diagnostics/gitsigns/window-opts on persisting buffers
 						-- (diffview:// buffers are wiped by now; only real files persist)
 						vim.schedule(function()
-							for bufnr, _ in pairs(diffview_modified_bufs) do
+							for bufnr, prior in pairs(diffview_modified_bufs) do
 								if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr) then
 									-- Re-enable treesitter highlighting
 									if vim.treesitter.start then
@@ -1781,8 +1782,19 @@ return {
 									end
 									-- Re-enable diagnostics
 									pcall(vim.diagnostic.enable, true, { bufnr = bufnr })
-									-- Re-enable blink.pairs matchparen
-									vim.b[bufnr].blink_pairs = nil
+									-- Restore blink.pairs and indent guide to exact prior state
+									vim.b[bufnr].blink_pairs = prior.blink_pairs
+									vim.b[bufnr].indent_guide = prior.indent_guide
+									-- Restore inlay hints only if they were enabled before
+									if vim.lsp.inlay_hint and prior.inlay_hints then
+										pcall(vim.lsp.inlay_hint.enable, true, { bufnr = bufnr })
+									end
+									-- Re-attach symbol-usage only if it was active before
+									if prior.symbol_usage and package.loaded["symbol-usage"] then
+										pcall(function()
+											require("symbol-usage.buf").attach_buffer(bufnr)
+										end)
+									end
 									-- Re-attach gitsigns
 									if package.loaded.gitsigns then
 										pcall(require("gitsigns").attach, bufnr)
@@ -1802,8 +1814,21 @@ return {
 						end)
 					end,
 					diff_buf_read = function(bufnr)
-						-- Track this buffer for restoration when diffview closes
-						diffview_modified_bufs[bufnr] = true
+						-- Track this buffer with prior state for exact restoration
+						local prior = {}
+						-- Capture buffer-local toggle state (nil = "use global default")
+						prior.blink_pairs = vim.b[bufnr].blink_pairs
+						prior.indent_guide = vim.b[bufnr].indent_guide
+						-- Capture inlay hint state before disabling
+						if vim.lsp.inlay_hint then
+							prior.inlay_hints = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
+						end
+						-- Capture symbol-usage state before clearing
+						if package.loaded["symbol-usage"] then
+							local su_state = require("symbol-usage.state")
+							prior.symbol_usage = next(su_state.get_buf_workers(bufnr)) ~= nil
+						end
+						diffview_modified_bufs[bufnr] = prior
 
 						-- Set local options for diff buffers
 						vim.opt_local.wrap = false
@@ -1832,6 +1857,10 @@ return {
 						vim.keymap.set("n", "<C-d>", "<C-u>", { buffer = bufnr, desc = "Native scroll up (diff)" })
 						vim.keymap.set("n", "<C-f>", "<C-d>", { buffer = bufnr, desc = "Native scroll down (diff)" })
 
+						-- Disable blink.indent scope guides per-buffer
+						-- (blocked filetypes only cover DiffviewFiles panel, not diff panes)
+						vim.b[bufnr].indent_guide = false
+
 						-- Detach gitsigns from diff buffers (prevents blame/word_diff per-buffer)
 						vim.defer_fn(function()
 							if package.loaded.gitsigns then
@@ -1856,6 +1885,18 @@ return {
 						local ok, err = pcall(vim.diagnostic.enable, false, { bufnr = bufnr })
 						if not ok then
 							vim.notify("diagnostic disable failed (buf " .. bufnr .. "): " .. tostring(err), vim.log.levels.DEBUG)
+						end
+
+						-- Disable inlay hints (extmarks redrawn every scroll frame)
+						if vim.lsp.inlay_hint then
+							pcall(vim.lsp.inlay_hint.enable, false, { bufnr = bufnr })
+						end
+
+						-- Detach symbol-usage extmarks (reference/implementation counts)
+						if package.loaded["symbol-usage"] then
+							pcall(function()
+								require("symbol-usage.buf").clear_buffer(bufnr)
+							end)
 						end
 
 						-- Detach terraform-ls from diff buffers (crashes on diffview:// URIs).

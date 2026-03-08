@@ -181,6 +181,8 @@ function M.setup()
   vim.api.nvim_create_autocmd({ "LspAttach" }, {
     group = augroup("inlay_hints"),
     callback = function(args)
+      -- Skip diff buffers (inlay hints disabled in diff_buf_read for scroll perf)
+      if is_diff_buf(args.buf) then return end
       local client = vim.lsp.get_client_by_id(args.data.client_id)
       if client and client.server_capabilities.inlayHintProvider then
         -- Enable inlay hints by default
@@ -204,6 +206,7 @@ function M.setup()
             group = augroup("inlay_hints_normal"),
             buffer = args.buf,
             callback = function()
+              if is_diff_buf(args.buf) then return end
               if vim.lsp.inlay_hint then
                 vim.lsp.inlay_hint.enable(true, { bufnr = args.buf })
               end

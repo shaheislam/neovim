@@ -115,9 +115,26 @@ return {
       pattern = "*",
       callback = function()
         local ft = vim.bo.filetype
-        if not vim.tbl_contains(excluded_fts, ft) then
-          require("incline").enable()
+        if vim.tbl_contains(excluded_fts, ft) then
+          return
         end
+        -- Don't re-enable while in a diff buffer or while DiffView is open.
+        -- view_opened disables incline globally for scroll perf; diff panes keep
+        -- the original file's filetype, so the filetype check above misses them.
+        -- Primary: window-local diff mode (works for any diff UI, no plugin dependency)
+        if vim.wo.diff then
+          return
+        end
+        -- Secondary: check DiffView view state (covers non-diff panels like file list).
+        -- get_current_view() is tab-scoped (checks nvim_get_current_tabpage), so
+        -- this only suppresses re-enable in the tab containing DiffView, not globally.
+        -- incline.disable()/enable() are themselves global, matching view_opened's disable.
+        -- Fully defensive: pcall the require AND guard against API shape changes.
+        local dv_ok, dv_lib = pcall(require, "diffview.lib")
+        if dv_ok and type(dv_lib.get_current_view) == "function" and dv_lib.get_current_view() then
+          return
+        end
+        require("incline").enable()
       end,
     })
   end,

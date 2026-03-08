@@ -7,10 +7,12 @@ _G.ScrollDiag = _G.ScrollDiag or {}
 local tests = {
   { name = "neoscroll",    desc = "Disable smooth scroll animation (neoscroll.nvim) [auto-disabled in DiffView]" },
   { name = "incline",      desc = "Disable floating filename bar (incline.nvim) [auto-disabled in DiffView]" },
-  { name = "blink_indent", desc = "Disable indent scope guides (blink.indent)" },
+  { name = "blink_indent", desc = "Disable indent scope guides (blink.indent) [auto-disabled in DiffView]" },
   { name = "blink_pairs",  desc = "Disable rainbow matchparen (blink.pairs) [auto-disabled in DiffView]" },
   { name = "cursorline",   desc = "Disable cursor line highlight [auto-disabled in DiffView]" },
   { name = "relativenumber", desc = "Disable relative line numbers [auto-disabled in DiffView]" },
+  { name = "inlay_hints",  desc = "Disable LSP inlay hints [auto-disabled in DiffView]" },
+  { name = "symbol_usage", desc = "Disable symbol-usage ref/impl extmarks [auto-disabled in DiffView]" },
   { name = "lualine_aerial", desc = "Remove aerial breadcrumb from statusline" },
 }
 
@@ -52,6 +54,14 @@ local function apply_test(name)
     vim.opt.cursorline = false
   elseif name == "relativenumber" then
     vim.opt.relativenumber = false
+  elseif name == "inlay_hints" then
+    if vim.lsp.inlay_hint then
+      pcall(vim.lsp.inlay_hint.enable, false)
+    end
+  elseif name == "symbol_usage" then
+    if package.loaded["symbol-usage"] then
+      pcall(function() require("symbol-usage").toggle_globally() end)
+    end
   elseif name == "lualine_aerial" then
     pcall(function()
       require("lualine").setup({

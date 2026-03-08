@@ -5,7 +5,7 @@
 
 _G.ScrollDiag = _G.ScrollDiag or {}
 local tests = {
-  { name = "neoscroll",    desc = "Disable neoscroll for C-b (C-d/C-f already use native scrolling)" },
+  { name = "neoscroll",    desc = "Disable neoscroll entirely (all paging keys already use native scrolling; tests zt/zz/zb)" },
   { name = "incline",      desc = "Disable floating filename bar (incline.nvim) [auto-disabled in DiffView]" },
   { name = "blink_indent", desc = "Disable indent scope guides (blink.indent)" },
   { name = "blink_pairs",  desc = "Disable rainbow matchparen (blink.pairs) [auto-disabled in DiffView]" },
@@ -21,7 +21,7 @@ if not state.saved then state.saved = {} end
 -- Restore everything
 function ScrollDiag.restore()
   -- Re-enable plugins
-  pcall(function() require("neoscroll").setup({ mappings = { "<C-b>", "zt", "zz", "zb" } }) end)
+  pcall(function() require("neoscroll").setup({ mappings = { "zt", "zz", "zb" } }) end)
   pcall(function() require("incline").enable() end)
   pcall(function() require("blink.indent").setup({ scope = { enabled = true } }) end)
   vim.opt.cursorline = true
@@ -34,13 +34,10 @@ end
 -- Apply a single test
 local function apply_test(name)
   if name == "neoscroll" then
-    -- Unmap neoscroll keybindings and disable
-    pcall(vim.keymap.del, "n", "<C-d>")
-    pcall(vim.keymap.del, "n", "<C-f>")
-    pcall(vim.keymap.del, "n", "<C-b>")
-    -- Restore native scrolling
-    vim.keymap.set("n", "<C-d>", "<C-u>", { desc = "Native scroll up" })
-    vim.keymap.set("n", "<C-f>", "<C-d>", { desc = "Native scroll down" })
+    -- Disable neoscroll's zt/zz/zb mappings (paging keys already use native scrolling)
+    pcall(vim.keymap.del, "n", "zt")
+    pcall(vim.keymap.del, "n", "zz")
+    pcall(vim.keymap.del, "n", "zb")
   elseif name == "incline" then
     pcall(function() require("incline").disable() end)
   elseif name == "blink_indent" then

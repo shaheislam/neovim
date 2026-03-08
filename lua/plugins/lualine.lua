@@ -114,6 +114,24 @@ return {
 					lualine_x = {
 						{
 							function()
+								local status = vim.g.opencode_status
+								if status == "busy" then
+									return "󰚩 "
+								elseif status == "idle" or status == "connected" then
+									return "󰚩"
+								end
+								return ""
+							end,
+							cond = function() return vim.g.opencode_status ~= nil end,
+							color = function()
+								if vim.g.opencode_status == "busy" then
+									return { fg = "#ff9e64" }
+								end
+								return { fg = "#9ece6a" }
+							end,
+						},
+						{
+							function()
 								if os.getenv("IN_NIX_SHELL") then
 									local name = os.getenv("name") or "nix"
 									return "❄️  " .. name

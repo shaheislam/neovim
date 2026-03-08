@@ -58,7 +58,7 @@ return {
         desc = "Add line to opencode",
         expr = true,
       },
-      -- Named prompts via leader
+      -- Named prompts via leader (mirrors CodeCompanion's <leader>a suffixes)
       {
         "<leader>Ae",
         function() require("opencode").prompt("explain") end,
@@ -95,6 +95,25 @@ return {
         mode = { "n", "x" },
         desc = "Optimize (opencode)",
       },
+      -- Additional prompts (not in CodeCompanion)
+      {
+        "<leader>Ai",
+        function() require("opencode").prompt("implement") end,
+        mode = { "n", "x" },
+        desc = "Implement (opencode)",
+      },
+      {
+        "<leader>Ag",
+        function() require("opencode").prompt("diff") end,
+        mode = { "n", "x" },
+        desc = "Review git diff (opencode)",
+      },
+      {
+        "<leader>AE",
+        function() require("opencode").prompt("diagnostics") end,
+        mode = { "n", "x" },
+        desc = "Explain diagnostics (opencode)",
+      },
     },
     config = function()
       ---@type opencode.Opts
@@ -102,11 +121,50 @@ return {
         events = {
           enabled = true,
           reload = true,
+          permissions = {
+            enabled = true,
+            idle_delay_ms = 1000,
+          },
+        },
+        lsp = {
+          enabled = true,
         },
       }
 
       -- Required for auto-reload when opencode edits files
       vim.o.autoread = true
+
+      -- Track opencode status for statusline via OpencodeEvent autocmds
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "OpencodeEvent:session.idle",
+        callback = function()
+          vim.g.opencode_status = "idle"
+        end,
+      })
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "OpencodeEvent:session.busy",
+        callback = function()
+          vim.g.opencode_status = "busy"
+        end,
+      })
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "OpencodeEvent:file.edited",
+        callback = function()
+          vim.cmd("checktime")
+        end,
+      })
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "OpencodeEvent:connected",
+        callback = function()
+          vim.g.opencode_status = "connected"
+        end,
+      })
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "OpencodeEvent:disconnected",
+        callback = function()
+          vim.g.opencode_status = nil
+        end,
+      })
     end,
   },
 }

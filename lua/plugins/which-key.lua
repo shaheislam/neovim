@@ -49,7 +49,7 @@ return {
 			wk.add({
 				-- Core groups
 				{ "<leader>a", group = "ai (CodeCompanion)" },
-			{ "<leader>A", group = "ai (opencode)" },
+			{ "<leader>ao", group = "opencode" },
 				{ "<leader>c", group = "code/lsp" },
 				{ "<leader>f", group = "find/file" },
 				{ "<leader>g", group = "git" },

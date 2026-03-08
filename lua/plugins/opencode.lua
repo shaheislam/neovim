@@ -8,9 +8,9 @@ return {
     version = "*",
     cmd = { "Opencode" },
     keys = {
-      -- Toggle opencode terminal (mirrors <leader>ac for CodeCompanion)
+      -- Toggle opencode terminal
       {
-        "<leader>Ac",
+        "<leader>aoc",
         function() require("opencode").toggle() end,
         mode = { "n", "t" },
         desc = "Toggle opencode",
@@ -24,21 +24,21 @@ return {
       },
       -- Ask opencode with current context
       {
-        "<leader>Aa",
+        "<leader>aoa",
         function() require("opencode").ask("@this: ", { submit = false }) end,
         mode = { "n", "x" },
         desc = "Ask opencode",
       },
       -- Quick ask with auto-submit
       {
-        "<leader>As",
+        "<leader>aos",
         function() require("opencode").ask("@this: ", { submit = true }) end,
         mode = { "n", "x" },
         desc = "Ask opencode (submit)",
       },
       -- Action picker
       {
-        "<leader>Ax",
+        "<leader>aox",
         function() require("opencode").select() end,
         mode = { "n", "x" },
         desc = "opencode actions",
@@ -58,58 +58,57 @@ return {
         desc = "Add line to opencode",
         expr = true,
       },
-      -- Named prompts via leader (mirrors CodeCompanion's <leader>a suffixes)
+      -- Named prompts
       {
-        "<leader>Ae",
+        "<leader>aoe",
         function() require("opencode").prompt("explain") end,
         mode = { "n", "x" },
         desc = "Explain (opencode)",
       },
       {
-        "<leader>Af",
+        "<leader>aof",
         function() require("opencode").prompt("fix") end,
         mode = { "n", "x" },
         desc = "Fix diagnostics (opencode)",
       },
       {
-        "<leader>Ar",
+        "<leader>aor",
         function() require("opencode").prompt("review") end,
         mode = { "n", "x" },
         desc = "Review (opencode)",
       },
       {
-        "<leader>At",
+        "<leader>aot",
         function() require("opencode").prompt("test") end,
         mode = { "n", "x" },
         desc = "Add tests (opencode)",
       },
       {
-        "<leader>Ad",
+        "<leader>aod",
         function() require("opencode").prompt("document") end,
         mode = { "n", "x" },
         desc = "Document (opencode)",
       },
       {
-        "<leader>Ao",
+        "<leader>aoo",
         function() require("opencode").prompt("optimize") end,
         mode = { "n", "x" },
         desc = "Optimize (opencode)",
       },
-      -- Additional prompts (not in CodeCompanion)
       {
-        "<leader>Ai",
+        "<leader>aoi",
         function() require("opencode").prompt("implement") end,
         mode = { "n", "x" },
         desc = "Implement (opencode)",
       },
       {
-        "<leader>Ag",
+        "<leader>aog",
         function() require("opencode").prompt("diff") end,
         mode = { "n", "x" },
         desc = "Review git diff (opencode)",
       },
       {
-        "<leader>AE",
+        "<leader>aoE",
         function() require("opencode").prompt("diagnostics") end,
         mode = { "n", "x" },
         desc = "Explain diagnostics (opencode)",

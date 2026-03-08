@@ -1820,17 +1820,8 @@ return {
 						-- line numbers in C without per-line expression evaluation
 						vim.wo.statuscolumn = ""
 
-						-- Disable blink.pairs matchparen per-buffer.
-						-- Matchparen re-evaluates on every CursorMoved, and neoscroll
-						-- fires CursorMoved per animation frame, creating a cascade.
+						-- Disable blink.pairs matchparen per-buffer (re-evaluates on every CursorMoved)
 						vim.b[bufnr].blink_pairs = false
-
-						-- Replace neoscroll's smooth scroll with native scrolling in diff buffers.
-						-- Neoscroll fires CursorMoved per animation frame (~6 events per scroll),
-						-- each triggering blink.pairs, lualine, and other CursorMoved listeners.
-						-- Native <C-u>/<C-d> fires a single CursorMoved, eliminating the cascade.
-						vim.keymap.set("n", "<C-d>", "<C-u>", { buffer = bufnr, desc = "Native scroll up (diff)" })
-						vim.keymap.set("n", "<C-f>", "<C-d>", { buffer = bufnr, desc = "Native scroll down (diff)" })
 
 						-- Detach gitsigns from diff buffers (prevents blame/word_diff per-buffer)
 						vim.defer_fn(function()

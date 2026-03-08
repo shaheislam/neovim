@@ -304,7 +304,7 @@ Other optimizations already in place:
 - synmaxcol=300 limits syntax highlighting to visible columns
 - blink.indent has static guides disabled (scope-only)
 - incline.nvim disabled globally in DiffView view_opened hook
-- neoscroll replaced with native scrolling in diff buffers
+- neoscroll removed entirely; all scrolling uses native Vim commands
 - blink.pairs matchparen disabled per-buffer in diff views
 - enhanced_diff_hl disabled (redundant with treesitter stop)
 - marks.nvim excludes DiffView filetypes

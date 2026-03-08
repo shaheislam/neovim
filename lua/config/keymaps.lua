@@ -31,8 +31,7 @@ keymap("n", "<leader>q", ":q<CR>", { desc = "Quit" })
 
 -- Global scroll direction swap (works in all buffers and windows)
 -- <C-d> = scroll UP, <C-f> = scroll DOWN
--- Uses native Vim scrolling (not neoscroll) — neoscroll fires CursorMoved per
--- animation frame causing lag when keys are held at fast repeat rates.
+-- Uses native Vim scrolling for lag-free held-key repeat.
 local function setup_scroll_mappings()
   local modes = { "n", "v", "x" }
 

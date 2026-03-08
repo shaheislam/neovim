@@ -8,7 +8,14 @@ return {
     version = "*",
     cmd = { "Opencode" },
     keys = {
-      -- Toggle opencode terminal (primary entry point)
+      -- Toggle opencode terminal (mirrors <leader>ac for CodeCompanion)
+      {
+        "<leader>Ac",
+        function() require("opencode").toggle() end,
+        mode = { "n", "t" },
+        desc = "Toggle opencode",
+      },
+      -- Quick toggle (global shortcut)
       {
         "<C-.>",
         function() require("opencode").toggle() end,

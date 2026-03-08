@@ -20,7 +20,9 @@ return {
       { "<leader>ar", "<cmd>CodeCompanion /refactor<cr>", mode = "v", desc = "Refactor Selection" },
       { "<leader>ad", "<cmd>CodeCompanionChat Add<cr>", mode = "v", desc = "Add to Chat" },
       { "<leader>aA", "<cmd>CodeCompanionChat adapter=anthropic<cr>", mode = { "n", "v" }, desc = "Chat (Anthropic)" },
-      { "<leader>aC", "<cmd>CodeCompanionChat adapter=claude_code<cr>", mode = { "n", "v" }, desc = "Chat (Claude Code)" },
+      { "<leader>aC", "<cmd>CodeCompanionChat adapter=claude_code<cr>", mode = { "n", "v" }, desc = "Chat (Claude Sub 1)" },
+      { "<leader>aD", "<cmd>CodeCompanionChat adapter=claude_code_2<cr>", mode = { "n", "v" }, desc = "Chat (Claude Sub 2)" },
+      { "<leader>aX", "<cmd>CodeCompanionChat adapter=codex<cr>", mode = { "n", "v" }, desc = "Chat (Codex)" },
       { "<leader>ag", "<cmd>CodeCompanion /commit<cr>", mode = "n", desc = "Generate Commit Msg" },
       { "<leader>al", "<cmd>CodeCompanion /lsp<cr>", mode = "n", desc = "Explain LSP Errors" },
     },
@@ -46,7 +48,29 @@ return {
           end,
         },
         acp = {
-          claude_code = "claude_code",
+          claude_code = function()
+            return require("codecompanion.adapters").extend("claude_code", {
+              env = {
+                CLAUDE_CODE_OAUTH_TOKEN = "cmd:op read 'op://Private/CLAUDE_CODE_OAUTH_TOKEN/credential' --no-newline",
+              },
+            })
+          end,
+          claude_code_2 = function()
+            return require("codecompanion.adapters").extend("claude_code", {
+              env = {
+                CLAUDE_CODE_OAUTH_TOKEN = "cmd:op read 'op://Private/CLAUDE_CODE_OAUTH_TOKEN_2/credential' --no-newline",
+              },
+            })
+          end,
+          codex = function()
+            local adapter = require("codecompanion.adapters").extend("codex", {
+              defaults = {
+                auth_method = "chatgpt",
+              },
+            })
+            adapter.env = {}
+            return adapter
+          end,
         },
       },
       interactions = {

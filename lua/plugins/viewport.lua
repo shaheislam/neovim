@@ -4,9 +4,8 @@
 return {
   {
     "chancez/viewport.nvim",
-    lazy = true,
     keys = {
-      { "<C-z>", desc = "Toggle maximize current window" },
+      { "<C-z>", mode = { "n", "t" }, desc = "Toggle maximize current window" },
       { "<leader>wv", desc = "Viewport Resize Mode" },
       { "<leader>wn", desc = "Viewport Navigate Mode" },
       { "<leader>ws", desc = "Viewport Select Mode" },
@@ -42,20 +41,20 @@ return {
         require('viewport.actions').toggle_maximize()
       end, { desc = "Toggle maximize current window" })
 
-      -- Terminal-mode zoom for opencode.nvim (buffer-local to opencode terminals)
-      vim.api.nvim_create_autocmd("TermOpen", {
-        callback = function(ev)
-          vim.schedule(function()
-            local bufname = vim.api.nvim_buf_get_name(ev.buf)
-            if bufname:match("opencode") then
-              vim.keymap.set('t', '<C-z>', [[<C-\><C-n><cmd>lua require('viewport.actions').toggle_maximize()<cr>]], {
-                buffer = ev.buf,
-                desc = "Toggle maximize opencode window",
-              })
-            end
-          end)
-        end,
-      })
+      -- Terminal-mode zoom (works in opencode.nvim and other terminal buffers)
+      vim.keymap.set('t', '<C-z>', function()
+        local win = vim.api.nvim_get_current_win()
+        vim.cmd([[stopinsert]])
+        require('viewport.actions').toggle_maximize()
+        -- Deferred so startinsert runs after the mapping stack completes
+        vim.schedule(function()
+          if vim.api.nvim_win_is_valid(win)
+            and vim.api.nvim_get_current_win() == win
+            and vim.bo.buftype == 'terminal' then
+            vim.cmd('startinsert')
+          end
+        end)
+      end, { desc = "Toggle maximize current window (terminal mode)" })
       vim.keymap.set('n', '<leader>wv', viewport.start_resize_mode, { desc = "Viewport Resize Mode" })
       vim.keymap.set('n', '<leader>wn', viewport.start_navigate_mode, { desc = "Viewport Navigate Mode" })
       vim.keymap.set('n', '<leader>ws', viewport.start_select_mode, { desc = "Viewport Select Mode" })

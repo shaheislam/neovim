@@ -1381,7 +1381,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("grep"),
-              ["--header"] = "C-y: copy | C-f: copy full path | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden | A-q: quickfix",
+              ["--header"] = "M-g/s/l/d/p: scope | M-o: browse | C-y: copy | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden | A-q: qf",
             }
           end,
           actions = {
@@ -2254,6 +2254,58 @@ return {
       -- Apply configuration
       fzf.setup(opts)
 
+      -- Register <leader>ff here so it can access the configured files picker actions
+      -- Frecency inherits default file actions via _actions, but scope switching needs
+      -- to be passed explicitly since create_scope_action is local to opts()
+      local files_actions = fzf.config.globals.files and fzf.config.globals.files.actions or {}
+      vim.keymap.set("n", "<leader>ff", function()
+        require("fzf-lua-frecency").frecency({
+          all_files = true,
+          fzf_opts = {
+            ["--header"] = "M-g: global | M-s: git | M-l: local | M-d: buffer dir | M-p: parent | M-o: browse",
+          },
+          actions = vim.tbl_extend("keep", {
+            ["alt-g"] = function(_, o)
+              local query = o.__call_opts and o.__call_opts.query or ""
+              vim.schedule(function()
+                require("fzf-lua").files({ cwd = vim.fn.expand("~/work"), query = query, prompt = "Find Files (Global)> " })
+              end)
+            end,
+            ["alt-s"] = function(_, o)
+              local query = o.__call_opts and o.__call_opts.query or ""
+              local git_root = vim.fs.find(".git", { path = vim.fn.getcwd(), upward = true })[1]
+              local cwd = git_root and vim.fn.fnamemodify(git_root, ":h") or vim.fn.getcwd()
+              vim.schedule(function()
+                require("fzf-lua").files({ cwd = cwd, query = query, prompt = "Find Files (Git)> " })
+              end)
+            end,
+            ["alt-l"] = function(_, o)
+              local query = o.__call_opts and o.__call_opts.query or ""
+              vim.schedule(function()
+                require("fzf-lua").files({ cwd = vim.fn.getcwd(), query = query, prompt = "Find Files (Local)> " })
+              end)
+            end,
+            ["alt-d"] = function(_, o)
+              local query = o.__call_opts and o.__call_opts.query or ""
+              local buf = vim.api.nvim_get_current_buf()
+              local bufname = vim.api.nvim_buf_get_name(buf)
+              local dir = bufname ~= "" and vim.fn.fnamemodify(bufname, ":h") or vim.fn.getcwd()
+              vim.schedule(function()
+                require("fzf-lua").files({ cwd = dir, query = query, prompt = "Find Files (Buffer Dir)> " })
+              end)
+            end,
+            ["alt-p"] = function(_, o)
+              local query = o.__call_opts and o.__call_opts.query or ""
+              local cwd = o.cwd or vim.fn.getcwd()
+              local parent = vim.fn.fnamemodify(vim.fn.fnamemodify(cwd, ":p:h"), ":h")
+              vim.schedule(function()
+                require("fzf-lua").files({ cwd = parent, query = query, prompt = "Find Files (Parent)> " })
+              end)
+            end,
+          }, files_actions),
+        })
+      end, { desc = "Find Files (Frecency)" })
+
       -- Don't register with LazyVim.pick to avoid conflicts
       -- We use direct fzf-lua commands via keybindings instead
     end,
@@ -2893,9 +2945,7 @@ return {
   {
     "elanmed/fzf-lua-frecency.nvim",
     dependencies = { "ibhagwan/fzf-lua" },
-    keys = {
-      { "<leader>ff", function() require("fzf-lua-frecency").frecency({ all_files = true }) end, desc = "Find Files (Frecency)" },
-    },
+    event = "VeryLazy",  -- <leader>ff registered in fzf-lua config (needs frecency loaded)
     config = function()
       require("fzf-lua-frecency").setup({
         db_dir = vim.fs.joinpath(vim.fn.stdpath("data"), "fzf-lua-frecency"),

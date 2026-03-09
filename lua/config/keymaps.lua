@@ -3,6 +3,9 @@
 
 local keymap = vim.keymap.set
 
+-- Exit terminal mode in any terminal buffer (toggleterm, opencode, etc.)
+keymap("t", "<Esc><Esc>", [[<C-\><C-n>]], { desc = "Exit terminal mode" })
+
 -- Window navigation handled by vim-tmux-navigator plugin (see plugins/navigation.lua)
 -- Uses Ctrl-h/j/k/l for seamless navigation between vim splits and tmux panes
 

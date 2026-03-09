@@ -27,6 +27,9 @@ return {
         },
       },
       keymaps = {
+        -- Disable Oil's default <C-l>/<C-h> so vim-tmux-navigator can navigate between splits
+        ["<C-l>"] = false,
+        ["<C-h>"] = false,
         -- Oil-specific fzf-lua mappings
         ["<leader>ff"] = {
           function()

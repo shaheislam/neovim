@@ -1294,7 +1294,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("files"),
-              ["--header"] = "C-y: copy path | C-f: copy full path | C-r: history | M-g/s/l/d/p: scope | M-o: browse",
+              ["--header"] = "C-y: copy path | C-f: copy full path | C-r: history | M-g/s/l/d/p: scope | M-o: browse | C-t: preview",
             }
           end,
           actions = {
@@ -1381,7 +1381,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("grep"),
-              ["--header"] = "M-g/s/l/d/p: scope | M-o: browse | C-y: copy | C-r: history | C-g: grep/lgrep | C-t: ignore | C-h: hidden | A-q: qf",
+              ["--header"] = "M-g/s/l/d/p: scope | M-o: browse | C-y: copy | C-r: history | C-g: grep/lgrep | M-i: ignore | C-h: hidden | A-q: qf | C-t: preview",
             }
           end,
           actions = {
@@ -1404,7 +1404,7 @@ return {
             -- Advanced grep controls
             ["ctrl-g"] = { actions.grep_lgrep },
             ["ctrl-r"] = search_history_action(),  -- Search history
-            ["ctrl-t"] = { actions.toggle_ignore },
+            ["alt-i"] = { actions.toggle_ignore },
             ["ctrl-h"] = { actions.toggle_hidden },
             ["ctrl-y"] = function(selected, opts)
               if not selected or #selected == 0 then return end
@@ -1478,7 +1478,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("buffers"),
-              ["--header"] = "C-y: copy path | C-f: copy full path | C-d: delete | C-r: search history",
+              ["--header"] = "C-y: copy path | C-f: copy full path | C-d: delete | C-r: search history | C-t: preview",
             }
           end,
           actions = {

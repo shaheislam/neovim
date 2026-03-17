@@ -100,6 +100,10 @@ return {
           vim.fn.search("^#", "bW")
         end, { buffer = bufnr, desc = "Previous heading" })
 
+        -- Prose wrapping for vault notes
+        vim.opt_local.wrap = true
+        vim.opt_local.linebreak = true
+
         -- Heading-level folding (linkarzu workflow)
         -- Setup treesitter folding for this buffer
         vim.opt_local.foldmethod = "expr"

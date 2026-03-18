@@ -51,7 +51,29 @@ return {
       folder = "assets/imgs",
     },
 
-    preferred_link_style = "wiki",
+    link = {
+      style = "wiki",
+      -- Custom wiki link: path without .md extension + alias
+      -- Outputs: [[DfE/Makefile Pointers|Makefile Pointers]]
+      -- Built-in "prepend_note_path" adds .md which causes double-extension issues
+      wiki = function(opts)
+        local anchor = ""
+        local header = ""
+        if opts.anchor then
+          anchor = opts.anchor.anchor
+          header = string.format(" > %s", opts.anchor.header)
+        elseif opts.block then
+          anchor = "#" .. opts.block.id
+          header = "#" .. opts.block.id
+        end
+
+        if opts.label ~= opts.path then
+          return string.format("[[%s%s|%s%s]]", opts.path, anchor, opts.label, header)
+        else
+          return string.format("[[%s%s]]", opts.path, anchor)
+        end
+      end,
+    },
 
     -- Preserve original title as note ID (don't slugify)
     -- This ensures completion inserts human-readable names that match your existing notes
@@ -60,17 +82,6 @@ return {
         return title
       end
       return tostring(os.time())
-    end,
-
-    -- Custom wiki_link_func: path without .md extension + alias
-    -- Outputs: [[DfE/Makefile Pointers|Makefile Pointers]]
-    -- Built-in "prepend_note_path" adds .md which causes double-extension issues
-    wiki_link_func = function(opts)
-      if opts.label ~= opts.path then
-        return string.format("[[%s|%s]]", opts.path, opts.label)
-      else
-        return string.format("[[%s]]", opts.path)
-      end
     end,
 
     legacy_commands = false, -- Use new command format (Obsidian xxx)

@@ -114,17 +114,15 @@ return {
 					lualine_x = {
 						{
 							function()
-								local ok, agentic = pcall(require, "agentic")
-								if ok and agentic.is_visible and agentic.is_visible() then
-									return "󱚣"
+								return vim.g.agentic_generating and "󱚣 " or "󱚣"
+							end,
+							cond = function() return vim.g.agentic_visible == true end,
+							color = function()
+								if vim.g.agentic_generating then
+									return { fg = "#ff9e64" } -- Tokyo Night orange when generating
 								end
-								return ""
+								return { fg = "#7aa2f7" } -- Tokyo Night blue when idle
 							end,
-							cond = function()
-								local ok, agentic = pcall(require, "agentic")
-								return ok and agentic.is_visible and agentic.is_visible()
-							end,
-							color = { fg = "#7aa2f7" }, -- Tokyo Night blue
 						},
 						{
 							function()

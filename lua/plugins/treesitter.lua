@@ -15,51 +15,33 @@ return {
     build = ":TSUpdate",
     lazy = false,
     config = function()
-      -- New nvim-treesitter API: config.setup() only accepts install_dir
-      -- Highlighting and indentation are now built into Neovim
-      if parser_install_dir then
-        require("nvim-treesitter.config").setup({
-          install_dir = parser_install_dir,
-        })
-      end
-
-      local parsers = {
-        -- Core
-        "lua", "vim", "vimdoc", "query",
-        -- Shell
-        "bash", "fish",
-        -- Languages
-        "go", "gomod", "gowork",
-        "rust",
-        "python",
-        "javascript", "typescript",
-        "c",
-        -- Data/config
-        "json", "yaml", "toml",
-        -- Markup
-        "markdown", "markdown_inline",
-        "html",
-        "typst",
-        -- Injection support (enables highlighting inside host language strings)
-        "sql", "regex",
-        "comment",
-        -- Infrastructure
-        "dockerfile", "hcl",
-        "proto",
-      }
-
-      -- Install missing parsers (non-blocking)
-      local installed = require("nvim-treesitter.config").get_installed()
-      local installed_set = {}
-      for _, p in ipairs(installed) do
-        installed_set[p] = true
-      end
-      local missing = vim.tbl_filter(function(p)
-        return not installed_set[p]
-      end, parsers)
-      if #missing > 0 then
-        require("nvim-treesitter.install").install(missing)
-      end
+      require("nvim-treesitter.configs").setup({
+        parser_install_dir = parser_install_dir,
+        ensure_installed = {
+          -- Core
+          "lua", "vim", "vimdoc", "query",
+          -- Shell
+          "bash", "fish",
+          -- Languages
+          "go", "gomod", "gowork",
+          "rust",
+          "python",
+          "javascript", "typescript",
+          "c",
+          -- Data/config
+          "json", "yaml", "toml",
+          -- Markup
+          "markdown", "markdown_inline",
+          "html",
+          "typst",
+          -- Injection support (enables highlighting inside host language strings)
+          "sql", "regex",
+          "comment",
+          -- Infrastructure
+          "dockerfile", "hcl",
+          "proto",
+        },
+      })
     end,
   },
 

@@ -10,11 +10,17 @@ return {
       -- ===== Text Editing Modules =====
 
       -- mini.ai: Enhanced text objects (around/inside functions, classes, etc.)
-      -- Default text objects: f/c/t/a/b/q/o and more
-      -- Example: daf = delete around function, cic = change inside class
+      -- Treesitter-textobjects plugin owns: f (function), c (class), a (parameter)
+      -- mini.ai keeps: t (tag), q (quote), b (brackets), o (operator), etc.
       require("mini.ai").setup({
         n_lines = 500,
         search_method = "cover_or_next",
+        custom_textobjects = {
+          -- Disabled: nvim-treesitter-textobjects provides AST-based versions
+          f = '',  -- @function.outer/inner (treesitter)
+          c = '',  -- @class.outer/inner (treesitter)
+          a = '',  -- @parameter.outer/inner (treesitter)
+        },
       })
 
       -- mini.surround: Surround operations
@@ -56,20 +62,15 @@ return {
       -- ===== Navigation Modules =====
 
       -- mini.bracketed: Square bracket navigation
-      -- [b/]b - Previous/next buffer
-      -- [c/]c - Previous/next comment
-      -- [d/]d - Previous/next diagnostic
-      -- [f/]f - Previous/next file
-      -- [i/]i - Previous/next indent change
-      -- [j/]j - Previous/next jump
-      -- [l/]l - Previous/next location
-      -- [o/]o - Previous/next oldfile
-      -- [q/]q - Previous/next quickfix
-      -- [t/]t - Previous/next tag
-      -- [u/]u - Previous/next undo state
-      -- [w/]w - Previous/next window
-      -- [y/]y - Previous/next yank
-      require("mini.bracketed").setup()
+      -- Treesitter-textobjects replaces: ]f (function), ]c (class), ]b (block), ]l (loop)
+      -- Remaining: ]d (diagnostic), ]i (indent), ]j (jump), ]o (oldfile),
+      --            ]q (quickfix), ]t (tag), ]u (undo), ]w (window), ]y (yank)
+      require("mini.bracketed").setup({
+        buffer  = { suffix = '' }, -- disabled: ]b/[b → treesitter block nav
+        comment = { suffix = '' }, -- disabled: ]c/[c → treesitter class nav (gitsigns ]c for hunks)
+        file    = { suffix = '' }, -- disabled: ]f/[f → treesitter function nav
+        location = { suffix = '' }, -- disabled: ]l/[l → treesitter loop nav
+      })
 
       -- mini.move: Move selections and lines
       -- Alt+h/j/k/l in visual mode to move selection

@@ -55,6 +55,10 @@ end
 
 setup_scroll_mappings()
 
+-- Treesitter-aware gq/gw (uses injected language's comment style)
+keymap({ "n", "x" }, "gq", function() return require("format").gq() end, { expr = true, desc = "Format (treesitter-aware)" })
+keymap({ "n", "x" }, "gw", function() return require("format").gw() end, { expr = true, desc = "Format keeping cursor (treesitter-aware)" })
+
 -- Search navigation (centered)
 keymap("n", "n", "nzzzv", { desc = "Next search result (centered)" })
 keymap("n", "N", "Nzzzv", { desc = "Previous search result (centered)" })

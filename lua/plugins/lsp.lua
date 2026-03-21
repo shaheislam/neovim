@@ -656,6 +656,24 @@ return {
           map("n", "<leader>ss", "<cmd>FzfLua lsp_document_symbols<cr>", "Document Symbols")
           map("n", "<leader>sS", "<cmd>FzfLua lsp_workspace_symbols<cr>", "Workspace Symbols")
 
+          -- Call hierarchy (flat list via fzf-lua)
+          map("n", "<leader>ci", "<cmd>FzfLua lsp_incoming_calls<cr>", "Incoming Calls")
+          map("n", "<leader>co", "<cmd>FzfLua lsp_outgoing_calls<cr>", "Outgoing Calls")
+
+          -- Call hierarchy (recursive tree view)
+          map("n", "<leader>cI", function() require("lsp-hierarchy").incoming() end, "Incoming Calls Tree")
+          map("n", "<leader>cO", function() require("lsp-hierarchy").outgoing() end, "Outgoing Calls Tree")
+
+          -- User commands for call hierarchy (like telescope-hierarchy)
+          vim.api.nvim_buf_create_user_command(event.buf, "LspIncomingCalls",
+            function() vim.cmd("FzfLua lsp_incoming_calls") end, {})
+          vim.api.nvim_buf_create_user_command(event.buf, "LspOutgoingCalls",
+            function() vim.cmd("FzfLua lsp_outgoing_calls") end, {})
+          vim.api.nvim_buf_create_user_command(event.buf, "LspIncomingCallsTree",
+            function() require("lsp-hierarchy").incoming() end, {})
+          vim.api.nvim_buf_create_user_command(event.buf, "LspOutgoingCallsTree",
+            function() require("lsp-hierarchy").outgoing() end, {})
+
           -- LSP Toggle controls
           map("n", "<leader>cT", function() _G.toggle_all_lsp() end, "Toggle ALL LSPs")
           map("n", "<leader>ct", function()

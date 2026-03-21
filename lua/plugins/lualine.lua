@@ -114,6 +114,20 @@ return {
 					lualine_x = {
 						{
 							function()
+								local ok, agentic = pcall(require, "agentic")
+								if ok and agentic.is_visible and agentic.is_visible() then
+									return "󱚣"
+								end
+								return ""
+							end,
+							cond = function()
+								local ok, agentic = pcall(require, "agentic")
+								return ok and agentic.is_visible and agentic.is_visible()
+							end,
+							color = { fg = "#7aa2f7" }, -- Tokyo Night blue
+						},
+						{
+							function()
 								local status = vim.g.opencode_status
 								if status == "busy" then
 									return "󰚩 "

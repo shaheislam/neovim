@@ -50,6 +50,7 @@ return {
 				-- Core groups
 				{ "<leader>a", group = "ai (CodeCompanion)" },
 			{ "<leader>ao", group = "opencode" },
+			{ "<leader>A", group = "agentic (ACP)" },
 				{ "<leader>c", group = "code/lsp" },
 				{ "<leader>f", group = "find/file" },
 				{ "<leader>g", group = "git" },

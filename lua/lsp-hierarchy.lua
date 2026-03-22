@@ -10,6 +10,7 @@
 -- Buffer keymaps:
 --   <CR>  Jump to call site (in source window)
 --   o     Toggle expand/collapse node
+--   K     Show full (untruncated) file path
 --   q     Close the hierarchy buffer
 
 local M = {}
@@ -438,11 +439,14 @@ function M.show(direction, opts)
 
   local source_buf = vim.api.nvim_get_current_buf()
   local source_win = vim.api.nvim_get_current_win()
-  -- Save fold state before any modifications so we can restore on close
-  local saved_fold = {
-    foldlevel = vim.wo[source_win].foldlevel,
-    foldenable = vim.wo[source_win].foldenable,
-  }
+  -- Snapshot full fold state (including individual open/close) via mkview.
+  -- Slot 9 avoids colliding with the default auto-view-persistence slot.
+  pcall(function()
+    vim.api.nvim_win_call(source_win, function()
+      vim.cmd("silent! mkview 9")
+    end)
+  end)
+  local jumped = false -- tracks whether user jumped via CR
   local params = vim.lsp.util.make_position_params(0, "utf-16")
 
   local clients = vim.lsp.get_clients({
@@ -568,10 +572,18 @@ function M.show(direction, opts)
               if state.source_hl_buf and vim.api.nvim_buf_is_valid(state.source_hl_buf) then
                 vim.api.nvim_buf_clear_namespace(state.source_hl_buf, ns_source, 0, -1)
               end
-              -- Restore original fold state captured at show() entry
+              -- Restore fold state. If user didn't jump (CR), navigate back
+              -- to the original buffer and loadview to fully restore folds.
+              -- If they jumped, they intentionally moved — just leave it.
               if vim.api.nvim_win_is_valid(source_win) then
-                vim.wo[source_win].foldlevel = saved_fold.foldlevel
-                vim.wo[source_win].foldenable = saved_fold.foldenable
+                if not jumped and vim.api.nvim_buf_is_valid(source_buf) then
+                  pcall(function()
+                    vim.api.nvim_win_call(source_win, function()
+                      vim.api.nvim_win_set_buf(source_win, source_buf)
+                      vim.cmd("silent! loadview 9")
+                    end)
+                  end)
+                end
               end
             end,
           })
@@ -613,6 +625,7 @@ function M.show(direction, opts)
               vim.api.nvim_buf_clear_namespace(state.source_hl_buf, ns_source, 0, -1)
               state.source_hl_buf = nil
             end
+            jumped = true
             navigate_to_node(node, true, false)
           end
 
@@ -669,9 +682,21 @@ function M.show(direction, opts)
             end
           end
 
+          -- Show full (untruncated) file path in command line
+          local function show_full_path()
+            local lnum = vim.fn.line(".")
+            local node = state.line_map[lnum]
+            if not node or not node.uri then return end
+            local full_path = vim.uri_to_fname(node.uri)
+            local nav_pos = get_nav_position(node)
+            local suffix = nav_pos and (":" .. (nav_pos.line + 1)) or ""
+            vim.api.nvim_echo({{ full_path .. suffix, "Normal" }}, false, {})
+          end
+
           local bopts = { buffer = buf, nowait = true, silent = true }
           vim.keymap.set("n", "<CR>", jump, bopts)
           vim.keymap.set("n", "o", toggle, bopts)
+          vim.keymap.set("n", "K", show_full_path, bopts)
           vim.keymap.set("n", "q", "<cmd>close<cr>", bopts)
           vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", bopts)
         end)

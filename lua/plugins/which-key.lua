@@ -119,6 +119,7 @@ return {
 				{ "<leader>gK", desc = "Compare clipboard" },
 
 				-- Octo (GitHub) operations
+				{ "<leader>Oa", desc = "Actions (all commands)" },
 				{ "<leader>On", desc = "GitHub Notifications" },
 				{ "<leader>Oi", desc = "List Issues" },
 				{ "<leader>OI", desc = "Search Issues" },

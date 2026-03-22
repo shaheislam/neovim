@@ -42,6 +42,7 @@ return {
       -- ══════════════════════════════════════════════════════════════
       -- QUICK ACTIONS
       -- ══════════════════════════════════════════════════════════════
+      { "<leader>Oa", "<cmd>Octo actions<cr>", desc = "Actions (all commands)" },
       { "<leader>Ob", "<cmd>Octo repo browser<cr>", desc = "Open repo in browser" },
       { "<leader>Oy", "<cmd>Octo repo url<cr>", desc = "Copy repo URL" },
 
@@ -228,6 +229,31 @@ return {
             open_in_browser = { lhs = "<C-b>", desc = "Open in browser" },
           },
         },
+      })
+
+      -- ════════════════════════════════════════════════════════════════
+      -- Which-key group labels for Octo buffer-local keymaps
+      -- Registers group names so pressing <leader> shows organized categories
+      -- ════════════════════════════════════════════════════════════════
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = "octo",
+        callback = function(ev)
+          local ok, wk = pcall(require, "which-key")
+          if not ok then
+            return
+          end
+          wk.add({
+            { "<leader>p", group = "PR ops", buffer = ev.buf },
+            { "<leader>i", group = "issue ops", buffer = ev.buf },
+            { "<leader>v", group = "review", buffer = ev.buf },
+            { "<leader>a", group = "assignee", buffer = ev.buf },
+            { "<leader>l", group = "label", buffer = ev.buf },
+            { "<leader>r", group = "reactions", buffer = ev.buf },
+            { "<leader>c", group = "comment", buffer = ev.buf },
+            { "<leader>s", group = "suggestion", buffer = ev.buf },
+            { "<leader>t", group = "toggle", buffer = ev.buf },
+          })
+        end,
       })
 
       -- ════════════════════════════════════════════════════════════════

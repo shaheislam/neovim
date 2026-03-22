@@ -42,7 +42,7 @@ return {
       -- ══════════════════════════════════════════════════════════════
       -- QUICK ACTIONS
       -- ══════════════════════════════════════════════════════════════
-      { "<leader>Oa", "<cmd>Octo actions<cr>", desc = "Actions (all commands)" },
+      { "<leader>OA", "<cmd>Octo actions<cr>", desc = "Actions (all commands)" },
       { "<leader>Ob", "<cmd>Octo repo browser<cr>", desc = "Open repo in browser" },
       { "<leader>Oy", "<cmd>Octo repo url<cr>", desc = "Copy repo URL" },
 

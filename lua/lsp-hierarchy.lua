@@ -8,7 +8,7 @@
 --   :LspOutgoingCallsTree [depth]  - Show what the function under cursor calls
 --
 -- Buffer keymaps:
---   <CR>  Jump to definition (in source window)
+--   <CR>  Jump to call site (in source window)
 --   o     Toggle expand/collapse node
 --   q     Close the hierarchy buffer
 
@@ -61,6 +61,36 @@ local function get_short_path(uri)
     path = path:sub(#cwd + 1)
   end
   return path
+end
+
+--- Returns the best navigation position for a node: call site (from_ranges)
+--- first, falling back to the symbol's selection/definition range.
+local function get_nav_position(node)
+  if node.from_ranges and node.from_ranges[1] then
+    return node.from_ranges[1].start
+  end
+  if node.range then
+    return node.range.start
+  end
+  return nil
+end
+
+--- Converts an LSP position to a Neovim cursor tuple {1-indexed line, byte col},
+--- respecting the client's offset encoding (utf-8/utf-16/utf-32).
+local function lsp_pos_to_cursor(target_buf, pos, offset_encoding)
+  local row = pos.line + 1
+  if pos.character == 0 then
+    return { row, 0 }
+  end
+  -- _get_line_byte_from_position handles encoding conversion internally
+  local ok, byte_col = pcall(
+    vim.lsp.util._get_line_byte_from_position,
+    target_buf, pos, offset_encoding
+  )
+  if ok then
+    return { row, byte_col }
+  end
+  return { row, pos.character }
 end
 
 local function make_node(item, from_ranges, depth)
@@ -156,11 +186,12 @@ local function render_tree(nodes, lines, line_map, extmarks, last_flags)
       table.insert(line_extmarks, { col, col + #name_str, "Function" })
       col = col + #name_str
 
-      -- Location
+      -- Location: show call site line (from_ranges) when available
       local location = ""
       if node.uri then
         local path = get_short_path(node.uri)
-        local lnum = node.range and (node.range.start.line + 1) or ""
+        local nav_pos = get_nav_position(node)
+        local lnum = nav_pos and (nav_pos.line + 1) or ""
         location = string.format(" [%s:%s]", path, lnum)
         table.insert(line_extmarks, { col, col + #location, "Comment" })
       end
@@ -186,11 +217,18 @@ end
 
 -- ── Buffer management ────────────────────────────────────────────────
 local function refresh_buffer(buf, root_nodes, state)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+
   local lines, line_map, ext = render_tree(root_nodes)
   state.line_map = line_map
 
-  local ok, cursor = pcall(vim.api.nvim_win_get_cursor, 0)
-  if not ok then cursor = { 1, 0 } end
+  -- Save cursor from the hierarchy window (not window 0)
+  local win = state.hier_win
+  local cursor = { 1, 0 }
+  if win and vim.api.nvim_win_is_valid(win) then
+    local ok, pos = pcall(vim.api.nvim_win_get_cursor, win)
+    if ok then cursor = pos end
+  end
 
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -207,13 +245,13 @@ local function refresh_buffer(buf, root_nodes, state)
     end
   end
 
-  -- Restore cursor
+  -- Restore cursor in the hierarchy window only
   local max_line = #lines
   if cursor[1] > max_line then
     cursor[1] = max_line
   end
-  if max_line > 0 then
-    pcall(vim.api.nvim_win_set_cursor, 0, cursor)
+  if max_line > 0 and win and vim.api.nvim_win_is_valid(win) then
+    pcall(vim.api.nvim_win_set_cursor, win, cursor)
   end
 end
 
@@ -313,6 +351,7 @@ function M.show(direction, opts)
   end
 
   local client = clients[1]
+  local offset_encoding = client.offset_encoding or "utf-16"
 
   client:request("textDocument/prepareCallHierarchy", params, function(err, result)
     if err or not result or #result == 0 then
@@ -334,12 +373,37 @@ function M.show(direction, opts)
       local title = direction == "incoming" and "Incoming Calls" or "Outgoing Calls"
       vim.api.nvim_buf_set_name(buf, string.format("[%s] %s()", title, root_node.name))
 
-      local state = { line_map = {} }
+      local state = { line_map = {}, last_preview = nil }
       local root_nodes = { root_node }
+
+      --- Navigate source_win to a node's call site (or definition fallback).
+      local function navigate_to_node(node, focus)
+        if not node or not node.uri then return end
+        if not vim.api.nvim_win_is_valid(source_win) then return end
+
+        local nav_pos = get_nav_position(node)
+        if not nav_pos then return end
+
+        local target_buf = vim.uri_to_bufnr(node.uri)
+        vim.fn.bufload(target_buf)
+
+        if focus then
+          vim.api.nvim_set_current_win(source_win)
+        end
+
+        vim.api.nvim_win_call(source_win, function()
+          vim.api.nvim_win_set_buf(source_win, target_buf)
+          local cursor = lsp_pos_to_cursor(target_buf, nav_pos, offset_encoding)
+          vim.api.nvim_win_set_cursor(source_win, cursor)
+          vim.cmd("normal! zz")
+        end)
+      end
 
       -- Resolve to configured depth, then display
       resolve_to_depth(client, root_node, direction, source_buf, max_depth, function()
         vim.schedule(function()
+          if not vim.api.nvim_buf_is_valid(buf) then return end
+
           refresh_buffer(buf, root_nodes, state)
 
           -- Open in a horizontal split at bottom
@@ -353,6 +417,9 @@ function M.show(direction, opts)
           vim.wo.cursorline = true
           vim.wo.wrap = false
 
+          -- Store hierarchy window for targeted cursor operations
+          state.hier_win = vim.api.nvim_get_current_win()
+
           -- Auto-preview: show call site in source window on cursor move
           vim.api.nvim_create_autocmd("CursorMoved", {
             buffer = buf,
@@ -362,42 +429,21 @@ function M.show(direction, opts)
               local node = state.line_map[lnum]
               if not node or not node.uri or node._loading or node._error then return end
 
-              pcall(function()
-                local target_buf = vim.uri_to_bufnr(node.uri)
-                vim.fn.bufload(target_buf)
-                vim.api.nvim_win_call(source_win, function()
-                  vim.api.nvim_win_set_buf(source_win, target_buf)
-                  if node.range then
-                    vim.api.nvim_win_set_cursor(source_win, {
-                      node.range.start.line + 1,
-                      node.range.start.character,
-                    })
-                    vim.cmd("normal! zz")
-                  end
-                end)
-              end)
+              -- Dedup: skip if same target as last preview
+              local nav_pos = get_nav_position(node)
+              local preview_key = node.uri .. ":" .. (nav_pos and nav_pos.line or -1)
+              if state.last_preview == preview_key then return end
+              state.last_preview = preview_key
+
+              pcall(navigate_to_node, node, false)
             end,
           })
 
-          -- Jump to definition (focuses source window)
+          -- Jump to call site (focuses source window)
           local function jump()
             local lnum = vim.fn.line(".")
             local node = state.line_map[lnum]
-            if not node or not node.uri then return end
-
-            if not vim.api.nvim_win_is_valid(source_win) then return end
-
-            local target_buf = vim.uri_to_bufnr(node.uri)
-            vim.fn.bufload(target_buf)
-            vim.api.nvim_set_current_win(source_win)
-            vim.api.nvim_win_set_buf(source_win, target_buf)
-            if node.range then
-              vim.api.nvim_win_set_cursor(source_win, {
-                node.range.start.line + 1,
-                node.range.start.character,
-              })
-              vim.cmd("normal! zz")
-            end
+            navigate_to_node(node, true)
           end
 
           -- Toggle expand/collapse
@@ -423,9 +469,16 @@ function M.show(direction, opts)
               node.expanded = true
               refresh_buffer(buf, root_nodes, state)
 
+              -- Tag this resolve so stale responses are ignored
+              node._resolve_gen = (node._resolve_gen or 0) + 1
+              local my_gen = node._resolve_gen
+
               -- Resolve children asynchronously
               resolve_children(client, node, direction, source_buf, function(children, resolve_err)
                 vim.schedule(function()
+                  if not vim.api.nvim_buf_is_valid(buf) then return end
+                  if node._resolve_gen ~= my_gen then return end
+
                   if resolve_err then
                     node.children = { {
                       _error = true,

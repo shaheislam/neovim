@@ -670,9 +670,17 @@ return {
           vim.api.nvim_buf_create_user_command(event.buf, "LspOutgoingCalls",
             function() vim.cmd("FzfLua lsp_outgoing_calls") end, {})
           vim.api.nvim_buf_create_user_command(event.buf, "LspIncomingCallsTree",
-            function() require("lsp-hierarchy").incoming() end, {})
+            function(cmd)
+              local opts = {}
+              if cmd.args ~= "" then opts.depth = tonumber(cmd.args) end
+              require("lsp-hierarchy").incoming(opts)
+            end, { nargs = "?" })
           vim.api.nvim_buf_create_user_command(event.buf, "LspOutgoingCallsTree",
-            function() require("lsp-hierarchy").outgoing() end, {})
+            function(cmd)
+              local opts = {}
+              if cmd.args ~= "" then opts.depth = tonumber(cmd.args) end
+              require("lsp-hierarchy").outgoing(opts)
+            end, { nargs = "?" })
 
           -- LSP Toggle controls
           map("n", "<leader>cT", function() _G.toggle_all_lsp() end, "Toggle ALL LSPs")

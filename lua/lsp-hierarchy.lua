@@ -71,7 +71,10 @@ local function setup_highlights()
   set("LspHierarchyLeaf",      { link = "NonText" })
   set("LspHierarchyCount",     { link = "Comment" })               -- child count
   set("LspHierarchyCycle",     { link = "DiagnosticHint" })        -- cycle marker
-  set("LspHierarchyCallSite",  { link = "Search" })                -- source highlight
+  -- Call site highlight uses extmarks (ns_source namespace), completely
+  -- isolated from Vim's search register and hlsearch state. CurSearch
+  -- is visually distinct from background Search matches.
+  set("LspHierarchyCallSite",  { link = "CurSearch" })
 end
 
 setup_highlights()
@@ -83,10 +86,10 @@ local function get_short_path(uri)
   if path:sub(1, #cwd) == cwd then
     return path:sub(#cwd + 1)
   end
-  -- External path: truncate to …/parent/file.ext
+  -- External path: keep 3 trailing segments for disambiguation across vendor/module roots
   local parts = vim.split(path, "/", { plain = true })
-  if #parts > 2 then
-    return "…/" .. parts[#parts - 1] .. "/" .. parts[#parts]
+  if #parts > 3 then
+    return "…/" .. parts[#parts - 2] .. "/" .. parts[#parts - 1] .. "/" .. parts[#parts]
   end
   return path
 end
@@ -121,8 +124,13 @@ local function lsp_pos_to_cursor(target_buf, pos, offset_encoding)
 end
 
 --- Unique key for a call hierarchy item (for cycle detection).
+--- Includes range start position so overloaded functions at different
+--- locations don't collide — only same-location recursion is flagged.
 local function node_key(item)
-  return (item.uri or "") .. ":" .. item.name
+  local range = item.selectionRange or item.range
+  local line = range and range.start.line or -1
+  local char = range and range.start.character or -1
+  return (item.uri or "") .. ":" .. item.name .. ":" .. line .. ":" .. char
 end
 
 local function make_node(item, from_ranges, depth)
@@ -237,7 +245,8 @@ local function render_tree(nodes, lines, line_map, extmarks, last_flags)
         table.insert(parts, cycle_label)
       end
 
-      -- Child count on collapsed resolved nodes
+      -- Child count on collapsed resolved nodes (lazy: reads already-cached
+      -- children from prior LSP responses, never triggers new requests)
       if not node._cycle and node._resolved and not node.expanded and #node.children > 0 then
         local count_str = " (" .. #node.children .. ")"
         table.insert(line_extmarks, { col, col + #count_str, "LspHierarchyCount" })
@@ -429,6 +438,11 @@ function M.show(direction, opts)
 
   local source_buf = vim.api.nvim_get_current_buf()
   local source_win = vim.api.nvim_get_current_win()
+  -- Save fold state before any modifications so we can restore on close
+  local saved_fold = {
+    foldlevel = vim.wo[source_win].foldlevel,
+    foldenable = vim.wo[source_win].foldenable,
+  }
   local params = vim.lsp.util.make_position_params(0, "utf-16")
 
   local clients = vim.lsp.get_clients({
@@ -554,9 +568,10 @@ function M.show(direction, opts)
               if state.source_hl_buf and vim.api.nvim_buf_is_valid(state.source_hl_buf) then
                 vim.api.nvim_buf_clear_namespace(state.source_hl_buf, ns_source, 0, -1)
               end
-              -- Restore fold state (config default: foldlevel=99, all open)
+              -- Restore original fold state captured at show() entry
               if vim.api.nvim_win_is_valid(source_win) then
-                vim.wo[source_win].foldlevel = 99
+                vim.wo[source_win].foldlevel = saved_fold.foldlevel
+                vim.wo[source_win].foldenable = saved_fold.foldenable
               end
             end,
           })

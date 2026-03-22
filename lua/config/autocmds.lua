@@ -135,9 +135,19 @@ vim.api.nvim_create_autocmd("VimEnter", {
     -- 1. No files were specified on the command line
     -- 2. Not reading from stdin
     -- 3. Not in diff mode
+    -- 4. No buffers created by -c commands (Octo, DiffviewOpen, etc.)
+    local has_named_buffers = false
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_get_name(buf) ~= "" then
+        has_named_buffers = true
+        break
+      end
+    end
+
     local should_open_oil = vim.fn.argc() == 0
       and vim.fn.line2byte("$") == -1
       and not vim.o.diff
+      and not has_named_buffers
 
     if should_open_oil then
       -- Open Oil immediately (no delay needed since Oil is loaded eagerly)

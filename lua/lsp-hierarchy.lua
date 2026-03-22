@@ -420,22 +420,43 @@ function M.show(direction, opts)
           -- Store hierarchy window for targeted cursor operations
           state.hier_win = vim.api.nvim_get_current_win()
 
-          -- Auto-preview: show call site in source window on cursor move
+          -- Auto-preview: show call site in source window on cursor move.
+          -- Debounced (30ms) so holding j/k doesn't thrash the source window.
+          local preview_timer = vim.uv.new_timer()
+
+          vim.api.nvim_create_autocmd("BufWipeout", {
+            buffer = buf,
+            once = true,
+            callback = function()
+              preview_timer:stop()
+              preview_timer:close()
+            end,
+          })
+
           vim.api.nvim_create_autocmd("CursorMoved", {
             buffer = buf,
             callback = function()
+              preview_timer:stop()
               if not vim.api.nvim_win_is_valid(source_win) then return end
-              local lnum = vim.fn.line(".")
-              local node = state.line_map[lnum]
-              if not node or not node.uri or node._loading or node._error then return end
 
-              -- Dedup: skip if same target as last preview
-              local nav_pos = get_nav_position(node)
-              local preview_key = node.uri .. ":" .. (nav_pos and nav_pos.line or -1)
-              if state.last_preview == preview_key then return end
-              state.last_preview = preview_key
+              preview_timer:start(30, 0, vim.schedule_wrap(function()
+                if not vim.api.nvim_buf_is_valid(buf) then return end
+                if not vim.api.nvim_win_is_valid(source_win) then return end
 
-              pcall(navigate_to_node, node, false)
+                local lnum = vim.fn.line(".")
+                local node = state.line_map[lnum]
+                if not node or not node.uri or node._loading or node._error then return end
+
+                -- Dedup: skip if exact same target (uri + line + character)
+                local nav_pos = get_nav_position(node)
+                local preview_key = node.uri
+                  .. ":" .. (nav_pos and nav_pos.line or -1)
+                  .. ":" .. (nav_pos and nav_pos.character or -1)
+                if state.last_preview == preview_key then return end
+                state.last_preview = preview_key
+
+                pcall(navigate_to_node, node, false)
+              end))
             end,
           })
 

@@ -16,6 +16,7 @@ local M = {}
 
 -- ── Constants ────────────────────────────────────────────────────────
 local ns = vim.api.nvim_create_namespace("lsp_hierarchy_hl")
+local ns_source = vim.api.nvim_create_namespace("lsp_hierarchy_source")
 
 ---@type table<integer, {[1]: string, [2]: string}>
 local KIND_ICONS = {
@@ -53,12 +54,39 @@ local GUIDE_LAST   = "└─ "
 local GUIDE_NESTED = "│  "
 local GUIDE_SPACE  = "   "
 
+-- ── Highlights ───────────────────────────────────────────────────────
+local function setup_highlights()
+  local set = function(name, opts)
+    opts.default = true
+    vim.api.nvim_set_hl(0, name, opts)
+  end
+  set("LspHierarchyName",      { bold = true })                    -- fg + bold
+  set("LspHierarchyParen",     { link = "@punctuation.bracket" })  -- dimmed
+  set("LspHierarchyPath",      { link = "Comment" })               -- grey
+  set("LspHierarchyLine",      { link = "Number" })                -- orange
+  set("LspHierarchyBracket",   { link = "NonText" })               -- dim
+  set("LspHierarchyGuide",     { link = "NonText" })
+  set("LspHierarchyExpanded",  { link = "Special" })               -- teal
+  set("LspHierarchyCollapsed", { link = "Special" })               -- teal
+  set("LspHierarchyLeaf",      { link = "NonText" })
+  set("LspHierarchyCount",     { link = "Comment" })               -- child count
+  set("LspHierarchyCycle",     { link = "DiagnosticHint" })        -- cycle marker
+  set("LspHierarchyCallSite",  { link = "Search" })                -- source highlight
+end
+
+setup_highlights()
+
 -- ── Helpers ──────────────────────────────────────────────────────────
 local function get_short_path(uri)
   local path = vim.uri_to_fname(uri)
   local cwd = vim.fn.getcwd() .. "/"
   if path:sub(1, #cwd) == cwd then
-    path = path:sub(#cwd + 1)
+    return path:sub(#cwd + 1)
+  end
+  -- External path: truncate to …/parent/file.ext
+  local parts = vim.split(path, "/", { plain = true })
+  if #parts > 2 then
+    return "…/" .. parts[#parts - 1] .. "/" .. parts[#parts]
   end
   return path
 end
@@ -82,7 +110,6 @@ local function lsp_pos_to_cursor(target_buf, pos, offset_encoding)
   if pos.character == 0 then
     return { row, 0 }
   end
-  -- _get_line_byte_from_position handles encoding conversion internally
   local ok, byte_col = pcall(
     vim.lsp.util._get_line_byte_from_position,
     target_buf, pos, offset_encoding
@@ -91,6 +118,11 @@ local function lsp_pos_to_cursor(target_buf, pos, offset_encoding)
     return { row, byte_col }
   end
   return { row, pos.character }
+end
+
+--- Unique key for a call hierarchy item (for cycle detection).
+local function node_key(item)
+  return (item.uri or "") .. ":" .. item.name
 end
 
 local function make_node(item, from_ranges, depth)
@@ -105,19 +137,12 @@ local function make_node(item, from_ranges, depth)
     children = {},
     expanded = false,
     depth = depth or 0,
-    -- Keep the original item for subsequent LSP requests
     _item = item,
   }
 end
 
 -- ── Tree rendering ───────────────────────────────────────────────────
 
---- Renders the tree into lines with extmark highlight data.
----@param nodes table[]
----@param lines string[]
----@param line_map table[]
----@param extmarks table[][] array of {col_start, col_end, hl_group} per line
----@param last_flags table<integer, boolean> tracks which ancestor depths were last-child
 local function render_tree(nodes, lines, line_map, extmarks, last_flags)
   last_flags = last_flags or {}
   lines = lines or {}
@@ -129,6 +154,7 @@ local function render_tree(nodes, lines, line_map, extmarks, last_flags)
     local is_last = (i == #nodes)
     local line_extmarks = {}
     local col = 0
+    local parts = {}
 
     -- Build guide prefix for ancestor levels
     local prefix = ""
@@ -145,61 +171,116 @@ local function render_tree(nodes, lines, line_map, extmarks, last_flags)
 
     local guide_str = prefix .. connector
     if #guide_str > 0 then
-      table.insert(line_extmarks, { col, col + #guide_str, "NonText" })
+      table.insert(line_extmarks, { col, col + #guide_str, "LspHierarchyGuide" })
       col = col + #guide_str
     end
-
-    local line
+    table.insert(parts, guide_str)
 
     if node._loading then
-      -- Synthetic loading placeholder
       local text = "⟳ loading..."
       table.insert(line_extmarks, { col, col + #text, "Comment" })
-      line = guide_str .. text
+      table.insert(parts, text)
 
     elseif node._error then
-      -- Synthetic error placeholder
       local text = "✗ " .. (node._error_msg or "error resolving calls")
       table.insert(line_extmarks, { col, col + #text, "DiagnosticError" })
-      line = guide_str .. text
+      table.insert(parts, text)
 
     else
       -- Toggle icon
-      local toggle_icon
-      if #node.children > 0 or not node._resolved then
-        toggle_icon = node.expanded and "▼ " or "► "
+      local toggle_icon, toggle_hl
+      if node._cycle then
+        toggle_icon = "↻ "
+        toggle_hl = "LspHierarchyCycle"
+      elseif #node.children > 0 or not node._resolved then
+        if node.expanded then
+          toggle_icon = "▼ "
+          toggle_hl = "LspHierarchyExpanded"
+        else
+          toggle_icon = "► "
+          toggle_hl = "LspHierarchyCollapsed"
+        end
       else
         toggle_icon = "· "
+        toggle_hl = "LspHierarchyLeaf"
       end
-      local toggle_hl = toggle_icon == "· " and "NonText" or "Special"
       table.insert(line_extmarks, { col, col + #toggle_icon, toggle_hl })
       col = col + #toggle_icon
+      table.insert(parts, toggle_icon)
 
       -- Kind icon
       local kind_entry = KIND_ICONS[node.kind] or KIND_FALLBACK
       local kind_str = kind_entry[1]
       table.insert(line_extmarks, { col, col + #kind_str, kind_entry[2] })
       col = col + #kind_str
+      table.insert(parts, kind_str)
 
-      -- Function name
-      local name_str = node.name .. "()"
-      table.insert(line_extmarks, { col, col + #name_str, "Function" })
-      col = col + #name_str
+      -- Function name (bold for normal, cycle-colored for cycles)
+      local name = node.name
+      local name_hl = node._cycle and "LspHierarchyCycle" or "LspHierarchyName"
+      table.insert(line_extmarks, { col, col + #name, name_hl })
+      col = col + #name
+      table.insert(parts, name)
 
-      -- Location: show call site line (from_ranges) when available
-      local location = ""
+      -- Parentheses (dimmed for normal, cycle-colored for cycles)
+      local parens = "()"
+      local parens_hl = node._cycle and "LspHierarchyCycle" or "LspHierarchyParen"
+      table.insert(line_extmarks, { col, col + #parens, parens_hl })
+      col = col + #parens
+      table.insert(parts, parens)
+
+      -- Cycle label
+      if node._cycle then
+        local cycle_label = " (cycle)"
+        table.insert(line_extmarks, { col, col + #cycle_label, "LspHierarchyCycle" })
+        col = col + #cycle_label
+        table.insert(parts, cycle_label)
+      end
+
+      -- Child count on collapsed resolved nodes
+      if not node._cycle and node._resolved and not node.expanded and #node.children > 0 then
+        local count_str = " (" .. #node.children .. ")"
+        table.insert(line_extmarks, { col, col + #count_str, "LspHierarchyCount" })
+        col = col + #count_str
+        table.insert(parts, count_str)
+      end
+
+      -- Location: split into bracket/path/colon/line/bracket segments
       if node.uri then
         local path = get_short_path(node.uri)
         local nav_pos = get_nav_position(node)
-        local lnum = nav_pos and (nav_pos.line + 1) or ""
-        location = string.format(" [%s:%s]", path, lnum)
-        table.insert(line_extmarks, { col, col + #location, "Comment" })
-      end
+        local lnum_str = nav_pos and tostring(nav_pos.line + 1) or nil
 
-      line = guide_str .. toggle_icon .. kind_str .. name_str .. location
+        -- " ["
+        table.insert(line_extmarks, { col, col + 2, "LspHierarchyBracket" })
+        col = col + 2
+        table.insert(parts, " [")
+
+        -- path
+        table.insert(line_extmarks, { col, col + #path, "LspHierarchyPath" })
+        col = col + #path
+        table.insert(parts, path)
+
+        if lnum_str then
+          -- ":"
+          table.insert(line_extmarks, { col, col + 1, "LspHierarchyBracket" })
+          col = col + 1
+          table.insert(parts, ":")
+
+          -- line number
+          table.insert(line_extmarks, { col, col + #lnum_str, "LspHierarchyLine" })
+          col = col + #lnum_str
+          table.insert(parts, lnum_str)
+        end
+
+        -- "]"
+        table.insert(line_extmarks, { col, col + 1, "LspHierarchyBracket" })
+        col = col + 1
+        table.insert(parts, "]")
+      end
     end
 
-    table.insert(lines, line)
+    table.insert(lines, table.concat(parts))
     table.insert(line_map, node)
     table.insert(extmarks, line_extmarks)
 
@@ -222,7 +303,6 @@ local function refresh_buffer(buf, root_nodes, state)
   local lines, line_map, ext = render_tree(root_nodes)
   state.line_map = line_map
 
-  -- Save cursor from the hierarchy window (not window 0)
   local win = state.hier_win
   local cursor = { 1, 0 }
   if win and vim.api.nvim_win_is_valid(win) then
@@ -234,7 +314,6 @@ local function refresh_buffer(buf, root_nodes, state)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
 
-  -- Apply extmark highlights
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   for line_idx, line_ext in ipairs(ext) do
     for _, e in ipairs(line_ext) do
@@ -245,11 +324,8 @@ local function refresh_buffer(buf, root_nodes, state)
     end
   end
 
-  -- Restore cursor in the hierarchy window only
   local max_line = #lines
-  if cursor[1] > max_line then
-    cursor[1] = max_line
-  end
+  if cursor[1] > max_line then cursor[1] = max_line end
   if max_line > 0 and win and vim.api.nvim_win_is_valid(win) then
     pcall(vim.api.nvim_win_set_cursor, win, cursor)
   end
@@ -272,18 +348,32 @@ local function resolve_children(client, node, direction, bufnr, callback)
       return
     end
 
+    -- Build ancestors set for children: parent's ancestors + parent
+    local child_ancestors = {}
+    if node._ancestors then
+      for k, v in pairs(node._ancestors) do child_ancestors[k] = v end
+    end
+    child_ancestors[node_key(node._item)] = true
+
     local children = {}
     for _, call in ipairs(result) do
       local source = direction == "incoming" and call.from or call.to
       local from_ranges = call.fromRanges
       local child = make_node(source, from_ranges, node.depth + 1)
+      child._ancestors = child_ancestors
+
+      -- Cycle detection: check if child is an ancestor
+      if child_ancestors[node_key(source)] then
+        child._cycle = true
+        child._resolved = true
+      end
+
       table.insert(children, child)
     end
     callback(children)
   end, bufnr)
 end
 
---- Recursively resolves children up to max_depth levels using async fan-out.
 local function resolve_to_depth(client, node, direction, bufnr, max_depth, callback)
   if node.depth >= max_depth then
     callback()
@@ -302,11 +392,12 @@ local function resolve_to_depth(client, node, direction, bufnr, max_depth, callb
     node._resolved = true
     node.expanded = true
 
-    -- Count children that need further resolution
     local pending = 0
     for _, child in ipairs(children) do
-      child._resolved = false
-      if node.depth + 1 < max_depth then
+      if not child._cycle then
+        child._resolved = false
+      end
+      if not child._cycle and node.depth + 1 < max_depth then
         pending = pending + 1
       end
     end
@@ -318,7 +409,7 @@ local function resolve_to_depth(client, node, direction, bufnr, max_depth, callb
 
     local completed = 0
     for _, child in ipairs(children) do
-      if node.depth + 1 < max_depth then
+      if not child._cycle and node.depth + 1 < max_depth then
         resolve_to_depth(client, child, direction, bufnr, max_depth, function()
           completed = completed + 1
           if completed == pending then
@@ -363,6 +454,7 @@ function M.show(direction, opts)
       local root_item = result[1]
       local root_node = make_node(root_item, nil, 0)
       root_node.expanded = true
+      root_node._ancestors = {}
 
       local buf = vim.api.nvim_create_buf(false, true)
       vim.bo[buf].buftype = "nofile"
@@ -373,11 +465,14 @@ function M.show(direction, opts)
       local title = direction == "incoming" and "Incoming Calls" or "Outgoing Calls"
       vim.api.nvim_buf_set_name(buf, string.format("[%s] %s()", title, root_node.name))
 
-      local state = { line_map = {}, last_preview = nil }
+      local state = { line_map = {}, last_preview = nil, source_hl_buf = nil }
       local root_nodes = { root_node }
 
       --- Navigate source_win to a node's call site (or definition fallback).
-      local function navigate_to_node(node, focus)
+      ---@param node table
+      ---@param focus boolean focus the source window after navigating
+      ---@param fold boolean fold source to enclosing function (zMzv)
+      local function navigate_to_node(node, focus, fold)
         if not node or not node.uri then return end
         if not vim.api.nvim_win_is_valid(source_win) then return end
 
@@ -396,7 +491,34 @@ function M.show(direction, opts)
           local cursor = lsp_pos_to_cursor(target_buf, nav_pos, offset_encoding)
           vim.api.nvim_win_set_cursor(source_win, cursor)
           vim.cmd("normal! zz")
+          if fold then
+            vim.cmd("normal! zMzv")
+          end
         end)
+      end
+
+      --- Highlight the call site range in the source buffer.
+      local function highlight_call_site(node)
+        -- Clear previous highlight
+        if state.source_hl_buf and vim.api.nvim_buf_is_valid(state.source_hl_buf) then
+          vim.api.nvim_buf_clear_namespace(state.source_hl_buf, ns_source, 0, -1)
+          state.source_hl_buf = nil
+        end
+        if not node or not node.uri or not node.from_ranges or not node.from_ranges[1] then
+          return
+        end
+        local r = node.from_ranges[1]
+        local target_buf = vim.uri_to_bufnr(node.uri)
+        if not vim.api.nvim_buf_is_valid(target_buf) then return end
+        local start_cur = lsp_pos_to_cursor(target_buf, r.start, offset_encoding)
+        local end_cur = lsp_pos_to_cursor(target_buf, r["end"], offset_encoding)
+        pcall(vim.api.nvim_buf_set_extmark, target_buf, ns_source,
+          start_cur[1] - 1, start_cur[2], {
+            end_line = end_cur[1] - 1,
+            end_col = end_cur[2],
+            hl_group = "LspHierarchyCallSite",
+          })
+        state.source_hl_buf = target_buf
       end
 
       -- Resolve to configured depth, then display
@@ -417,11 +539,9 @@ function M.show(direction, opts)
           vim.wo.cursorline = true
           vim.wo.wrap = false
 
-          -- Store hierarchy window for targeted cursor operations
           state.hier_win = vim.api.nvim_get_current_win()
 
-          -- Auto-preview: show call site in source window on cursor move.
-          -- Debounced (30ms) so holding j/k doesn't thrash the source window.
+          -- Cleanup on hierarchy close
           local preview_timer = vim.uv.new_timer()
 
           vim.api.nvim_create_autocmd("BufWipeout", {
@@ -430,9 +550,18 @@ function M.show(direction, opts)
             callback = function()
               preview_timer:stop()
               preview_timer:close()
+              -- Clear source call-site highlights
+              if state.source_hl_buf and vim.api.nvim_buf_is_valid(state.source_hl_buf) then
+                vim.api.nvim_buf_clear_namespace(state.source_hl_buf, ns_source, 0, -1)
+              end
+              -- Restore fold state (config default: foldlevel=99, all open)
+              if vim.api.nvim_win_is_valid(source_win) then
+                vim.wo[source_win].foldlevel = 99
+              end
             end,
           })
 
+          -- Auto-preview with debounce + call site highlighting + auto-fold
           vim.api.nvim_create_autocmd("CursorMoved", {
             buffer = buf,
             callback = function()
@@ -447,7 +576,6 @@ function M.show(direction, opts)
                 local node = state.line_map[lnum]
                 if not node or not node.uri or node._loading or node._error then return end
 
-                -- Dedup: skip if exact same target (uri + line + character)
                 local nav_pos = get_nav_position(node)
                 local preview_key = node.uri
                   .. ":" .. (nav_pos and nav_pos.line or -1)
@@ -455,23 +583,29 @@ function M.show(direction, opts)
                 if state.last_preview == preview_key then return end
                 state.last_preview = preview_key
 
-                pcall(navigate_to_node, node, false)
+                pcall(navigate_to_node, node, false, true)
+                pcall(highlight_call_site, node)
               end))
             end,
           })
 
-          -- Jump to call site (focuses source window)
+          -- Jump to call site (focuses source window, no fold, clears highlights)
           local function jump()
             local lnum = vim.fn.line(".")
             local node = state.line_map[lnum]
-            navigate_to_node(node, true)
+            -- Clear call-site highlight — user is transitioning to free exploration
+            if state.source_hl_buf and vim.api.nvim_buf_is_valid(state.source_hl_buf) then
+              vim.api.nvim_buf_clear_namespace(state.source_hl_buf, ns_source, 0, -1)
+              state.source_hl_buf = nil
+            end
+            navigate_to_node(node, true, false)
           end
 
           -- Toggle expand/collapse
           local function toggle()
             local lnum = vim.fn.line(".")
             local node = state.line_map[lnum]
-            if not node or node._loading or node._error then return end
+            if not node or node._loading or node._error or node._cycle then return end
 
             if node.expanded then
               node.expanded = false
@@ -480,7 +614,6 @@ function M.show(direction, opts)
               node.expanded = true
               refresh_buffer(buf, root_nodes, state)
             else
-              -- Show loading indicator immediately
               node.children = { {
                 _loading = true,
                 name = "loading...",
@@ -490,11 +623,9 @@ function M.show(direction, opts)
               node.expanded = true
               refresh_buffer(buf, root_nodes, state)
 
-              -- Tag this resolve so stale responses are ignored
               node._resolve_gen = (node._resolve_gen or 0) + 1
               local my_gen = node._resolve_gen
 
-              -- Resolve children asynchronously
               resolve_children(client, node, direction, source_buf, function(children, resolve_err)
                 vim.schedule(function()
                   if not vim.api.nvim_buf_is_valid(buf) then return end
@@ -511,7 +642,9 @@ function M.show(direction, opts)
                   else
                     node.children = children or {}
                     for _, child in ipairs(node.children) do
-                      child._resolved = false
+                      if not child._cycle then
+                        child._resolved = false
+                      end
                     end
                   end
                   node._resolved = true

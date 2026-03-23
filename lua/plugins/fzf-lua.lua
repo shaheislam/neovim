@@ -2259,8 +2259,25 @@ return {
       -- to be passed explicitly since create_scope_action is local to opts()
       local files_actions = fzf.config.globals.files and fzf.config.globals.files.actions or {}
       vim.keymap.set("n", "<leader>ff", function()
+        -- Explicitly build the command pipeline to guarantee new files always show.
+        -- The plugin's internal all_files mechanism delegates to get_files_cmd with
+        -- the full merged opts, which can fail silently. Building the cmd ourselves
+        -- ensures both frecency DB entries AND fd output are always included.
+        local frecency_h = require("fzf-lua-frecency.helpers")
+        local db_dir = vim.fs.joinpath(vim.fn.stdpath("data"), "fzf-lua-frecency")
+        local sorted_files = frecency_h.get_sorted_files_path(db_dir)
+        local fd_cmd = require("fzf-lua.providers.files").get_files_cmd({
+          fd_opts = "--color=never --type f --type l --exclude .git",
+          rg_opts = [[--color=never --files -g "!.git"]],
+          find_opts = [[-type f \! -path '*/.git/*']],
+          hidden = true,
+        })
+        local cat_cmd = string.format("cat %s 2>/dev/null",
+          vim.fn.shellescape(frecency_h.get_native_filepath(sorted_files)))
+
         require("fzf-lua-frecency").frecency({
           all_files = true,
+          cmd = cat_cmd .. " ; " .. fd_cmd,
           fzf_opts = {
             ["--header"] = "M-g: global | M-s: git | M-l: local | M-d: buffer dir | M-p: parent | M-o: browse",
           },

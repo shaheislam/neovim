@@ -391,6 +391,7 @@ return {
             { find = "^%d+ more lines" }, -- Line addition messages
             { find = "Already at oldest change" }, -- Undo limit reached
             { find = "Already at newest change" }, -- Redo limit reached
+            { find = "%-%-No lines in buffer%-%-" }, -- Empty buffer message
           },
         },
         opts = { skip = true },

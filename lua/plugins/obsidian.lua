@@ -92,12 +92,12 @@ return {
 
         -- CRITICAL: expr = true required because smart_action RETURNS a command string
         vim.keymap.set("n", "gf", require("obsidian.api").smart_action, {
-          buf = bufnr,
+          buffer = bufnr,
           desc = "Follow link",
           expr = true,
         })
         vim.keymap.set("n", "<CR>", require("obsidian.api").smart_action, {
-          buf = bufnr,
+          buffer = bufnr,
           desc = "Smart action",
           expr = true,
         })
@@ -105,11 +105,11 @@ return {
         -- Heading navigation (linkarzu workflow)
         vim.keymap.set("n", "gj", function()
           vim.fn.search("^#", "W")
-        end, { buf = bufnr, desc = "Next heading" })
+        end, { buffer = bufnr, desc = "Next heading" })
 
         vim.keymap.set("n", "gk", function()
           vim.fn.search("^#", "bW")
-        end, { buf = bufnr, desc = "Previous heading" })
+        end, { buffer = bufnr, desc = "Previous heading" })
 
         -- Prose wrapping for vault notes
         vim.opt_local.wrap = true
@@ -124,15 +124,15 @@ return {
 
         vim.keymap.set("n", "zk", function()
           vim.opt_local.foldlevel = 1
-        end, { buf = bufnr, desc = "Fold to H2" })
+        end, { buffer = bufnr, desc = "Fold to H2" })
 
         vim.keymap.set("n", "zl", function()
           vim.opt_local.foldlevel = 2
-        end, { buf = bufnr, desc = "Fold to H3" })
+        end, { buffer = bufnr, desc = "Fold to H3" })
 
         vim.keymap.set("n", "zu", function()
           vim.cmd("normal! zR")
-        end, { buf = bufnr, desc = "Unfold all" })
+        end, { buffer = bufnr, desc = "Unfold all" })
 
         -- Task automation: Complete and move to Completed section (linkarzu workflow)
         vim.keymap.set("n", "<A-x>", function()
@@ -160,7 +160,7 @@ return {
           -- If no Completed section, create one at end
           vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, { "", "## Completed", line })
           vim.notify("Created Completed section and moved task", vim.log.levels.INFO)
-        end, { buf = bufnr, desc = "Complete and move task" })
+        end, { buffer = bufnr, desc = "Complete and move task" })
       end,
     },
   },
@@ -371,8 +371,8 @@ return {
           title_pos = "center",
         })
 
-        vim.keymap.set("n", "q", "<cmd>close<cr>", { buf = buf })
-        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buf = buf })
+        vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
+        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = buf })
       end,
       desc = "Suggest backlinks",
     },
@@ -404,8 +404,8 @@ return {
           title_pos = "center",
         })
 
-        vim.keymap.set("n", "q", "<cmd>close<cr>", { buf = buf })
-        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buf = buf })
+        vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
+        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = buf })
       end,
       desc = "Search history",
     },

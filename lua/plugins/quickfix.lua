@@ -82,7 +82,7 @@ return {
 
         -- Custom keymaps for quickfix buffer
         local function map(mode, lhs, rhs, desc)
-          vim.keymap.set(mode, lhs, rhs, { buf = bufnr, desc = desc })
+          vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, desc = desc })
         end
 
         map("n", "r", function() require("quicker").refresh() end, "Refresh quickfix")

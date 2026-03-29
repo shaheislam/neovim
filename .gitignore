@@ -1,2 +1,5 @@
 # Checkpoint pending data (ephemeral)
 .checkpoints/
+
+# Override global gitignore — these are intentional project files
+!CLAUDE.md

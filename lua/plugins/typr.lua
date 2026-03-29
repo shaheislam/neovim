@@ -32,7 +32,7 @@ return {
               end
             end
           end)
-        end, { buf = buf, desc = "Close Typr and cleanup floating windows" })
+        end, { buffer = buf, desc = "Close Typr and cleanup floating windows" })
       end,
     },
   },

@@ -591,7 +591,7 @@ return {
         group = vim.api.nvim_create_augroup("lsp_attach_keymaps", { clear = true }),
         callback = function(event)
           local map = function(mode, lhs, rhs, desc)
-            vim.keymap.set(mode, lhs, rhs, { buf = event.buf, desc = desc })
+            vim.keymap.set(mode, lhs, rhs, { buffer = event.buf, desc = desc })
           end
 
           -- Diagnostic navigation

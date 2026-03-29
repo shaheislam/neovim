@@ -24,7 +24,7 @@ return {
         server = {
           on_attach = function(client, bufnr)
             -- Set up keymaps for Rust development
-            local opts = { buf = bufnr, silent = true }
+            local opts = { buffer = bufnr, silent = true }
             vim.keymap.set("n", "<leader>cra", function()
               vim.cmd.RustLsp("codeAction")
             end, vim.tbl_extend("force", opts, { desc = "Rust Code Action" }))
@@ -179,7 +179,7 @@ return {
           enabled = true,
           on_attach = function(client, bufnr)
             -- Crates.nvim keymaps for Cargo.toml
-            local opts = { noremap = true, silent = true, buf = bufnr }
+            local opts = { noremap = true, silent = true, buffer = bufnr }
             vim.keymap.set(
               "n",
               "<leader>cv",

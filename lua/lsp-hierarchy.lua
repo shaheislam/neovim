@@ -693,7 +693,7 @@ function M.show(direction, opts)
             vim.api.nvim_echo({{ full_path .. suffix, "Normal" }}, false, {})
           end
 
-          local bopts = { buf = buf, nowait = true, silent = true }
+          local bopts = { buffer = buf, nowait = true, silent = true }
           vim.keymap.set("n", "<CR>", jump, bopts)
           vim.keymap.set("n", "o", toggle, bopts)
           vim.keymap.set("n", "K", show_full_path, bopts)

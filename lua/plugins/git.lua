@@ -32,8 +32,8 @@ local function compare_clipboard()
 	end
 
 	-- Add q to close the diff on BOTH buffers
-	vim.keymap.set("n", "q", close_diff, { buf = scratch_buf, desc = "Close diff" })
-	vim.keymap.set("n", "q", close_diff, { buf = original_buf, desc = "Close diff" })
+		vim.keymap.set("n", "q", close_diff, { buffer = scratch_buf, desc = "Close diff" })
+		vim.keymap.set("n", "q", close_diff, { buffer = original_buf, desc = "Close diff" })
 
 	-- Go back to original window and enable diff
 	vim.cmd("wincmd p")
@@ -82,8 +82,8 @@ local function compare_clipboard_selection()
 	vim.cmd("diffthis")
 
 	-- Add q to close the diff tab (works from either buffer)
-	vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buf = buf1, desc = "Close diff" })
-	vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buf = buf2, desc = "Close diff" })
+		vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf1, desc = "Close diff" })
+		vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf2, desc = "Close diff" })
 end
 
 -- Clipboard diff keymaps
@@ -507,10 +507,10 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 				vim.bo.bufhidden = "wipe"
 				vim.cmd("startinsert") -- Enter terminal mode so user can scroll
 			end
-		end, { buf = commit_info_bufnr, desc = "Checkout commit / Show checkpoint" })
+			end, { buffer = commit_info_bufnr, desc = "Checkout commit / Show checkpoint" })
 		-- Add keymap to close Diffview with q
 		vim.keymap.set("n", "q", "<cmd>DiffviewClose<cr>", {
-			buf = commit_info_bufnr,
+				buffer = commit_info_bufnr,
 			desc = "Close Diffview",
 		})
 	end
@@ -929,7 +929,7 @@ return {
 
 					local function map(mode, l, r, opts)
 						opts = opts or {}
-						opts.buf = bufnr
+						opts.buffer = bufnr
 						vim.keymap.set(mode, l, r, opts)
 					end
 
@@ -1906,7 +1906,7 @@ return {
 
 						-- Ensure q closes diffview in ALL diff buffers (including index)
 						vim.keymap.set("n", "q", "<cmd>DiffviewClose<cr>", {
-							buf = bufnr,
+							buffer = bufnr,
 							desc = "Close Diffview",
 						})
 					end,
@@ -2488,7 +2488,7 @@ return {
 					vim.wo.statusline = " Git " -- Minimal status line
 
 					-- Buffer-local keymaps for Ivy-style navigation
-					local opts = { buf = args.buf, silent = true }
+					local opts = { buffer = args.buf, silent = true }
 					vim.keymap.set("n", "q", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Close" }))
 					vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Close" }))
 					vim.keymap.set("n", "r", "<cmd>edit<cr>", vim.tbl_extend("force", opts, { desc = "Refresh" }))
@@ -2508,7 +2508,7 @@ return {
 					vim.bo.textwidth = 72
 
 					-- Commit buffer keymaps
-					local opts = { buf = args.buf, silent = true }
+					local opts = { buffer = args.buf, silent = true }
 					vim.keymap.set("n", "q", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Cancel commit" }))
 				end,
 				group = vim.api.nvim_create_augroup("GitCommitStyle", { clear = true }),

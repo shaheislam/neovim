@@ -85,7 +85,7 @@ return {
             if not winid then
               vim.lsp.buf.hover({ border = "rounded" })
             end
-          end, { buf = event.buf, desc = "Hover Documentation / Peek Fold" })
+          end, { buffer = event.buf, desc = "Hover Documentation / Peek Fold" })
         end,
       })
     end,

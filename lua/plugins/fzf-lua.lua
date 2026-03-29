@@ -13,8 +13,8 @@ local current_scope = "Local"  -- Track current scope for header display
 local function get_history_path(picker_type, cwd)
   -- Create history directory if it doesn't exist
   local history_dir = vim.fn.stdpath("data") .. "/fzf-lua-history"
-  -- Use vim.loop (uv) for more reliable directory creation
-  local ok = vim.loop.fs_mkdir(history_dir, 493) -- 493 = 0755 in octal
+  -- Use vim.uv for more reliable directory creation
+  local ok = vim.uv.fs_mkdir(history_dir, 493) -- 493 = 0755 in octal
   if not ok and vim.fn.isdirectory(history_dir) == 0 then
     -- If single mkdir failed and dir doesn't exist, try creating parent dirs
     vim.fn.system("mkdir -p " .. vim.fn.shellescape(history_dir))
@@ -554,11 +554,11 @@ return {
         end
 
         local files = {}
-        -- Use vim.loop (uv) to read directory
-        local handle = vim.loop.fs_scandir(history_dir)
+        -- Use vim.uv to read directory
+        local handle = vim.uv.fs_scandir(history_dir)
         if handle then
           while true do
-            local name, type = vim.loop.fs_scandir_next(handle)
+            local name, type = vim.uv.fs_scandir_next(handle)
             if not name then break end
             if type == "file" then
               -- Filter by picker type if specified
@@ -593,10 +593,10 @@ return {
         -- Convert git root to safe filename pattern
         local safe_git_root = git_root:gsub("/", "__"):gsub("^__", ""):gsub(":", "")
 
-        local handle = vim.loop.fs_scandir(history_dir)
+        local handle = vim.uv.fs_scandir(history_dir)
         if handle then
           while true do
-            local name, type = vim.loop.fs_scandir_next(handle)
+            local name, type = vim.uv.fs_scandir_next(handle)
             if not name then break end
             if type == "file" then
               -- Check if this file belongs to a directory within the git repo

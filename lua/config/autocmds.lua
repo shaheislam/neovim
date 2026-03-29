@@ -28,7 +28,7 @@ vim.api.nvim_create_autocmd("BufWritePre", {
   pattern = "*",
   callback = function()
     local ft = vim.bo.filetype
-    if ft == "markdown" or ft == "diff" then
+    if ft == "markdown" or ft == "diff" or not vim.bo.modifiable then
       return
     end
     -- Save cursor position

@@ -84,7 +84,7 @@ return {
 
       -- Set terminal-specific keymaps
       function _G.set_terminal_keymaps()
-        local keymap_opts = { buffer = 0 }
+        local keymap_opts = { buf = 0 }
         -- <C-q> in terminal mode closes the terminal (buffer-local override)
         vim.keymap.set("t", "<C-q>", [[<C-\><C-n><cmd>close<cr>]], keymap_opts)
         -- <Esc><Esc> exits insert mode without closing

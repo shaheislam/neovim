@@ -91,7 +91,7 @@ return {
           focusable = false,
           style = "minimal",
           border = "rounded",
-          source = "always",
+          source = true,
           header = "",
           prefix = "",
         },
@@ -103,20 +103,6 @@ return {
             [vim.diagnostic.severity.INFO] = " ",
           },
         },
-      })
-
-      -- Enhanced hover configuration
-      vim.lsp.handlers["textDocument/hover"] = vim.lsp.with(vim.lsp.handlers.hover, {
-        border = "rounded",
-        max_width = 80,
-        max_height = 20,
-      })
-
-      -- Enhanced signature help configuration
-      vim.lsp.handlers["textDocument/signatureHelp"] = vim.lsp.with(vim.lsp.handlers.signature_help, {
-        border = "rounded",
-        focusable = false,
-        relative = "cursor",
       })
 
       -- Get blink.cmp LSP capabilities
@@ -605,7 +591,7 @@ return {
         group = vim.api.nvim_create_augroup("lsp_attach_keymaps", { clear = true }),
         callback = function(event)
           local map = function(mode, lhs, rhs, desc)
-            vim.keymap.set(mode, lhs, rhs, { buffer = event.buf, desc = desc })
+            vim.keymap.set(mode, lhs, rhs, { buf = event.buf, desc = desc })
           end
 
           -- Diagnostic navigation
@@ -633,14 +619,14 @@ return {
             pcall(vim.lsp.codelens.run)
           end, "Run Code Lens")
           map("n", "<leader>cL", function()
-            pcall(vim.lsp.codelens.refresh)
+            pcall(vim.lsp.codelens.enable, true)
           end, "Refresh Code Lens")
 
           -- Hover documentation (integrated with nvim-ufo in lsp-enhancements.lua)
-          map("n", "K", vim.lsp.buf.hover, "Hover Documentation")
+          map("n", "K", function() vim.lsp.buf.hover({ border = "rounded" }) end, "Hover Documentation")
 
           -- Signature help (remapped from <C-k> to avoid conflict with vim-tmux-navigator)
-          map({ "n", "i" }, "<leader>k", vim.lsp.buf.signature_help, "Signature Help")
+          map({ "n", "i" }, "<leader>k", function() vim.lsp.buf.signature_help({ border = "rounded" }) end, "Signature Help")
 
           -- Go to definition/references
           map("n", "gd", "<cmd>FzfLua lsp_definitions<cr>", "Go to Definition")

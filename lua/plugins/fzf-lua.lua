@@ -1201,7 +1201,7 @@ return {
                 vim.cmd("stopinsert")  -- Exit insert mode in terminal
                 vim.api.nvim_set_current_win(self.preview_winid)  -- Switch directly to preview
               end
-            end, { buffer = true, silent = true })
+            end, { buf = true, silent = true })
 
             -- Set up Tab in normal mode for preview window
             -- This gets applied when we switch to the preview buffer
@@ -1221,7 +1221,7 @@ return {
                       vim.api.nvim_set_current_win(self.fzf_winid)  -- Switch directly to search
                       vim.cmd("startinsert")  -- Re-enter insert mode in terminal
                     end
-                  end, { buffer = preview_buf, silent = true })
+                  end, { buf = preview_buf, silent = true })
 
                   -- Esc/q: Close the picker from preview window
                   -- Sends raw escape byte to fzf terminal channel, causing fzf to abort.
@@ -1242,9 +1242,9 @@ return {
                     end
                   end
                   vim.keymap.set("n", "<Esc>", close_picker_from_preview,
-                    { buffer = preview_buf, silent = true, desc = "Close picker" })
+                    { buf = preview_buf, silent = true, desc = "Close picker" })
                   vim.keymap.set("n", "q", close_picker_from_preview,
-                    { buffer = preview_buf, silent = true, desc = "Close picker" })
+                    { buf = preview_buf, silent = true, desc = "Close picker" })
 
                   -- i: Make preview buffer editable and enter insert mode
                   vim.keymap.set("n", "i", function()
@@ -1279,7 +1279,7 @@ return {
 
                     -- Enter insert mode
                     vim.cmd("startinsert")
-                  end, { buffer = preview_buf, silent = true, desc = "Edit in preview buffer" })
+                  end, { buf = preview_buf, silent = true, desc = "Edit in preview buffer" })
                 end
               end,
             })

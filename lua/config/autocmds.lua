@@ -164,7 +164,7 @@ vim.api.nvim_create_autocmd("FileType", {
   pattern = { "qf", "help", "man", "lspinfo", "checkhealth" },
   callback = function(event)
     vim.bo[event.buf].buflisted = false
-    vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = event.buf, silent = true })
+    vim.keymap.set("n", "q", "<cmd>close<cr>", { buf = event.buf, silent = true })
   end,
 })
 

@@ -124,7 +124,7 @@ function M.setup()
           focusable = false,
           close_events = { "BufLeave", "CursorMoved", "InsertEnter", "FocusLost" },
           border = "rounded",
-          source = "always",
+          source = true,
           prefix = " ",
           scope = "cursor",
         })
@@ -151,12 +151,12 @@ function M.setup()
     local clients = vim.lsp.get_clients({ bufnr = bufnr })
     for _, client in pairs(clients) do
       if client.server_capabilities and client.server_capabilities.codeLensProvider then
-        local ok, _ = pcall(vim.lsp.codelens.refresh)
+        local ok, _ = pcall(vim.lsp.codelens.enable, true)
         if not ok then
-          -- Silently fail - some LSP servers don't properly support refresh
+          -- Silently fail - some LSP servers don't properly support code lenses
           return
         end
-        break -- Only need to call refresh once
+        break -- Only need to enable once
       end
     end
   end

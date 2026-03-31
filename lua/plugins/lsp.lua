@@ -245,6 +245,31 @@ return {
           },
         },
 
+        -- ESLint (JS/TS linting, complements ts_ls)
+        -- Only attaches when eslint config is found in project (upstream root_dir guards this)
+        eslint = {
+          cmd = get_lsp_cmd("vscode-eslint-language-server", "--stdio"),
+          capabilities = capabilities,
+        },
+
+        -- CSS/SCSS/Less
+        cssls = {
+          cmd = get_lsp_cmd("vscode-css-language-server", "--stdio"),
+          capabilities = capabilities,
+        },
+
+        -- HTML
+        html = {
+          cmd = get_lsp_cmd("vscode-html-language-server", "--stdio"),
+          capabilities = capabilities,
+        },
+
+        -- C/C++
+        clangd = {
+          cmd = get_lsp_cmd("clangd"),
+          capabilities = capabilities,
+        },
+
         -- Terraform
         terraformls = {
           cmd = get_lsp_cmd("terraform-ls", "serve"),

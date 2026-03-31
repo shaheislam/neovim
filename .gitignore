@@ -1,5 +1,11 @@
 # Checkpoint pending data (ephemeral)
 .checkpoints/
 
+# Neovim debug log
+.nvimlog
+
+# Rust build output (rust-analyzer)
+target/
+
 # Override global gitignore — these are intentional project files
 !CLAUDE.md

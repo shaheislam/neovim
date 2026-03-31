@@ -50,6 +50,7 @@ return {
 				-- Core groups
 				{ "<leader>a", group = "ai (CodeCompanion)" },
 			{ "<leader>ao", group = "opencode" },
+				{ "<leader>aw", desc = "Wrapped dashboard" },
 				{ "<leader>c", group = "code/lsp" },
 				{ "<leader>f", group = "find/file" },
 				{ "<leader>g", group = "git" },

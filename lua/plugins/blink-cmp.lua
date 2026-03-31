@@ -11,6 +11,10 @@ return {
     version = "v0.*",
     event = { "InsertEnter", "CmdlineEnter" },
     opts = {
+      enabled = function()
+        return vim.bo.filetype ~= "AgenticInput"
+      end,
+
       -- Appearance
       appearance = {
         use_nvim_cmp_as_default = true,

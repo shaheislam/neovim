@@ -36,13 +36,14 @@ return {
 				return aerial_cache.text
 			end
 
-			require("lualine").setup({
-				options = {
-					theme = "auto",
-					globalstatus = true,
-					disabled_filetypes = {
-						statusline = { "dashboard", "alpha", "starter", "snacks_dashboard" },
-					},
+				require("lualine").setup({
+					options = {
+						theme = "auto",
+						globalstatus = true,
+						disabled_filetypes = {
+							statusline = { "dashboard", "alpha", "starter", "snacks_dashboard", "AgenticChat", "AgenticInput", "AgenticCode", "AgenticFiles", "AgenticDiagnostics" },
+							winbar = { "AgenticChat", "AgenticInput", "AgenticCode", "AgenticFiles", "AgenticDiagnostics" },
+						},
 					component_separators = { left = "", right = "" },
 					section_separators = { left = "", right = "" },
 				},

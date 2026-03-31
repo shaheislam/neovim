@@ -48,8 +48,11 @@ return {
 			-- Define key groups (leader key mappings)
 			wk.add({
 				-- Core groups
-				{ "<leader>a", group = "ai (CodeCompanion)" },
-			{ "<leader>ao", group = "opencode" },
+				{ "<leader>a", group = "ai" },
+				{ "<leader>aa", group = "agentic" },
+				{ "<leader>ac", group = "codecompanion" },
+				{ "<leader>ao", group = "opencode" },
+				{ "<leader>c", group = "code" },
 				{ "<leader>aw", desc = "Wrapped dashboard" },
 				{ "<leader>l", group = "lsp" },
 				{ "<leader>L", group = "lint/security" },

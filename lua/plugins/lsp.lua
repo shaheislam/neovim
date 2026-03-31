@@ -220,7 +220,10 @@ return {
 
         -- TypeScript/JavaScript
         ts_ls = {
-          cmd = get_lsp_cmd("typescript-language-server"),
+          cmd = function()
+            local cmd = get_lsp_cmd("typescript-language-server")
+            return cmd and { cmd[1], "--stdio" } or nil
+          end,
           capabilities = capabilities,
           settings = {
             typescript = {

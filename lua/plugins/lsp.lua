@@ -212,9 +212,12 @@ return {
           },
         },
 
-        -- Python linting (ruff)
+        -- Python linting (ruff built-in server, upstream: { 'ruff', 'server' })
         ruff = {
-          cmd = get_lsp_cmd("ruff-lsp"),
+          cmd = function()
+            local cmd = get_lsp_cmd("ruff")
+            return cmd and { cmd[1], "server" } or nil
+          end,
           capabilities = capabilities,
         },
 
@@ -272,9 +275,12 @@ return {
           capabilities = capabilities,
         },
 
-        -- Helm
+        -- Helm (upstream: { 'helm_ls', 'serve' })
         helm_ls = {
-          cmd = get_lsp_cmd("helm_ls"),
+          cmd = function()
+            local cmd = get_lsp_cmd("helm_ls")
+            return cmd and { cmd[1], "serve" } or nil
+          end,
           capabilities = capabilities,
         },
 
@@ -358,15 +364,21 @@ return {
           },
         },
 
-        -- Markdown
+        -- Markdown (upstream: { 'marksman', 'server' })
         marksman = {
-          cmd = get_lsp_cmd("marksman"),
+          cmd = function()
+            local cmd = get_lsp_cmd("marksman")
+            return cmd and { cmd[1], "server" } or nil
+          end,
           capabilities = capabilities,
         },
 
-        -- Bash
+        -- Bash (upstream: { 'bash-language-server', 'start' })
         bashls = {
-          cmd = get_lsp_cmd("bash-language-server"),
+          cmd = function()
+            local cmd = get_lsp_cmd("bash-language-server")
+            return cmd and { cmd[1], "start" } or nil
+          end,
           capabilities = capabilities,
         },
 
@@ -398,9 +410,12 @@ return {
           capabilities = capabilities,
         },
 
-        -- GraphQL
+        -- GraphQL (upstream: { 'graphql-lsp', 'server', '-m', 'stream' })
         graphql = {
-          cmd = get_lsp_cmd("graphql-lsp"),
+          cmd = function()
+            local cmd = get_lsp_cmd("graphql-lsp")
+            return cmd and { cmd[1], "server", "-m", "stream" } or nil
+          end,
           capabilities = capabilities,
         },
 

@@ -623,14 +623,14 @@ return {
           end, "Previous Warning")
 
           -- Diagnostic actions
-          map("n", "<leader>cd", "<cmd>FzfLua diagnostics_document<cr>", "Buffer Diagnostics")
-          map("n", "<leader>cD", "<cmd>FzfLua diagnostics_workspace<cr>", "Workspace Diagnostics")
+          map("n", "<leader>ld", "<cmd>FzfLua diagnostics_document<cr>", "Buffer Diagnostics")
+          map("n", "<leader>lD", "<cmd>FzfLua diagnostics_workspace<cr>", "Workspace Diagnostics")
 
           -- Code lens actions
-          map("n", "<leader>cl", function()
+          map("n", "<leader>lc", function()
             pcall(vim.lsp.codelens.run)
           end, "Run Code Lens")
-          map("n", "<leader>cL", function()
+          map("n", "<leader>lC", function()
             pcall(vim.lsp.codelens.enable, true)
           end, "Refresh Code Lens")
 
@@ -638,7 +638,8 @@ return {
           map("n", "K", function() vim.lsp.buf.hover({ border = "rounded" }) end, "Hover Documentation")
 
           -- Signature help (remapped from <C-k> to avoid conflict with vim-tmux-navigator)
-          map({ "n", "i" }, "<leader>k", function() vim.lsp.buf.signature_help({ border = "rounded" }) end, "Signature Help")
+          map({ "n", "i" }, "<leader>lh", function() vim.lsp.buf.signature_help({ border = "rounded" }) end,
+            "Signature Help")
 
           -- Go to definition/references
           map("n", "gd", "<cmd>FzfLua lsp_definitions<cr>", "Go to Definition")
@@ -647,20 +648,20 @@ return {
           map("n", "gy", "<cmd>FzfLua lsp_typedefs<cr>", "Go to Type Definition")
 
           -- Code actions
-          map({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action, "Code Action")
-          map("n", "<leader>cr", vim.lsp.buf.rename, "Rename")
+          map({ "n", "v" }, "<leader>la", vim.lsp.buf.code_action, "Code Action")
+          map("n", "<leader>lr", vim.lsp.buf.rename, "Rename")
 
           -- Symbols
           map("n", "<leader>ss", "<cmd>FzfLua lsp_document_symbols<cr>", "Document Symbols")
           map("n", "<leader>sS", "<cmd>FzfLua lsp_workspace_symbols<cr>", "Workspace Symbols")
 
           -- Call hierarchy (flat list via fzf-lua)
-          map("n", "<leader>ci", "<cmd>FzfLua lsp_incoming_calls<cr>", "Incoming Calls")
-          map("n", "<leader>co", "<cmd>FzfLua lsp_outgoing_calls<cr>", "Outgoing Calls")
+          map("n", "<leader>li", "<cmd>FzfLua lsp_incoming_calls<cr>", "Incoming Calls")
+          map("n", "<leader>lo", "<cmd>FzfLua lsp_outgoing_calls<cr>", "Outgoing Calls")
 
           -- Call hierarchy (recursive tree view)
-          map("n", "<leader>cI", function() require("lsp-hierarchy").incoming() end, "Incoming Calls Tree")
-          map("n", "<leader>cO", function() require("lsp-hierarchy").outgoing() end, "Outgoing Calls Tree")
+          map("n", "<leader>lI", function() require("lsp-hierarchy").incoming() end, "Incoming Calls Tree")
+          map("n", "<leader>lO", function() require("lsp-hierarchy").outgoing() end, "Outgoing Calls Tree")
 
           -- User commands for call hierarchy (like telescope-hierarchy)
           vim.api.nvim_buf_create_user_command(event.buf, "LspIncomingCalls",
@@ -681,8 +682,8 @@ return {
             end, { nargs = "?" })
 
           -- LSP Toggle controls
-          map("n", "<leader>cT", function() _G.toggle_all_lsp() end, "Toggle ALL LSPs")
-          map("n", "<leader>ct", function()
+          map("n", "<leader>lT", function() _G.toggle_all_lsp() end, "Toggle ALL LSPs")
+          map("n", "<leader>lt", function()
             local buf_clients = vim.lsp.get_clients({ bufnr = event.buf })
             if #buf_clients > 0 then
               _G.toggle_lsp(buf_clients[1].name)
@@ -690,7 +691,7 @@ return {
               vim.notify("No LSP attached to this buffer", vim.log.levels.WARN)
             end
           end, "Toggle buffer's LSP")
-          map("n", "<leader>cs", function() _G.lsp_status() end, "Show LSP status")
+          map("n", "<leader>ls", function() _G.lsp_status() end, "Show LSP status")
         end,
       })
     end,

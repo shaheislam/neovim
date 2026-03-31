@@ -25,37 +25,37 @@ return {
           on_attach = function(client, bufnr)
             -- Set up keymaps for Rust development
             local opts = { buffer = bufnr, silent = true }
-            vim.keymap.set("n", "<leader>cra", function()
+            vim.keymap.set("n", "<leader>Ra", function()
               vim.cmd.RustLsp("codeAction")
             end, vim.tbl_extend("force", opts, { desc = "Rust Code Action" }))
-            vim.keymap.set("n", "<leader>dr", function()
+            vim.keymap.set("n", "<leader>Rd", function()
               vim.cmd.RustLsp("debuggables")
             end, vim.tbl_extend("force", opts, { desc = "Rust Debuggables" }))
-            vim.keymap.set("n", "<leader>rr", function()
+            vim.keymap.set("n", "<leader>Rr", function()
               vim.cmd.RustLsp("runnables")
             end, vim.tbl_extend("force", opts, { desc = "Rust Runnables" }))
-            vim.keymap.set("n", "<leader>rt", function()
+            vim.keymap.set("n", "<leader>RT", function()
               vim.cmd.RustLsp("testables")
             end, vim.tbl_extend("force", opts, { desc = "Rust Testables" }))
             vim.keymap.set("n", "K", function()
               vim.cmd.RustLsp({ "hover", "actions" })
             end, vim.tbl_extend("force", opts, { desc = "Rust Hover Actions" }))
-            vim.keymap.set("n", "<leader>re", function()
+            vim.keymap.set("n", "<leader>Re", function()
               vim.cmd.RustLsp("expandMacro")
             end, vim.tbl_extend("force", opts, { desc = "Rust Expand Macro" }))
-            vim.keymap.set("n", "<leader>rc", function()
+            vim.keymap.set("n", "<leader>Rc", function()
               vim.cmd.RustLsp("openCargo")
             end, vim.tbl_extend("force", opts, { desc = "Open Cargo.toml" }))
-            vim.keymap.set("n", "<leader>rp", function()
+            vim.keymap.set("n", "<leader>Rp", function()
               vim.cmd.RustLsp("parentModule")
             end, vim.tbl_extend("force", opts, { desc = "Rust Parent Module" }))
-            vim.keymap.set("n", "<leader>rj", function()
+            vim.keymap.set("n", "<leader>Rj", function()
               vim.cmd.RustLsp("joinLines")
             end, vim.tbl_extend("force", opts, { desc = "Rust Join Lines" }))
-            vim.keymap.set("n", "<leader>rs", function()
+            vim.keymap.set("n", "<leader>Rs", function()
               vim.cmd.RustLsp({ "ssr" })
             end, vim.tbl_extend("force", opts, { desc = "Rust Structural Search Replace" }))
-            vim.keymap.set("n", "<leader>rg", function()
+            vim.keymap.set("n", "<leader>Rg", function()
               vim.cmd.RustLsp("crateGraph")
             end, vim.tbl_extend("force", opts, { desc = "Rust Crate Graph" }))
           end,
@@ -182,7 +182,7 @@ return {
             local opts = { noremap = true, silent = true, buffer = bufnr }
             vim.keymap.set(
               "n",
-              "<leader>cv",
+              "<leader>RV",
               function()
                 crates.show_versions_popup()
               end,
@@ -190,7 +190,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cf",
+              "<leader>RF",
               function()
                 crates.show_features_popup()
               end,
@@ -198,7 +198,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cd",
+              "<leader>Rcd",
               function()
                 crates.show_dependencies_popup()
               end,
@@ -206,7 +206,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cu",
+              "<leader>Rcu",
               function()
                 crates.update_crate()
               end,
@@ -214,7 +214,7 @@ return {
             )
             vim.keymap.set(
               "v",
-              "<leader>cu",
+              "<leader>Rcs",
               function()
                 crates.update_crates()
               end,
@@ -222,7 +222,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cua",
+              "<leader>Rca",
               function()
                 crates.update_all_crates()
               end,
@@ -230,7 +230,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cU",
+              "<leader>RcU",
               function()
                 crates.upgrade_crate()
               end,
@@ -238,7 +238,7 @@ return {
             )
             vim.keymap.set(
               "v",
-              "<leader>cU",
+              "<leader>RcS",
               function()
                 crates.upgrade_crates()
               end,
@@ -246,7 +246,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cA",
+              "<leader>RcA",
               function()
                 crates.upgrade_all_crates()
               end,
@@ -254,7 +254,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cH",
+              "<leader>Rch",
               function()
                 crates.open_homepage()
               end,
@@ -262,7 +262,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cR",
+              "<leader>Rcr",
               function()
                 crates.open_repository()
               end,
@@ -270,7 +270,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cD",
+              "<leader>RcD",
               function()
                 crates.open_documentation()
               end,
@@ -278,7 +278,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cC",
+              "<leader>RcC",
               function()
                 crates.open_crates_io()
               end,
@@ -286,7 +286,7 @@ return {
             )
             vim.keymap.set(
               "n",
-              "<leader>cL",
+              "<leader>RcL",
               function()
                 crates.open_lib_rs()
               end,

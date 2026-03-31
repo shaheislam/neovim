@@ -42,21 +42,21 @@ return {
     })
 
     -- Keybindings for fast linters
-    vim.keymap.set("n", "<leader>cL", function()
+    vim.keymap.set("n", "<leader>Ll", function()
       lint.try_lint()
     end, { desc = "Trigger linting" })
 
     -- Manual kube-linter trigger (since it overlaps with yamlls schema validation)
-    vim.keymap.set("n", "<leader>ck", function()
+    vim.keymap.set("n", "<leader>Lk", function()
       lint.try_lint({ "kube_linter" })
     end, { desc = "Run kube-linter" })
 
     -- Keybindings for directory/project scanners (manual only)
-    vim.keymap.set("n", "<leader>cT", function()
+    vim.keymap.set("n", "<leader>LT", function()
       vim.cmd("!trivy config " .. vim.fn.expand("%:p:h"))
     end, { desc = "Run Trivy on directory" })
 
-    vim.keymap.set("n", "<leader>cP", function()
+    vim.keymap.set("n", "<leader>LP", function()
       vim.cmd("!conftest test " .. vim.fn.expand("%"))
     end, { desc = "Run Conftest on file" })
   end,

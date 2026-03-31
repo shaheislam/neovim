@@ -51,7 +51,8 @@ return {
 				{ "<leader>a", group = "ai (CodeCompanion)" },
 			{ "<leader>ao", group = "opencode" },
 				{ "<leader>aw", desc = "Wrapped dashboard" },
-				{ "<leader>c", group = "code/lsp" },
+				{ "<leader>l", group = "lsp" },
+				{ "<leader>L", group = "lint/security" },
 				{ "<leader>f", group = "find/file" },
 				{ "<leader>g", group = "git" },
 				{ "<leader>O", group = "Octo (GitHub)" },
@@ -62,6 +63,11 @@ return {
 				{ "<leader>e", desc = "Open File Browser" },
 				{ "<leader>m", group = "markdown" },
 				{ "<leader>o", group = "obsidian" },
+				{ "<leader>b", group = "buffers" },
+				{ "<leader>k", group = "kubectl" },
+				{ "<leader>t", group = "trim" },
+				{ "<leader>go", group = "github/octo" },
+				{ "<leader>R", group = "rust" },
 				-- Obsidian subcommands
 				{ "<leader>od", desc = "Today's note" },
 				{ "<leader>oy", desc = "Yesterday's note" },
@@ -78,15 +84,26 @@ return {
 				{ "<leader>oN", desc = "Link to new note", mode = "v" },
 
 				-- Code/LSP operations
-				{ "<leader>ca", desc = "Code Action" },
-				{ "<leader>cd", desc = "Buffer Diagnostics" },
-				{ "<leader>cD", desc = "Workspace Diagnostics" },
-				{ "<leader>cl", desc = "Run Code Lens" },
-				{ "<leader>cL", desc = "Refresh Code Lens" },
-				{ "<leader>cr", desc = "Rename" },
-				{ "<leader>cs", desc = "Show LSP status" },
-				{ "<leader>ct", desc = "Toggle buffer's LSP" },
-				{ "<leader>cT", desc = "Toggle ALL LSPs" },
+				{ "<leader>la", desc = "Code Action" },
+				{ "<leader>ld", desc = "Buffer Diagnostics" },
+				{ "<leader>lD", desc = "Workspace Diagnostics" },
+				{ "<leader>lc", desc = "Run Code Lens" },
+				{ "<leader>lC", desc = "Refresh Code Lens" },
+				{ "<leader>lr", desc = "Rename" },
+				{ "<leader>ls", desc = "Show LSP status" },
+				{ "<leader>lt", desc = "Toggle buffer's LSP" },
+				{ "<leader>lT", desc = "Toggle ALL LSPs" },
+				{ "<leader>lh", desc = "Signature Help" },
+				{ "<leader>li", desc = "Incoming Calls" },
+				{ "<leader>lo", desc = "Outgoing Calls" },
+				{ "<leader>lI", desc = "Incoming Calls Tree" },
+				{ "<leader>lO", desc = "Outgoing Calls Tree" },
+
+				-- Lint / security scanners
+				{ "<leader>Ll", desc = "Run linters" },
+				{ "<leader>Lk", desc = "Run kube-linter" },
+				{ "<leader>LT", desc = "Run Trivy" },
+				{ "<leader>LP", desc = "Run Conftest" },
 
 				-- Session management
 				{ "<leader>sl", desc = "List Sessions" },
@@ -147,6 +164,10 @@ return {
 				{ "[c", desc = "Previous Git hunk" },
 				{ "]C", desc = "Last Git hunk" },
 				{ "[C", desc = "First Git hunk" },
+				{ "]r", desc = "Next commit (file)" },
+				{ "[r", desc = "Prev commit (file)" },
+				{ "]R", desc = "Next commit (repo)" },
+				{ "[R", desc = "Prev commit (repo)" },
 
 				-- Window management
 				{ "<C-z>", desc = "Toggle Zoom Window" },
@@ -160,6 +181,46 @@ return {
 
 				-- Oil path yanking (C-y followed by l/s/g)
 				{ "<C-y>", group = "yank path", mode = "n" },
+
+				-- Kubectl helpers
+				{ "<leader>kf", desc = "kubectl cp from pod" },
+				{ "<leader>kt", desc = "kubectl cp to pod" },
+				{ "<leader>kp", desc = "kubectl cp picker" },
+				{ "<leader>kl", desc = "kubectl list pods" },
+
+				-- Buffer helpers
+				{ "<leader>bd", desc = "Delete buffer" },
+				{ "<leader>bD", desc = "Delete buffer (force)" },
+
+				-- Trim helpers
+				{ "<leader>tw", desc = "Trim trailing whitespace" },
+				{ "<leader>tl", desc = "Trim last empty lines" },
+
+				-- Rust tools
+				{ "<leader>Ra", desc = "Rust code action" },
+				{ "<leader>Rd", desc = "Rust debuggables" },
+				{ "<leader>Rr", desc = "Rust runnables" },
+				{ "<leader>RT", desc = "Rust testables" },
+				{ "<leader>Re", desc = "Rust expand macro" },
+				{ "<leader>Rc", desc = "Rust open Cargo" },
+				{ "<leader>Rp", desc = "Rust parent module" },
+				{ "<leader>Rj", desc = "Rust join lines" },
+				{ "<leader>Rs", desc = "Rust SSR" },
+				{ "<leader>Rg", desc = "Rust crate graph" },
+				{ "<leader>RV", desc = "Crate versions" },
+				{ "<leader>RF", desc = "Crate features" },
+				{ "<leader>Rcd", desc = "Crate dependencies" },
+				{ "<leader>Rcu", desc = "Update crate" },
+				{ "<leader>Rcs", desc = "Update selected crates" },
+				{ "<leader>Rca", desc = "Update all crates" },
+				{ "<leader>RcU", desc = "Upgrade crate" },
+				{ "<leader>RcS", desc = "Upgrade selected crates" },
+				{ "<leader>RcA", desc = "Upgrade all crates" },
+				{ "<leader>Rch", desc = "Crate homepage" },
+				{ "<leader>Rcr", desc = "Crate repository" },
+				{ "<leader>RcD", desc = "Crate documentation" },
+				{ "<leader>RcC", desc = "Open crates.io" },
+				{ "<leader>RcL", desc = "Open lib.rs" },
 			})
 		end,
 	},

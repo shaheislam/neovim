@@ -10,13 +10,18 @@ local function get_command_path(cmd)
 end
 
 -- Helper function to get command path for LSP
--- Returns full path to ensure vim.lsp can find the binary
-local function get_lsp_cmd(nix_cmd)
+-- Returns { full_path, ...extra_args } or nil if binary not found
+-- extra_args should match the upstream nvim-lspconfig cmd (e.g. "--stdio", "start", "serve")
+local function get_lsp_cmd(nix_cmd, ...)
   local full_path = get_command_path(nix_cmd)
-  if full_path then
-    return { full_path }
+  if not full_path then
+    return nil
   end
-  return nil
+  local cmd = { full_path }
+  for i = 1, select("#", ...) do
+    cmd[#cmd + 1] = select(i, ...)
+  end
+  return cmd
 end
 
 -- CRD apiVersion groups that use datreeio/CRDs-catalog for schemas
@@ -214,19 +219,13 @@ return {
 
         -- Python linting (ruff built-in server, upstream: { 'ruff', 'server' })
         ruff = {
-          cmd = function()
-            local cmd = get_lsp_cmd("ruff")
-            return cmd and { cmd[1], "server" } or nil
-          end,
+          cmd = get_lsp_cmd("ruff", "server"),
           capabilities = capabilities,
         },
 
         -- TypeScript/JavaScript
         ts_ls = {
-          cmd = function()
-            local cmd = get_lsp_cmd("typescript-language-server")
-            return cmd and { cmd[1], "--stdio" } or nil
-          end,
+          cmd = get_lsp_cmd("typescript-language-server", "--stdio"),
           capabilities = capabilities,
           settings = {
             typescript = {
@@ -248,10 +247,7 @@ return {
 
         -- Terraform
         terraformls = {
-          cmd = function()
-            local path = get_command_path("terraform-ls")
-            return path and { path, "serve" } or nil
-          end,
+          cmd = get_lsp_cmd("terraform-ls", "serve"),
           capabilities = capabilities,
         },
 
@@ -260,36 +256,24 @@ return {
 
         -- Docker
         dockerls = {
-          cmd = function()
-            local cmd = get_lsp_cmd("docker-langserver")
-            return cmd and { cmd[1], "--stdio" } or nil
-          end,
+          cmd = get_lsp_cmd("docker-langserver", "--stdio"),
           capabilities = capabilities,
         },
 
         docker_compose_language_service = {
-          cmd = function()
-            local cmd = get_lsp_cmd("docker-compose-langserver")
-            return cmd and { cmd[1], "--stdio" } or nil
-          end,
+          cmd = get_lsp_cmd("docker-compose-langserver", "--stdio"),
           capabilities = capabilities,
         },
 
-        -- Helm (upstream: { 'helm_ls', 'serve' })
+        -- Helm
         helm_ls = {
-          cmd = function()
-            local cmd = get_lsp_cmd("helm_ls")
-            return cmd and { cmd[1], "serve" } or nil
-          end,
+          cmd = get_lsp_cmd("helm_ls", "serve"),
           capabilities = capabilities,
         },
 
         -- YAML with Kubernetes schema support
         yamlls = {
-          cmd = function()
-            local cmd = get_lsp_cmd("yaml-language-server")
-            return cmd and { cmd[1], "--stdio" } or nil
-          end,
+          cmd = get_lsp_cmd("yaml-language-server", "--stdio"),
           capabilities = capabilities,
           settings = {
             redhat = { telemetry = { enabled = false } },
@@ -319,10 +303,7 @@ return {
 
         -- JSON
         jsonls = {
-          cmd = function()
-            local cmd = get_lsp_cmd("vscode-json-language-server")
-            return cmd and { cmd[1], "--stdio" } or nil
-          end,
+          cmd = get_lsp_cmd("vscode-json-language-server", "--stdio"),
           capabilities = capabilities,
         },
 
@@ -364,30 +345,21 @@ return {
           },
         },
 
-        -- Markdown (upstream: { 'marksman', 'server' })
+        -- Markdown
         marksman = {
-          cmd = function()
-            local cmd = get_lsp_cmd("marksman")
-            return cmd and { cmd[1], "server" } or nil
-          end,
+          cmd = get_lsp_cmd("marksman", "server"),
           capabilities = capabilities,
         },
 
-        -- Bash (upstream: { 'bash-language-server', 'start' })
+        -- Bash
         bashls = {
-          cmd = function()
-            local cmd = get_lsp_cmd("bash-language-server")
-            return cmd and { cmd[1], "start" } or nil
-          end,
+          cmd = get_lsp_cmd("bash-language-server", "start"),
           capabilities = capabilities,
         },
 
         -- TOML
         taplo = {
-          cmd = function()
-            local cmd = get_lsp_cmd("taplo")
-            return cmd and { cmd[1], "lsp", "stdio" } or nil
-          end,
+          cmd = get_lsp_cmd("taplo", "lsp", "stdio"),
           capabilities = capabilities,
         },
 
@@ -410,18 +382,15 @@ return {
           capabilities = capabilities,
         },
 
-        -- GraphQL (upstream: { 'graphql-lsp', 'server', '-m', 'stream' })
+        -- GraphQL
         graphql = {
-          cmd = function()
-            local cmd = get_lsp_cmd("graphql-lsp")
-            return cmd and { cmd[1], "server", "-m", "stream" } or nil
-          end,
+          cmd = get_lsp_cmd("graphql-lsp", "server", "-m", "stream"),
           capabilities = capabilities,
         },
 
-        -- Protocol Buffers
+        -- Protocol Buffers (upstream uses 'buf' CLI, not standalone binary)
         buf_ls = {
-          cmd = get_lsp_cmd("buf-language-server"),
+          cmd = get_lsp_cmd("buf", "lsp", "serve", "--log-format=text"),
           capabilities = capabilities,
         },
       }

@@ -14,35 +14,33 @@ return {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
     lazy = false,
-    config = function()
-      require("nvim-treesitter.configs").setup({
-        parser_install_dir = parser_install_dir,
-        ensure_installed = {
-          -- Core
-          "lua", "vim", "vimdoc", "query",
-          -- Shell
-          "bash", "fish",
-          -- Languages
-          "go", "gomod", "gowork",
-          "rust",
-          "python",
-          "javascript", "typescript",
-          "c",
-          -- Data/config
-          "json", "yaml", "toml",
-          -- Markup
-          "markdown", "markdown_inline",
-          "html",
-          "typst",
-          -- Injection support (enables highlighting inside host language strings)
-          "sql", "regex",
-          "comment",
-          -- Infrastructure
-          "dockerfile", "hcl",
-          "proto",
-        },
-      })
-    end,
+    opts = {
+      parser_install_dir = parser_install_dir,
+      ensure_installed = {
+        -- Core
+        "lua", "vim", "vimdoc", "query",
+        -- Shell
+        "bash", "fish",
+        -- Languages
+        "go", "gomod", "gowork",
+        "rust",
+        "python",
+        "javascript", "typescript",
+        "c",
+        -- Data/config
+        "json", "yaml", "toml",
+        -- Markup
+        "markdown", "markdown_inline",
+        "html",
+        "typst",
+        -- Injection support (enables highlighting inside host language strings)
+        "sql", "regex",
+        "comment",
+        -- Infrastructure
+        "dockerfile", "hcl",
+        "proto",
+      },
+    },
   },
 
   -- Treesitter textobjects: af/if (function), ac/ic (class), ]f/[f (navigate)

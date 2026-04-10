@@ -33,6 +33,7 @@ return {
         -- Oil-specific fzf-lua mappings
         ["<leader>ff"] = {
           function()
+            require("fzf-lua").set_info({ cmd = "frecency", fnc = "frecency" })
             require("fzf-lua-frecency").frecency({
               all_files = true,
               cwd = require("oil").get_current_dir(),

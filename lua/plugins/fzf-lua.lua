@@ -278,6 +278,69 @@ return {
         history_index = #dir_history
       end
 
+      -- ===== Header Builder =====
+
+      local function build_header(picker_name)
+        local scope_keys = {
+          files    = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent │ M-o: browse",
+          grep     = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent │ M-o: browse",
+          frecency = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent │ M-o: browse",
+          buffers  = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir",
+          oldfiles = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent",
+        }
+        local util_keys = {
+          files    = "C-y: copy │ C-f: full path │ C-r: history │ C-t: preview",
+          grep     = "C-y: copy │ C-r: history │ C-g: grep/lgrep │ M-i: ignore │ C-h: hidden │ M-q: qf │ C-t: preview",
+          buffers  = "C-y: copy │ C-f: full path │ C-d: delete │ C-r: history │ C-t: preview",
+          oldfiles = "C-r: history",
+        }
+        local parts = {}
+        if scope_keys[picker_name] then table.insert(parts, scope_keys[picker_name]) end
+        if util_keys[picker_name] then table.insert(parts, util_keys[picker_name]) end
+        return #parts > 0 and table.concat(parts, "\n") or nil
+      end
+
+      -- ===== Picker Relaunch Helper =====
+
+      local function relaunch_picker(prompt, cwd, query, scope_name)
+        if prompt:match("Buffers") then
+          require("fzf-lua").buffers({
+            query = query,
+            prompt = "Buffers (" .. scope_name .. ")> ",
+            fzf_opts = { ["--header"] = build_header("buffers") },
+          })
+        elseif prompt:match("Oldfiles") or prompt:match("Recent") then
+          require("fzf-lua").oldfiles({
+            cwd = cwd, query = query,
+            prompt = "Recent Files (" .. scope_name .. ")> ",
+            fzf_opts = {
+              ["--history"] = get_history_path("oldfiles", cwd),
+              ["--header"] = build_header("oldfiles"),
+            },
+          })
+        elseif prompt:match("Grep") or prompt:match("RG") then
+          local cwd_full = vim.fn.fnamemodify(cwd, ":~")
+          require("fzf-lua").live_grep({
+            cwd = cwd, query = query,
+            prompt = "Live Grep (" .. scope_name .. ")> ",
+            winopts = { title = " " .. cwd_full .. " " },
+            fzf_opts = {
+              ["--history"] = get_history_path("grep", cwd),
+              ["--header"] = build_header("grep"),
+            },
+          })
+        else
+          require("fzf-lua").files({
+            cwd = cwd, query = query,
+            prompt = "Find Files (" .. scope_name .. ")> ",
+            fzf_opts = {
+              ["--history"] = get_history_path("files", cwd),
+              ["--header"] = build_header("files"),
+            },
+          })
+        end
+      end
+
       -- ===== Scope Change Actions =====
 
       local function create_scope_action(new_cwd_fn, scope_name)
@@ -294,43 +357,11 @@ return {
           add_to_history(new_cwd, scope_name)
           current_scope = scope_name  -- Update current scope for header display
 
-          -- Determine picker type from prompt
           local prompt = opts.prompt or ""
           local query = opts.__call_opts and opts.__call_opts.query or ""
 
-          -- Relaunch appropriate picker with new scope
           vim.schedule(function()
-            if prompt:match("Buffers") then
-              require("fzf-lua").buffers({
-                query = query,
-                prompt = "Buffers (" .. scope_name .. ")> "
-              })
-            elseif prompt:match("Oldfiles") or prompt:match("Recent") then
-              require("fzf-lua").oldfiles({
-                cwd = new_cwd,
-                query = query,
-                prompt = "Recent Files (" .. scope_name .. ")> "
-              })
-            elseif prompt:match("Grep") or prompt:match("RG") then
-              local cwd_full = vim.fn.fnamemodify(new_cwd, ":~")
-              require("fzf-lua").live_grep({
-                cwd = new_cwd,
-                query = query,
-                prompt = "Live Grep (" .. scope_name .. ")> ",
-                winopts = {
-                  title = " " .. cwd_full .. " ",
-                },
-                fzf_opts = {
-                  ["--history"] = get_history_path("grep", new_cwd),
-                }
-              })
-            else
-              require("fzf-lua").files({
-                cwd = new_cwd,
-                query = query,
-                prompt = "Find Files (" .. scope_name .. ")> "
-              })
-            end
+            relaunch_picker(prompt, new_cwd, query, scope_name)
           end)
         end
       end
@@ -374,42 +405,11 @@ return {
           local entry = dir_history[history_index]
           current_scope = entry.scope_name  -- Update current scope for header display
 
-          -- Relaunch picker without adding to history
           local prompt = opts.prompt or ""
           local query = opts.__call_opts and opts.__call_opts.query or ""
 
           vim.schedule(function()
-            if prompt:match("Buffers") then
-              require("fzf-lua").buffers({
-                query = query,
-                prompt = "Buffers (" .. entry.scope_name .. ")> "
-              })
-            elseif prompt:match("Oldfiles") or prompt:match("Recent") then
-              require("fzf-lua").oldfiles({
-                cwd = entry.cwd,
-                query = query,
-                prompt = "Recent Files (" .. entry.scope_name .. ")> "
-              })
-            elseif prompt:match("Grep") or prompt:match("RG") then
-              local cwd_full = vim.fn.fnamemodify(entry.cwd, ":~")
-              require("fzf-lua").live_grep({
-                cwd = entry.cwd,
-                query = query,
-                prompt = "Live Grep (" .. entry.scope_name .. ")> ",
-                winopts = {
-                  title = " " .. cwd_full .. " ",
-                },
-                fzf_opts = {
-                  ["--history"] = get_history_path("grep", entry.cwd),
-                }
-              })
-            else
-              require("fzf-lua").files({
-                cwd = entry.cwd,
-                query = query,
-                prompt = "Find Files (" .. entry.scope_name .. ")> "
-              })
-            end
+            relaunch_picker(prompt, entry.cwd, query, entry.scope_name)
           end)
         end
       end
@@ -456,27 +456,7 @@ return {
               local abs_dir = vim.fn.fnamemodify(cwd, ":p") .. selected_dir
 
               vim.schedule(function()
-                local cwd_full = vim.fn.fnamemodify(abs_dir, ":~")
-                if original_prompt:match("Grep") or original_prompt:match("RG") then
-                  fzf_lua.live_grep({
-                    cwd = abs_dir,
-                    query = original_query,
-                    prompt = "Live Grep> ",
-                    winopts = {
-                      title = " " .. cwd_full .. " ",
-                    },
-                    fzf_opts = {
-                      ["--history"] = get_history_path("grep", abs_dir),
-                    }
-                  })
-                else
-                  fzf_lua.files({
-                    cwd = abs_dir,
-                    query = original_query,
-                    prompt = "Find Files> ",
-                    fzf_opts = { ["--header"] = cwd_full }
-                  })
-                end
+                relaunch_picker(original_prompt, abs_dir, original_query, "Browse")
               end)
             end,
             ["alt-b"] = function()
@@ -944,7 +924,8 @@ return {
                     vim.schedule(function()
                       local cwd_full = vim.fn.fnamemodify(scope_cwd, ":~")
                       if picker_type == "files" then
-                        require('fzf-lua').files({ query = query, cwd = scope_cwd })
+                        require('fzf-lua').files({ query = query, cwd = scope_cwd,
+                          fzf_opts = { ["--header"] = build_header("files") } })
                       elseif picker_type == "grep" then
                         require('fzf-lua').live_grep({
                           query = query,
@@ -954,12 +935,15 @@ return {
                           },
                           fzf_opts = {
                             ["--history"] = get_history_path("grep", scope_cwd),
+                            ["--header"] = build_header("grep"),
                           }
                         })
                       elseif picker_type == "buffers" then
-                        require('fzf-lua').buffers({ query = query })
+                        require('fzf-lua').buffers({ query = query,
+                          fzf_opts = { ["--header"] = build_header("buffers") } })
                       elseif picker_type == "oldfiles" then
-                        require('fzf-lua').oldfiles({ query = query, cwd = scope_cwd })
+                        require('fzf-lua').oldfiles({ query = query, cwd = scope_cwd,
+                          fzf_opts = { ["--header"] = build_header("oldfiles") } })
                       elseif picker_type == "git_files" then
                         require('fzf-lua').git_files({ query = query })
                       elseif picker_type == "git_commits" then
@@ -1163,6 +1147,7 @@ return {
           true,         -- auto-generate rest of highlights
           bg = "-1",    -- transparent background
           gutter = "-1", -- transparent gutter
+          header = { "fg", "Conceal" }, -- readable but subdued scope hints
         },
 
         -- Highlight groups for fzf-lua floating windows (transparency)
@@ -1294,7 +1279,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("files"),
-              ["--header"] = "C-y: copy path | C-f: copy full path | C-r: history | M-g/s/l/d/p: scope | M-o: browse | C-t: preview",
+              ["--header"] = build_header("files"),
             }
           end,
           actions = {
@@ -1381,7 +1366,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("grep"),
-              ["--header"] = "M-g/s/l/d/p: scope | M-o: browse | C-y: copy | C-r: history | C-g: grep/lgrep | M-i: ignore | C-h: hidden | A-q: qf | C-t: preview",
+              ["--header"] = build_header("grep"),
             }
           end,
           actions = {
@@ -1478,7 +1463,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("buffers"),
-              ["--header"] = "C-y: copy path | C-f: copy full path | C-d: delete | C-r: search history | C-t: preview",
+              ["--header"] = build_header("buffers"),
             }
           end,
           actions = {
@@ -1561,6 +1546,7 @@ return {
           fzf_opts = function()
             return {
               ["--history"] = get_history_path("oldfiles"),
+              ["--header"] = build_header("oldfiles"),
             }
           end,
           actions = {
@@ -2279,13 +2265,14 @@ return {
           all_files = true,
           cmd = cat_cmd .. " ; " .. fd_cmd,
           fzf_opts = {
-            ["--header"] = "M-g: global | M-s: git | M-l: local | M-d: buffer dir | M-p: parent | M-o: browse",
+            ["--header"] = build_header("frecency"),
           },
           actions = vim.tbl_extend("keep", {
             ["alt-g"] = function(_, o)
               local query = o.__call_opts and o.__call_opts.query or ""
               vim.schedule(function()
-                require("fzf-lua").files({ cwd = vim.fn.expand("~/work"), query = query, prompt = "Find Files (Global)> " })
+                require("fzf-lua").files({ cwd = vim.fn.expand("~/work"), query = query, prompt = "Find Files (Global)> ",
+                  fzf_opts = { ["--header"] = build_header("files") } })
               end)
             end,
             ["alt-s"] = function(_, o)
@@ -2293,13 +2280,15 @@ return {
               local git_root = vim.fs.find(".git", { path = vim.fn.getcwd(), upward = true })[1]
               local cwd = git_root and vim.fn.fnamemodify(git_root, ":h") or vim.fn.getcwd()
               vim.schedule(function()
-                require("fzf-lua").files({ cwd = cwd, query = query, prompt = "Find Files (Git)> " })
+                require("fzf-lua").files({ cwd = cwd, query = query, prompt = "Find Files (Git)> ",
+                  fzf_opts = { ["--header"] = build_header("files") } })
               end)
             end,
             ["alt-l"] = function(_, o)
               local query = o.__call_opts and o.__call_opts.query or ""
               vim.schedule(function()
-                require("fzf-lua").files({ cwd = vim.fn.getcwd(), query = query, prompt = "Find Files (Local)> " })
+                require("fzf-lua").files({ cwd = vim.fn.getcwd(), query = query, prompt = "Find Files (Local)> ",
+                  fzf_opts = { ["--header"] = build_header("files") } })
               end)
             end,
             ["alt-d"] = function(_, o)
@@ -2308,7 +2297,8 @@ return {
               local bufname = vim.api.nvim_buf_get_name(buf)
               local dir = bufname ~= "" and vim.fn.fnamemodify(bufname, ":h") or vim.fn.getcwd()
               vim.schedule(function()
-                require("fzf-lua").files({ cwd = dir, query = query, prompt = "Find Files (Buffer Dir)> " })
+                require("fzf-lua").files({ cwd = dir, query = query, prompt = "Find Files (Buffer Dir)> ",
+                  fzf_opts = { ["--header"] = build_header("files") } })
               end)
             end,
             ["alt-p"] = function(_, o)
@@ -2316,7 +2306,8 @@ return {
               local cwd = o.cwd or vim.fn.getcwd()
               local parent = vim.fn.fnamemodify(vim.fn.fnamemodify(cwd, ":p:h"), ":h")
               vim.schedule(function()
-                require("fzf-lua").files({ cwd = parent, query = query, prompt = "Find Files (Parent)> " })
+                require("fzf-lua").files({ cwd = parent, query = query, prompt = "Find Files (Parent)> ",
+                  fzf_opts = { ["--header"] = build_header("files") } })
               end)
             end,
           }, files_actions),
@@ -2363,6 +2354,7 @@ return {
           },
           fzf_opts = {
             ["--history"] = get_history_path("grep", cwd),
+            ["--header"] = build_header("grep"),
           },
           resume = false  -- Force fresh session with current directory
         })

@@ -291,6 +291,7 @@ return {
         local util_keys = {
           files    = "C-y: copy │ C-f: full path │ C-r: history │ C-t: preview",
           grep     = "C-y: copy │ C-r: history │ C-g: grep/lgrep │ M-i: ignore │ C-h: hidden │ M-q: qf │ C-t: preview",
+          frecency = "C-x: delete score │ C-y: copy │ C-f: full path │ C-t: preview",
           buffers  = "C-y: copy │ C-f: full path │ C-d: delete │ C-r: history │ C-t: preview",
           oldfiles = "C-r: history",
         }
@@ -1274,6 +1275,7 @@ return {
         -- File ignore patterns (matching telescope config)
         files = {
           prompt = "Find Files> ",
+          _headers = false,  -- disable auto-header; build_header provides scope/util hints
           fd_opts = "--color=never --type f --hidden --follow --exclude .git --exclude node_modules --exclude dist --exclude '*.lock' --exclude package-lock.json --exclude yarn.lock --exclude '*.log' --exclude '*.cache' --exclude '*.min.js' --exclude '*.min.css'",
           -- PWD-based history for file picker (evaluated dynamically)
           fzf_opts = function()
@@ -1360,6 +1362,7 @@ return {
         -- Live grep with advanced ripgrep support
         grep = {
           prompt = "Live Grep> ",
+          _headers = false,  -- disable auto-header; build_header provides scope/util hints
           input_prompt = "Grep For> ",
           rg_opts = "--column --line-number --no-heading --color=always --smart-case --max-columns=4096 --hidden --glob '!.git/*' --glob '!node_modules/*' --glob '!dist/*' --glob '!*.lock' --glob '!*.log' --glob '!*.cache' --glob '!*.min.js' --glob '!*.min.css'",
           -- PWD-based history for grep picker (evaluated dynamically)
@@ -1456,6 +1459,7 @@ return {
         -- Buffers
         buffers = {
           prompt = "Buffers> ",
+          _headers = false,  -- disable auto-header; build_header provides scope/util hints
           sort_mru = true,
           sort_lastused = true,
           show_all_buffers = true,
@@ -1540,6 +1544,7 @@ return {
         -- Oldfiles (Recent Files)
         oldfiles = {
           prompt = "Recent Files> ",
+          _headers = false,  -- disable auto-header; build_header provides scope/util hints
           cwd_only = false,
           include_current_session = true,
           -- PWD-based history for oldfiles picker (evaluated dynamically)
@@ -2263,6 +2268,7 @@ return {
 
         require("fzf-lua-frecency").frecency({
           all_files = true,
+          _headers = false,  -- disable plugin auto-header; build_header provides scope/util hints
           cmd = cat_cmd .. " ; " .. fd_cmd,
           fzf_opts = {
             ["--header"] = build_header("frecency"),
@@ -2767,7 +2773,7 @@ return {
           local function launch_zoxide_picker(initial_query, scope)
             scope = scope or "Global"  -- Default to Global scope
             local fzf = require("fzf-lua")
-            local header = "--header='M-g: global | M-s: git | M-l: local | M-p: parents | Tab: drill down | Enter: cd'"
+            local header = "--header='M-g: global │ M-s: git │ M-l: local │ M-p: parents │ Tab: drill down │ Enter: cd'"
 
             -- Default action: cd and open oil
             local function default_action(selected)
@@ -2959,6 +2965,7 @@ return {
       require("fzf-lua-frecency").setup({
         db_dir = vim.fs.joinpath(vim.fn.stdpath("data"), "fzf-lua-frecency"),
         stat_file = true, -- verify files exist before displaying
+        _headers = false,  -- disable auto-header; build_header in fzf-lua.lua provides scope/util hints
       })
     end,
   },

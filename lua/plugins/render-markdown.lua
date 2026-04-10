@@ -27,7 +27,7 @@ return {
       sign = true,
       style = "full",
       language_pad = 1,
-      border = "thin",
+      border = "rounded",
     },
 
     -- Checkboxes (Obsidian-style)

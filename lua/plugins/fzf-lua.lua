@@ -143,6 +143,29 @@ local function ensure_history_prefixed(history_file, cwd)
   end
 end
 
+-- ===== Header Builder =====
+-- Module-level so both opts() and config() can access it
+local function build_header(picker_name)
+  local scope_keys = {
+    files    = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent │ M-o: browse",
+    grep     = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent │ M-o: browse",
+    frecency = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent │ M-o: browse",
+    buffers  = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir",
+    oldfiles = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent",
+  }
+  local util_keys = {
+    files    = "C-y: copy │ C-f: full path │ C-r: history │ C-t: preview",
+    grep     = "C-y: copy │ C-r: history │ C-g: grep/lgrep │ M-i: ignore │ C-h: hidden │ M-q: qf │ C-t: preview",
+    frecency = "C-x: delete score │ C-y: copy │ C-f: full path │ C-t: preview",
+    buffers  = "C-y: copy │ C-f: full path │ C-d: delete │ C-r: history │ C-t: preview",
+    oldfiles = "C-r: history",
+  }
+  local parts = {}
+  if scope_keys[picker_name] then table.insert(parts, scope_keys[picker_name]) end
+  if util_keys[picker_name] then table.insert(parts, util_keys[picker_name]) end
+  return #parts > 0 and table.concat(parts, "\n") or nil
+end
+
 return {
   -- fzf-lua main plugin
   {
@@ -276,29 +299,6 @@ return {
 
         table.insert(dir_history, { cwd = cwd, scope_name = scope_name })
         history_index = #dir_history
-      end
-
-      -- ===== Header Builder =====
-
-      local function build_header(picker_name)
-        local scope_keys = {
-          files    = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent │ M-o: browse",
-          grep     = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent │ M-o: browse",
-          frecency = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent │ M-o: browse",
-          buffers  = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir",
-          oldfiles = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent",
-        }
-        local util_keys = {
-          files    = "C-y: copy │ C-f: full path │ C-r: history │ C-t: preview",
-          grep     = "C-y: copy │ C-r: history │ C-g: grep/lgrep │ M-i: ignore │ C-h: hidden │ M-q: qf │ C-t: preview",
-          frecency = "C-x: delete score │ C-y: copy │ C-f: full path │ C-t: preview",
-          buffers  = "C-y: copy │ C-f: full path │ C-d: delete │ C-r: history │ C-t: preview",
-          oldfiles = "C-r: history",
-        }
-        local parts = {}
-        if scope_keys[picker_name] then table.insert(parts, scope_keys[picker_name]) end
-        if util_keys[picker_name] then table.insert(parts, util_keys[picker_name]) end
-        return #parts > 0 and table.concat(parts, "\n") or nil
       end
 
       -- ===== Picker Relaunch Helper =====

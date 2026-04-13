@@ -112,6 +112,10 @@ local function apply_consistent_styles()
   -- Match paren: Link to type colors, then add bold styling
   vim.api.nvim_set_hl(0, "BlinkPairsMatchParen", { link = "@type" })
   merge_style("BlinkPairsMatchParen", { bold = true })
+
+  -- LSP Inlay Hints: boost visibility across all themes
+  -- Default theme colors (#545C7E on #262640) are nearly invisible on dark terminals
+  vim.api.nvim_set_hl(0, "LspInlayHint", { fg = "#7A88A8", italic = true })
 end
 
 function M.setup()

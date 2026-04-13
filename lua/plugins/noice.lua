@@ -93,7 +93,7 @@ return {
       },
       size = "auto",
       border = {
-        style = "double",
+        style = "rounded",
         padding = { 0, 2 },
       },
       win_options = {

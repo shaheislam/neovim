@@ -46,7 +46,6 @@ return {
             require("fzf-lua").live_grep({
               cwd = require("oil").get_current_dir(),
               prompt = "Live Grep (Oil Directory)> ",
-              header = "M-g/s/l/d/p: scope | M-o: browse | C-r: history | C-g: grep/lgrep\nC-y: copy | M-i: ignore | C-h: hidden | A-q: qf | C-t: preview",
             })
           end,
           desc = "Live grep in Oil directory",

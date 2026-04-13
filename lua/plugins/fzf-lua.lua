@@ -2278,9 +2278,7 @@ return {
         require("fzf-lua-frecency").frecency({
           all_files = true,
           cmd = cat_cmd .. " ; " .. fd_cmd,
-          fzf_opts = {
-            ["--header"] = "M-g: global | M-s: git | M-l: local | M-d: buffer dir | M-p: parent | M-o: browse",
-          },
+          header = "M-g: global | M-s: git | M-l: local | M-d: buffer dir | M-p: parent | M-o: browse",
           actions = vim.tbl_extend("keep", {
             ["alt-g"] = function(_, o)
               local query = o.__call_opts and o.__call_opts.query or ""
@@ -2364,6 +2362,7 @@ return {
           fzf_opts = {
             ["--history"] = get_history_path("grep", cwd),
           },
+          header = "M-g/s/l/d/p: scope | M-o: browse | C-r: history | C-g: grep/lgrep\nC-y: copy | M-i: ignore | C-h: hidden | A-q: qf | C-t: preview",
           resume = false  -- Force fresh session with current directory
         })
       end, desc = "Live Grep with Args" },
@@ -2493,9 +2492,7 @@ return {
               fzf.git_commits({
                 cwd = git_cwd,  -- Run git from worktree context
                 prompt = "Diffview Commits> ",
-                fzf_opts = {
-                  ["--header"] = get_header(),
-                },
+                header = get_header(),
                 winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
                 actions = vim.tbl_extend("force", switch_actions, {
                   ["default"] = function(selected)
@@ -2583,9 +2580,7 @@ return {
               fzf.git_stash({
                 cwd = git_cwd,
                 prompt = "Diffview Stashes> ",
-                fzf_opts = {
-                  ["--header"] = get_header(),
-                },
+                header = get_header(),
                 winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
                 actions = vim.tbl_extend("force", switch_actions, {
                   ["default"] = function(selected)

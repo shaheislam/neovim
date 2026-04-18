@@ -2,6 +2,7 @@ local M = {}
 
 local namespace = vim.api.nvim_create_namespace("parley_review")
 local marker_prefix = "㊷["
+local augroup = vim.api.nvim_create_augroup("nvim_mini_parley_review", { clear = true })
 
 local function build_message(entry)
   local parts = { entry.text }
@@ -150,6 +151,56 @@ end
 
 function M.has_markers(bufnr)
   return #M.collect_from_buf(bufnr) > 0
+end
+
+local function is_markdown_buffer(bufnr)
+  return vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == "markdown"
+end
+
+local function refresh_buffer(bufnr)
+  if not is_markdown_buffer(bufnr) then
+    return
+  end
+
+  M.refresh(bufnr)
+end
+
+local function add_buffer_commands(bufnr)
+  vim.api.nvim_buf_create_user_command(bufnr, "ParleyReviewRefresh", function()
+    M.refresh(bufnr)
+  end, {
+    desc = "Refresh Parley review markers",
+  })
+
+  vim.api.nvim_buf_create_user_command(bufnr, "ParleyReviewQuickfix", function()
+    M.populate_quickfix(bufnr)
+  end, {
+    desc = "Send Parley review markers to quickfix",
+  })
+end
+
+function M.setup()
+  if M._did_setup then
+    return
+  end
+
+  M._did_setup = true
+
+  vim.api.nvim_create_autocmd("FileType", {
+    group = augroup,
+    pattern = "markdown",
+    callback = function(event)
+      add_buffer_commands(event.buf)
+      refresh_buffer(event.buf)
+    end,
+  })
+
+  vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost", "TextChanged", "InsertLeave" }, {
+    group = augroup,
+    callback = function(event)
+      refresh_buffer(event.buf)
+    end,
+  })
 end
 
 return M

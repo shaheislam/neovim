@@ -24,3 +24,27 @@ eq(entries[4].question, "clarify the second point")
 local diagnostics = review.to_diagnostics(entries)
 eq(diagnostics[1].severity, vim.diagnostic.severity.HINT)
 eq(diagnostics[2].severity, vim.diagnostic.severity.WARN)
+
+review.setup()
+
+local bufnr = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_set_current_buf(bufnr)
+vim.bo[bufnr].filetype = "markdown"
+vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
+  "# Draft",
+  "㊷[add an example here]{prefer a production incident}",
+})
+vim.api.nvim_exec_autocmds("FileType", { buffer = bufnr, modeline = false })
+
+local commands = vim.api.nvim_buf_get_commands(bufnr, {})
+assert(commands.ParleyReviewRefresh, "expected markdown buffer to expose ParleyReviewRefresh")
+assert(commands.ParleyReviewQuickfix, "expected markdown buffer to expose ParleyReviewQuickfix")
+
+local buffer_diagnostics = vim.diagnostic.get(bufnr)
+eq(#buffer_diagnostics, 1, "expected one review diagnostic in markdown buffer")
+eq(buffer_diagnostics[1].message, "add an example here | Question: prefer a production incident")
+
+vim.cmd("ParleyReviewQuickfix")
+local qflist = vim.fn.getqflist()
+eq(#qflist, 1, "expected one quickfix item from review markers")
+eq(qflist[1].text, "add an example here | Question: prefer a production incident")

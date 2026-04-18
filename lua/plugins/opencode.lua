@@ -2,6 +2,18 @@
 -- Connects to opencode server (running with --port) via HTTP + SSE
 -- Shares editor context (buffers, selections, diagnostics) with the agent
 
+local function ask_with_context(prefix, submit)
+  return function()
+    require("opencode").ask(prefix, { submit = submit or false })
+  end
+end
+
+local function run_command(command)
+  return function()
+    require("opencode").command(command)
+  end
+end
+
 return {
   {
     "nickjvandyke/opencode.nvim",
@@ -25,16 +37,34 @@ return {
       -- Ask opencode with current context
       {
         "<leader>aoa",
-        function() require("opencode").ask("@this: ", { submit = false }) end,
+        ask_with_context("@this: "),
         mode = { "n", "x" },
         desc = "Ask opencode",
       },
       -- Quick ask with auto-submit
       {
         "<leader>aos",
-        function() require("opencode").ask("@this: ", { submit = true }) end,
+        ask_with_context("@this: ", true),
         mode = { "n", "x" },
         desc = "Ask opencode (submit)",
+      },
+      {
+        "<leader>aoB",
+        ask_with_context("@buffer: "),
+        mode = "n",
+        desc = "Ask current buffer",
+      },
+      {
+        "<leader>aoV",
+        ask_with_context("@visible: "),
+        mode = "n",
+        desc = "Ask visible windows",
+      },
+      {
+        "<leader>aoQ",
+        ask_with_context("@quickfix: "),
+        mode = "n",
+        desc = "Ask quickfix list",
       },
       -- Action picker
       {
@@ -112,6 +142,43 @@ return {
         function() require("opencode").prompt("diagnostics") end,
         mode = { "n", "x" },
         desc = "Explain diagnostics (opencode)",
+      },
+      -- Session and agent controls
+      {
+        "<leader>aon",
+        run_command("session.new"),
+        mode = "n",
+        desc = "New opencode session",
+      },
+      {
+        "<leader>aop",
+        function() require("opencode").select_session() end,
+        mode = "n",
+        desc = "Pick opencode session",
+      },
+      {
+        "<leader>aom",
+        run_command("session.compact"),
+        mode = "n",
+        desc = "Compact opencode session",
+      },
+      {
+        "<leader>aou",
+        run_command("session.undo"),
+        mode = "n",
+        desc = "Undo opencode action",
+      },
+      {
+        "<leader>aoU",
+        run_command("session.redo"),
+        mode = "n",
+        desc = "Redo opencode action",
+      },
+      {
+        "<leader>aoA",
+        run_command("agent.cycle"),
+        mode = "n",
+        desc = "Cycle opencode agent",
       },
     },
     config = function()

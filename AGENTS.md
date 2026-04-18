@@ -15,8 +15,10 @@ bd dolt push          # Push bead state to remote
 ## Workflow Contract
 
 - Read `.claude/context/workflows.md` before changing how AI tooling is used in this repo.
+- Read `.claude/context/ai-cheatsheet.md` for the fast operator view.
+- Read `.claude/context/ai-recipes.md` for the expected handoff patterns between learning, investigation, execution, and review.
 - Treat `.plan.md` as the control plane for the current task.
-- Use `CodeCompanion` for learning, `agentic.nvim` for investigation, and `claude-code` / `opencode` for delivery.
+- Use `CodeCompanion` for learning, `agentic.nvim` for investigation, `opencode.nvim` for bounded execution, and `claude-code.nvim` for larger delivery loops.
 - Treat git diff, diagnostics, and quickfix as the required review plane before handoff.
 
 ## Landing the Plane (Session Completion)

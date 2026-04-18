@@ -8,8 +8,12 @@ return {
     build = "cd app && yarn install",
     keys = {
       { "<leader>mp", "<cmd>MarkdownPreviewToggle<cr>", desc = "Toggle Markdown Preview" },
+      { "<leader>mr", "<cmd>ParleyReviewRefresh<cr>", ft = "markdown", desc = "Refresh Review Markers" },
+      { "<leader>mq", "<cmd>ParleyReviewQuickfix<cr>", ft = "markdown", desc = "Review Markers to Quickfix" },
     },
     config = function()
+      require("parley.review").setup()
+
       -- Configuration options
       vim.g.mkdp_auto_start = 0  -- Don't auto-start preview
       vim.g.mkdp_auto_close = 1  -- Auto-close preview when leaving markdown buffer

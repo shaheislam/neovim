@@ -50,6 +50,7 @@ return {
 				-- Core groups
 				{ "<leader>a", group = "ai", icon = "󰚩 " },
 				{ "<leader>aa", group = "agentic", icon = "󱙺 " },
+				{ "<leader>aC", group = "claude-code", icon = "󱚣 " },
 				{ "<leader>ac", group = "codecompanion", icon = "󰭹 " },
 				{ "<leader>ao", group = "opencode", icon = "󰘦 " },
 				{ "<leader>c", group = "code", icon = " " },

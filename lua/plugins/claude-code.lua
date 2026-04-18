@@ -11,10 +11,10 @@ return {
       "ClaudeCodeVerbose",
     },
     keys = {
-      { "<leader>cc", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude Code" },
-      { "<leader>cC", "<cmd>ClaudeCodeContinue<cr>", desc = "Continue Claude Code" },
-      { "<leader>cR", "<cmd>ClaudeCodeResume<cr>", desc = "Resume Claude Code" },
-      { "<leader>cV", "<cmd>ClaudeCodeVerbose<cr>", desc = "Verbose Claude Code" },
+      { "<leader>aCc", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude Code" },
+      { "<leader>aCC", "<cmd>ClaudeCodeContinue<cr>", desc = "Continue Claude Code" },
+      { "<leader>aCR", "<cmd>ClaudeCodeResume<cr>", desc = "Resume Claude Code" },
+      { "<leader>aCV", "<cmd>ClaudeCodeVerbose<cr>", desc = "Verbose Claude Code" },
     },
     opts = {
       window = {

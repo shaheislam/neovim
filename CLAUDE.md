@@ -79,6 +79,13 @@ lua/lsp-hierarchy.lua       # LSP type hierarchy utilities
 - **State Bridge** (`claude-bridge.lua`): Writes diagnostics/focus/git to `/tmp/nvim-claude-bridge/{hash}/state.json`
 - **autoread**: Enabled so external file changes are picked up immediately
 
+## AI Workflow
+
+- Workflow contract: `.claude/context/workflows.md`
+- `.plan.md` is the control plane for the active task; keep it aligned with the worktree when direction changes
+- Prefer one delivery harness per task; use `CodeCompanion` for learning and `claude-code` / `opencode` for execution
+- Treat diagnostics, quickfix, and git diff as the review plane before considering work complete
+
 ## Testing Changes
 
 ```bash

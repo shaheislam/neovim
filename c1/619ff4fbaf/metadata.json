@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.5.5",
+  "checkpoint_id": "c1619ff4fbaf",
+  "strategy": "manual-commit",
+  "branch": "parley",
+  "checkpoints_count": 7,
+  "files_touched": [
+    ".plan.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "lua/plugins/claude-code.lua",
+    "lua/plugins/codecompanion.lua",
+    "lua/plugins/which-key.lua"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c1/619ff4fbaf/0/metadata.json",
+      "transcript": "/c1/619ff4fbaf/0/full.jsonl",
+      "content_hash": "/c1/619ff4fbaf/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1840153,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7594496,
+    "output_tokens": 52131,
+    "api_call_count": 122
+  }
+}

@@ -13,6 +13,8 @@ return {
     opts = {
       enabled = function()
         return vim.bo.filetype ~= "AgenticInput"
+          and vim.bo.filetype ~= "gwtt-prompt"
+          and vim.bo.buftype ~= "prompt"
       end,
 
       -- Appearance

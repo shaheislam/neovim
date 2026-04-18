@@ -129,6 +129,11 @@ return {
     -- Single vim.notify override for persistent mode timeout control
     local notify = require("notify")
     vim.notify = function(msg, level, nopts)
+      -- Skip plugin deprecation warnings (noice routing is disabled for vim.notify,
+      -- so the noice route filter for "checkhealth vim.deprecated" never fires)
+      if type(msg) == "string" and msg:find("is deprecated", 1, true) then
+        return
+      end
       nopts = nopts or {}
       if vim.g.noice_persistent_messages then
         nopts.timeout = 30000

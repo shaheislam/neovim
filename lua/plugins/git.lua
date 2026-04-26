@@ -1373,11 +1373,92 @@ return {
 			},
 			-- Staged changes only
 			{ "<leader>gS", "<cmd>DiffviewOpen --staged<cr>", desc = "Staged changes" },
+			{ "<leader>gT", "<cmd>DiffviewFileHistory -g --range=stash<cr>", desc = "Stash history" },
+			{
+				"<leader>gR",
+				function()
+					vim.ui.input({ prompt = "Diffview rev range: " }, function(input)
+						if not input or vim.trim(input) == "" then
+							return
+						end
+						vim.cmd("DiffviewSetRevs " .. input)
+					end)
+				end,
+				desc = "Retarget Diffview revs",
+			},
 		},
 		config = function()
 			local actions = require("diffview.actions")
+			local api = require("diffview.api")
+			local selections = api.selections
 			local function diffview_auto_switch_enabled()
 				return vim.g.diffview_auto_switch ~= false
+			end
+
+			local function set_diffview_revs(revs)
+				revs = vim.trim(revs or "")
+				if revs == "" then
+					vim.notify("Usage: DiffviewSetRevs <rev-range>", vim.log.levels.WARN)
+					return
+				end
+
+				local ok, lib = pcall(require, "diffview.lib")
+				if not ok or not lib.get_current_view() then
+					vim.notify("Open a Diffview first", vim.log.levels.WARN)
+					return
+				end
+
+				local set_ok, err = pcall(api.set_revs, revs)
+				if not set_ok then
+					vim.notify("Diffview rev retarget failed: " .. tostring(err), vim.log.levels.WARN)
+					return
+				end
+
+				vim.notify("Diffview revs: " .. revs, vim.log.levels.INFO)
+			end
+
+			local function get_reviewed_paths()
+				local ok, lib = pcall(require, "diffview.lib")
+				if not ok or not lib.get_current_view() then
+					vim.notify("Open a Diffview first", vim.log.levels.WARN)
+					return nil
+				end
+
+				return selections.get_paths()
+			end
+
+			local function list_reviewed_files()
+				local paths = get_reviewed_paths()
+				if not paths then
+					return
+				end
+				if #paths == 0 then
+					vim.notify("No reviewed files marked in this Diffview", vim.log.levels.INFO)
+					return
+				end
+
+				local items = vim.tbl_map(function(path)
+					return { filename = path, text = "reviewed" }
+				end, paths)
+				vim.fn.setqflist({}, " ", {
+					title = "Diffview reviewed files",
+					items = items,
+				})
+				vim.cmd("copen")
+			end
+
+			local function clear_reviewed_files()
+				local paths = get_reviewed_paths()
+				if not paths then
+					return
+				end
+				if #paths == 0 then
+					vim.notify("No reviewed files to clear", vim.log.levels.INFO)
+					return
+				end
+
+				selections.clear()
+				vim.notify("Cleared reviewed marks for " .. #paths .. " file(s)", vim.log.levels.INFO)
 			end
 
 			-- Forward declarations: auto-follow functions referenced in
@@ -1399,6 +1480,7 @@ return {
 				use_icons = true, -- File icons in file panel
 				show_help_hints = true, -- Show hint popups in file panel
 				watch_index = true, -- Update views on index changes
+				persist_selections = { enabled = true }, -- Keep reviewed-file marks across reopen/restart
 
 				-- Signs in file panel
 				signs = {
@@ -2050,6 +2132,8 @@ return {
 			local repo_switch_in_progress = false
 
 			-- Shared retarget helper: close current Diffview, open for new_root.
+			-- Cross-repo retargeting still needs reopen: diffview.api.set_revs()
+			-- can switch revisions in-place, but not the adapter root/-C target.
 			-- Handles failure recovery (reverts diffview_current_root on error).
 			local function retarget_diffview(new_root)
 				if repo_switch_in_progress then
@@ -2215,6 +2299,25 @@ return {
 				end)
 				return "ok"
 			end
+
+			vim.api.nvim_create_user_command("DiffviewSetRevs", function(opts)
+				set_diffview_revs(opts.args)
+			end, {
+				nargs = 1,
+				desc = "Retarget the current Diffview to a new revision range",
+			})
+
+			vim.api.nvim_create_user_command("DiffviewReviewedList", function()
+				list_reviewed_files()
+			end, {
+				desc = "List reviewed Diffview files in quickfix",
+			})
+
+			vim.api.nvim_create_user_command("DiffviewReviewedClear", function()
+				clear_reviewed_files()
+			end, {
+				desc = "Clear reviewed Diffview file marks",
+			})
 
 			-- VimLeave: clean up tmux socket var on exit (prevents stale sockets
 			-- when Neovim crashes or is killed without closing Diffview first).

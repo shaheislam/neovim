@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Neovim
+        run: |
+          curl -fsSL -o nvim.tar.gz https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz
+          tar -xzf nvim.tar.gz
+          echo "$PWD/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Install config into NVIM_APPNAME
+        run: |
+          mkdir -p "$HOME/.config/nvim-mini"
+          cp -R . "$HOME/.config/nvim-mini"
+
+      - name: Sync plugins
+        env:
+          NVIM_APPNAME: nvim-mini
+        run: nvim --headless "+Lazy! sync" +qa
+
+      - name: Headless startup check
+        env:
+          NVIM_APPNAME: nvim-mini
+        run: nvim --headless +qa
+
+      - name: Custom health check
+        env:
+          NVIM_APPNAME: nvim-mini
+        run: nvim --headless "+checkhealth nvim_mini" +qa
+
+      - name: Parley review test
+        run: nvim --headless -l tests/parley_review_spec.lua

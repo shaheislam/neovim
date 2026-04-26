@@ -13,6 +13,9 @@ require("config.hotreload").setup()
 -- Load Claude Code bridge (writes editor state for Claude Code hooks)
 require("config.claude-bridge").setup()
 
+-- Load kubectl helpers
+require("config.kubectl").setup()
+
 -- Helper function to create augroups
 local function augroup(name)
   return vim.api.nvim_create_augroup("nvim_mini_" .. name, { clear = true })

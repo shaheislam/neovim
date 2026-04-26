@@ -32,6 +32,12 @@ keymap("n", "<leader>w", ":w<CR>", { desc = "Save file" })
 -- Quit
 keymap("n", "<leader>q", ":q<CR>", { desc = "Quit" })
 
+-- Kubectl helpers
+keymap("n", "<leader>kf", ":Kube from ", { desc = "kubectl cp from pod" })
+keymap("n", "<leader>kt", "<cmd>Kube to<cr>", { desc = "kubectl cp to pod" })
+keymap("n", "<leader>kp", "<cmd>Kube picker<cr>", { desc = "kubectl cp picker" })
+keymap("n", "<leader>kl", "<cmd>Kube pods<cr>", { desc = "kubectl list pods" })
+
 -- Global scroll direction swap (works in all buffers and windows)
 -- <C-d> = scroll UP, <C-f> = scroll DOWN
 -- Uses native Vim scrolling for lag-free held-key repeat.

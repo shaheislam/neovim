@@ -1,6 +1,6 @@
 # nvim-mini
 
-A minimal Neovim configuration for selective plugin migration from LazyVim.
+A personal Neovim configuration with lazy.nvim plugin specs, custom editor workflows, and Claude Code integration.
 
 ## Usage
 
@@ -20,10 +20,12 @@ NVIM_APPNAME=nvim-mini nvim
 ~/.config/nvim-mini/
 ├── init.lua                  # Main config with lazy.nvim bootstrap
 ├── lua/
-│   ├── config/
-│   │   ├── options.lua      # Core Neovim settings
-│   │   └── keymaps.lua      # Essential keymaps
-│   └── plugins/             # Plugin specifications (empty, ready for migration)
+│   ├── config/              # Core config modules and custom runtime helpers
+│   ├── plugins/             # lazy.nvim plugin specs
+│   ├── parley/              # Review tooling for markdown workflows
+│   └── nvim_mini/health.lua # Custom :checkhealth entry point
+├── tests/                   # Headless Neovim tests
+├── .github/workflows/ci.yml # Startup, health, and test validation
 └── README.md
 ```
 
@@ -34,6 +36,14 @@ This config is completely isolated from your main `~/.config/nvim/` (LazyVim):
 - Separate state: `~/.local/state/nvim-mini/`
 - Separate cache: `~/.cache/nvim-mini/`
 - No interference between configs
+
+## Validation
+
+```bash
+nvim --headless +qa
+nvim --headless "+checkhealth nvim_mini" +qa
+nvim --headless -l tests/parley_review_spec.lua
+```
 
 ## Adding Plugins
 
@@ -49,12 +59,10 @@ return {
 }
 ```
 
-## Migration Process
+## Notes
 
-1. Identify plugins from main config to migrate
-2. Create plugin file in `lua/plugins/`
-3. Launch `nvm` to test
-4. Iterate until satisfied
+- This repo is no longer an empty migration scaffold; most day-to-day config now lives in `lua/config/` and `lua/plugins/`.
+- Custom runtime modules should expose a `setup()` entrypoint, validate any user config, and surface diagnostics through `:checkhealth nvim_mini` when practical.
 
 ## Reset
 

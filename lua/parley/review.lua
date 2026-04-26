@@ -1,9 +1,22 @@
 local M = {}
 
+---@class ParleyReviewEntry
+---@field bufnr? integer
+---@field lnum integer
+---@field col integer
+---@field end_col integer
+---@field text string
+---@field question? string
+
+---@class ParleyQuickfixOpts
+---@field open? boolean
+
 local namespace = vim.api.nvim_create_namespace("parley_review")
 local marker_prefix = "㊷["
 local augroup = vim.api.nvim_create_augroup("nvim_mini_parley_review", { clear = true })
 
+---@param entry ParleyReviewEntry
+---@return string
 local function build_message(entry)
   local parts = { entry.text }
 
@@ -14,7 +27,11 @@ local function build_message(entry)
   return table.concat(parts, " | ")
 end
 
+---@param line string
+---@param lnum integer
+---@return ParleyReviewEntry[]
 function M.parse_line(line, lnum)
+  ---@type ParleyReviewEntry[]
   local entries = {}
   local start_col = 1
 
@@ -62,7 +79,10 @@ function M.parse_line(line, lnum)
   return entries
 end
 
+---@param lines string[]
+---@return ParleyReviewEntry[]
 function M.collect(lines)
+  ---@type ParleyReviewEntry[]
   local entries = {}
 
   for lnum, line in ipairs(lines) do
@@ -72,6 +92,8 @@ function M.collect(lines)
   return entries
 end
 
+---@param bufnr? integer
+---@return ParleyReviewEntry[]
 function M.collect_from_buf(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -84,7 +106,10 @@ function M.collect_from_buf(bufnr)
   return entries
 end
 
+---@param entries ParleyReviewEntry[]
+---@return vim.Diagnostic[]
 function M.to_diagnostics(entries)
+  ---@type vim.Diagnostic[]
   local diagnostics = {}
 
   for _, entry in ipairs(entries) do
@@ -104,6 +129,8 @@ function M.to_diagnostics(entries)
   return diagnostics
 end
 
+---@param bufnr? integer
+---@return ParleyReviewEntry[]
 function M.refresh(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local entries = M.collect_from_buf(bufnr)
@@ -111,12 +138,16 @@ function M.refresh(bufnr)
   return entries
 end
 
+---@param bufnr? integer
 function M.clear(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   vim.diagnostic.reset(namespace, bufnr)
 end
 
+---@param entries ParleyReviewEntry[]
+---@return vim.quickfix.entry[]
 function M.to_qf_items(entries)
+  ---@type vim.quickfix.entry[]
   local items = {}
 
   for _, entry in ipairs(entries) do
@@ -131,6 +162,9 @@ function M.to_qf_items(entries)
   return items
 end
 
+---@param bufnr? integer
+---@param opts? ParleyQuickfixOpts
+---@return vim.quickfix.entry[]
 function M.populate_quickfix(bufnr, opts)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   opts = opts or {}
@@ -149,14 +183,19 @@ function M.populate_quickfix(bufnr, opts)
   return items
 end
 
+---@param bufnr? integer
+---@return boolean
 function M.has_markers(bufnr)
   return #M.collect_from_buf(bufnr) > 0
 end
 
+---@param bufnr integer
+---@return boolean
 local function is_markdown_buffer(bufnr)
   return vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == "markdown"
 end
 
+---@param bufnr integer
 local function refresh_buffer(bufnr)
   if not is_markdown_buffer(bufnr) then
     return
@@ -165,6 +204,7 @@ local function refresh_buffer(bufnr)
   M.refresh(bufnr)
 end
 
+---@param bufnr integer
 local function add_buffer_commands(bufnr)
   vim.api.nvim_buf_create_user_command(bufnr, "ParleyReviewRefresh", function()
     M.refresh(bufnr)

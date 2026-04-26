@@ -7,13 +7,25 @@
 
 local M = {}
 
--- Config
-local BRIDGE_DIR = "/tmp/nvim-claude-bridge"
-local DIAG_DEBOUNCE_MS = 500
-local FOCUS_DEBOUNCE_MS = 200
-local GIT_DEBOUNCE_MS = 2000
-local MAX_ERRORS = 10
-local MAX_WARNINGS = 5
+---@class ClaudeBridgeConfig
+---@field bridge_dir string
+---@field diag_debounce_ms integer
+---@field focus_debounce_ms integer
+---@field git_debounce_ms integer
+---@field max_errors integer
+---@field max_warnings integer
+
+local defaults = {
+  bridge_dir = "/tmp/nvim-claude-bridge",
+  diag_debounce_ms = 500,
+  focus_debounce_ms = 200,
+  git_debounce_ms = 2000,
+  max_errors = 10,
+  max_warnings = 5,
+}
+
+---@type ClaudeBridgeConfig
+local config = vim.deepcopy(defaults)
 
 -- State
 local state_dir = nil
@@ -65,13 +77,31 @@ local function read_state()
   return {}
 end
 
+local function ensure_state_dir()
+  if not state_dir then
+    return false
+  end
+
+  local stat = vim.uv.fs_stat(state_dir)
+  if stat and stat.type ~= "directory" then
+    vim.notify("Claude bridge path exists but is not a directory: " .. state_dir, vim.log.levels.WARN)
+    return false
+  end
+
+  local ok, err = pcall(vim.fn.mkdir, state_dir, "p")
+  if not ok then
+    vim.notify("Claude bridge failed to create state directory: " .. tostring(err), vim.log.levels.WARN)
+    return false
+  end
+
+  return true
+end
+
 -- Helper: Atomic write state (write .tmp then rename)
 local function write_state(data)
-  if not state_dir then
+  if not ensure_state_dir() then
     return
   end
-  -- Ensure dir exists
-  vim.fn.mkdir(state_dir, "p")
 
   data.project = vim.fn.getcwd()
   data.nvim_pid = vim.fn.getpid()
@@ -103,11 +133,11 @@ local function collect_diagnostics()
         source = d.source or "",
       }
       if d.severity == vim.diagnostic.severity.ERROR then
-        if #errors < MAX_ERRORS then
+        if #errors < config.max_errors then
           table.insert(errors, entry)
         end
       elseif d.severity == vim.diagnostic.severity.WARN then
-        if #warnings < MAX_WARNINGS then
+        if #warnings < config.max_warnings then
           table.insert(warnings, entry)
         end
       end
@@ -207,7 +237,7 @@ local function on_diagnostics_changed()
       update_section("diagnostics", collect_diagnostics())
     end)
     diag_timer = nil
-  end, DIAG_DEBOUNCE_MS)
+  end, config.diag_debounce_ms)
 end
 
 -- Debounced focus update
@@ -223,7 +253,7 @@ local function on_focus_changed()
       end
     end)
     focus_timer = nil
-  end, FOCUS_DEBOUNCE_MS)
+  end, config.focus_debounce_ms)
 end
 
 -- Debounced git update
@@ -239,7 +269,7 @@ local function on_git_changed()
       end
     end)
     git_timer = nil
-  end, GIT_DEBOUNCE_MS)
+  end, config.git_debounce_ms)
 end
 
 -- Cleanup state directory
@@ -251,10 +281,31 @@ local function cleanup()
   end
 end
 
-function M.setup()
+function M.setup(opts)
+  if M._did_setup then
+    return
+  end
+
+  vim.validate({
+    opts = { opts, "table", true },
+  })
+  if opts then
+    vim.validate({
+      bridge_dir = { opts.bridge_dir, "string", true },
+      diag_debounce_ms = { opts.diag_debounce_ms, "number", true },
+      focus_debounce_ms = { opts.focus_debounce_ms, "number", true },
+      git_debounce_ms = { opts.git_debounce_ms, "number", true },
+      max_errors = { opts.max_errors, "number", true },
+      max_warnings = { opts.max_warnings, "number", true },
+    })
+  end
+
+  config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
+  M._did_setup = true
+
   local cwd = vim.fn.getcwd()
   local hash = project_hash(cwd)
-  state_dir = BRIDGE_DIR .. "/" .. hash
+  state_dir = config.bridge_dir .. "/" .. hash
   state_file = state_dir .. "/state.json"
 
   local augroup = vim.api.nvim_create_augroup("nvim_claude_bridge", { clear = true })
@@ -359,7 +410,7 @@ function M.setup()
       cleanup()
       local new_cwd = vim.fn.getcwd()
       local new_hash = project_hash(new_cwd)
-      state_dir = BRIDGE_DIR .. "/" .. new_hash
+      state_dir = config.bridge_dir .. "/" .. new_hash
       state_file = state_dir .. "/state.json"
     end,
     desc = "Claude bridge: update state dir on cwd change",
@@ -383,5 +434,14 @@ end
 M.collect_diagnostics = collect_diagnostics
 M.collect_focus = collect_focus
 M.collect_git_hunks = collect_git_hunks
+M.get_config = function()
+  return vim.deepcopy(config)
+end
+M.get_state_dir = function()
+  return state_dir
+end
+M.get_state_file = function()
+  return state_file
+end
 
 return M

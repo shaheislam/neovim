@@ -4,10 +4,18 @@
 
 local M = {}
 
+---@class HotreloadConfig
+---@field debounce_ms integer
+
 -- State for file watching
 local watchers = {}
 local debounce_timer = nil
-local DEBOUNCE_MS = 100
+local defaults = {
+  debounce_ms = 100,
+}
+
+---@type HotreloadConfig
+local config = vim.deepcopy(defaults)
 
 -- Helper: Check if buffer should be skipped
 local function should_skip_buffer(bufnr)
@@ -56,7 +64,7 @@ local function debounced_reload()
   debounce_timer = vim.defer_fn(function()
     reload_visible_buffers()
     debounce_timer = nil
-  end, DEBOUNCE_MS)
+  end, config.debounce_ms)
 end
 
 -- Start watching a directory for changes
@@ -111,7 +119,23 @@ local function stop_all_watchers()
 end
 
 -- Setup function
-function M.setup()
+function M.setup(opts)
+  if M._did_setup then
+    return
+  end
+
+  vim.validate({
+    opts = { opts, "table", true },
+  })
+  if opts then
+    vim.validate({
+      debounce_ms = { opts.debounce_ms, "number", true },
+    })
+  end
+
+  config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
+  M._did_setup = true
+
   local augroup = vim.api.nvim_create_augroup("nvim_mini_hotreload", { clear = true })
 
   -- Autocmd-based reload triggers (supplement file watching)
@@ -172,5 +196,8 @@ end
 M.watch_directory = watch_directory
 M.unwatch_directory = unwatch_directory
 M.reload_visible_buffers = reload_visible_buffers
+M.get_config = function()
+  return vim.deepcopy(config)
+end
 
 return M

@@ -13,6 +13,12 @@
 -- Based on the pattern from vim._comment.lua (treesitter-aware gc/gcc).
 -- Credit: Chance Zibolski (https://github.com/chancez/dotfiles)
 
+---@alias FormatOperatorMode string|nil
+
+---@param bufnr integer
+---@param row integer
+---@param col integer
+---@return string
 local function get_comments_at_pos(bufnr, row, col)
   local ts_parser = vim.treesitter.get_parser(bufnr, "", { error = false })
   if not ts_parser then
@@ -20,8 +26,11 @@ local function get_comments_at_pos(bufnr, row, col)
   end
 
   local ref_range = { row, col, row, col + 1 }
+  ---@type string?
   local result, res_level = nil, 0
 
+  ---@param lang_tree vim.treesitter.LanguageTree
+  ---@param level integer
   local function traverse(lang_tree, level)
     if not lang_tree:contains(ref_range) then
       return
@@ -42,6 +51,9 @@ local function get_comments_at_pos(bufnr, row, col)
   return result or vim.bo[bufnr].comments
 end
 
+---@param mode FormatOperatorMode
+---@param keep_cursor boolean
+---@return string?
 local function format_operator(mode, keep_cursor)
   if mode == nil then
     -- Expression mapping: set operatorfunc and return g@
@@ -71,7 +83,18 @@ local function format_operator(mode, keep_cursor)
   end
 end
 
-return {
-  gq = function(mode) return format_operator(mode, false) end,
-  gw = function(mode) return format_operator(mode, true) end,
+---@class FormatModule
+---@field gq fun(mode: FormatOperatorMode): string?
+---@field gw fun(mode: FormatOperatorMode): string?
+
+---@type FormatModule
+local M = {
+  gq = function(mode)
+    return format_operator(mode, false)
+  end,
+  gw = function(mode)
+    return format_operator(mode, true)
+  end,
 }
+
+return M

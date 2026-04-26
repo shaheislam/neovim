@@ -1,0 +1,1 @@
+/Users/shahe.islam/dotfiles/.claude/hooks/protect-files.py

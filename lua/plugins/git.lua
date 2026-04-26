@@ -1386,6 +1386,8 @@ return {
 				end,
 				desc = "Retarget Diffview revs",
 			},
+			{ "<leader>gr", "<cmd>DiffviewReviewedList<cr>", desc = "Reviewed files" },
+			{ "<leader>gX", "<cmd>DiffviewReviewedClear<cr>", desc = "Clear reviewed files" },
 		},
 		config = function()
 			local actions = require("diffview.actions")

@@ -138,6 +138,8 @@ return {
 				{ "<leader>gl", desc = "Git Log" },
 				{ "<leader>gf", desc = "Git Files" },
 				{ "<leader>go", desc = "Open commit in DiffView" },
+				{ "<leader>gr", desc = "Reviewed files" },
+				{ "<leader>gX", desc = "Clear reviewed files" },
 				{ "<leader>gK", desc = "Compare clipboard" },
 
 				-- Window/viewport operations

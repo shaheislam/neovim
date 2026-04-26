@@ -1274,9 +1274,18 @@ return {
 
 	-- Diffview for comprehensive git diff and merge conflict resolution
 	{
-		"sindrets/diffview.nvim",
+		"dlyongemallo/diffview.nvim",
 		dependencies = { "nvim-lua/plenary.nvim" },
-		cmd = { "DiffviewOpen", "DiffviewFileHistory", "DiffviewClose", "DiffviewToggleFiles", "DiffviewFocusFiles" },
+		cmd = {
+			"DiffviewOpen",
+			"DiffviewToggle",
+			"DiffviewFileHistory",
+			"DiffviewDiffFiles",
+			"DiffviewLog",
+			"DiffviewClose",
+			"DiffviewToggleFiles",
+			"DiffviewFocusFiles",
+		},
 		keys = {
 			{
 				"<leader>gd",
@@ -1367,6 +1376,9 @@ return {
 		},
 		config = function()
 			local actions = require("diffview.actions")
+			local function diffview_auto_switch_enabled()
+				return vim.g.diffview_auto_switch ~= false
+			end
 
 			-- Forward declarations: auto-follow functions referenced in
 			-- view_opened/view_closed callbacks below.  The callbacks are inline
@@ -1414,7 +1426,9 @@ return {
 					log_options = {
 						git = {
 							single_file = {
-								diff_merges = "combined",
+								-- Combined merge diffs can omit raw file entries for some commits,
+								-- which makes DiffView skip them in per-file history.
+								diff_merges = "first-parent",
 							},
 							multi_file = {
 								diff_merges = "first-parent",
@@ -1543,8 +1557,10 @@ return {
 
 				-- View configuration
 				view = {
+					foldlevel = 99, -- Preserve the existing "mostly expanded" diff experience on the newer fork.
 					-- Available layouts:
 					-- 'diff1_plain' - Simple diff with no file panel
+					-- 'diff1_inline' - Unified inline diff in a single window
 					-- 'diff2_horizontal' - Two panes horizontally
 					-- 'diff2_vertical' - Two panes vertically
 					-- 'diff3_horizontal' - Three panes horizontally (useful for merge conflicts)
@@ -1604,19 +1620,20 @@ return {
 							view._was_merging = check_conflict_state(git_path) ~= nil
 							local handle = vim.uv.new_fs_event()
 							if handle then
-								local debounce_timer = nil
-								local reopening = false
-								handle:start(git_path, { recursive = true }, function(err, filename, events)
-									if err then return end
-									if vim.g.diffview_auto_switch == false then return end
-									vim.schedule(function()
-										-- Debounce to avoid excessive refreshes
-										if debounce_timer then
-											debounce_timer:stop()
-										end
-										debounce_timer = vim.defer_fn(function()
-											debounce_timer = nil
-											if reopening then return end
+							local debounce_timer = nil
+							local reopening = false
+							handle:start(git_path, { recursive = true }, function(err, filename, events)
+								if err then return end
+								if not diffview_auto_switch_enabled() then return end
+								vim.schedule(function()
+									-- Debounce to avoid excessive refreshes
+									if debounce_timer then
+										debounce_timer:stop()
+									end
+									debounce_timer = vim.defer_fn(function()
+										debounce_timer = nil
+										if not diffview_auto_switch_enabled() then return end
+										if reopening then return end
 
 											-- Check if conflict state changed
 											local is_merging = check_conflict_state(git_path) ~= nil
@@ -1626,12 +1643,14 @@ return {
 												-- Stop watcher first to avoid callback-during-close issues
 												reopening = true
 												handle:stop()
-												view._git_watcher = nil
-												pcall(vim.cmd, "DiffviewClose")
-												vim.defer_fn(function()
+											view._git_watcher = nil
+											pcall(vim.cmd, "DiffviewClose")
+											vim.defer_fn(function()
+												if diffview_auto_switch_enabled() then
 													pcall(vim.cmd, "DiffviewOpen")
-													reopening = false
-												end, 100)
+												end
+												reopening = false
+											end, 100)
 												return
 											end
 
@@ -1657,25 +1676,26 @@ return {
 							vim.notify("Cross-worktree: watching " .. main_info.main_git_dir, vim.log.levels.DEBUG)
 							local main_handle = vim.uv.new_fs_event()
 							if main_handle then
-								local main_debounce_timer = nil
-								local main_reopening = false
-								main_handle:start(main_info.main_git_dir, { recursive = true }, function(err, filename, events)
+							local main_debounce_timer = nil
+							local main_reopening = false
+							main_handle:start(main_info.main_git_dir, { recursive = true }, function(err, filename, events)
 									if err then
 										vim.schedule(function()
 											vim.notify("Cross-worktree watcher error: " .. tostring(err), vim.log.levels.ERROR)
 										end)
 										return
 									end
-									if vim.g.diffview_auto_switch == false then return end
-									vim.schedule(function()
-										vim.notify("Cross-worktree fs_event: " .. tostring(filename), vim.log.levels.DEBUG)
-									end)
-									vim.schedule(function()
+								if not diffview_auto_switch_enabled() then return end
+								vim.schedule(function()
+									vim.notify("Cross-worktree fs_event: " .. tostring(filename), vim.log.levels.DEBUG)
+								end)
+								vim.schedule(function()
 										if main_debounce_timer then
 											main_debounce_timer:stop()
 										end
 										main_debounce_timer = vim.defer_fn(function()
 											main_debounce_timer = nil
+											if not diffview_auto_switch_enabled() then return end
 											if main_reopening then return end
 
 											local main_merging = check_conflict_state(main_info.main_git_dir) ~= nil
@@ -1691,7 +1711,9 @@ return {
 												view._main_repo_watcher = nil
 												pcall(vim.cmd, "DiffviewClose")
 												vim.defer_fn(function()
-													pcall(vim.cmd, "DiffviewOpen -C" .. main_info.main_work_dir)
+													if diffview_auto_switch_enabled() then
+														pcall(vim.cmd, "DiffviewOpen -C" .. main_info.main_work_dir)
+													end
 													main_reopening = false
 												end, 100)
 											elseif not main_merging and cross_worktree_state.active then
@@ -1706,7 +1728,9 @@ return {
 												view._main_repo_watcher = nil
 												pcall(vim.cmd, "DiffviewClose")
 												vim.defer_fn(function()
-													pcall(vim.cmd, "DiffviewOpen")
+													if diffview_auto_switch_enabled() then
+														pcall(vim.cmd, "DiffviewOpen")
+													end
 													main_reopening = false
 												end, 100)
 											end
@@ -1918,7 +1942,7 @@ return {
 			-- Returns true if a reopen was triggered (caller should return early)
 			-- Respects vim.g.diffview_auto_switch toggle.
 			local function poll_merge_state()
-				if vim.g.diffview_auto_switch == false then
+				if not diffview_auto_switch_enabled() then
 					return false
 				end
 				local ok, lib = pcall(require, 'diffview.lib')

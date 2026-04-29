@@ -457,6 +457,15 @@ return {
         },
         view = "notify",  -- Use notify view for all messages (corner popups)
       },
+      -- Neovim 0.12 sometimes misses the terminal DSR response through tmux.
+      -- It only affects startup speed detection noise; keep other warnings visible.
+      {
+        filter = {
+          event = "notify",
+          find = "Did not detect DSR response from terminal",
+        },
+        opts = { skip = true },
+      },
       -- Route LSP progress to notify (less intrusive)
       {
         filter = {

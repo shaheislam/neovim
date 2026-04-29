@@ -115,6 +115,21 @@ return {
 					lualine_x = {
 						{
 							function()
+								local clients = vim.lsp.get_clients({ bufnr = 0 })
+								if #clients == 0 then
+									return ""
+								end
+
+								local names = {}
+								for _, client in ipairs(clients) do
+									names[#names + 1] = client.name
+								end
+
+								return "LSP " .. table.concat(names, ",")
+							end,
+						},
+						{
+							function()
 								local status = vim.g.opencode_status
 								if status == "busy" then
 									return "󰚩 "

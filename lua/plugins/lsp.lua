@@ -24,6 +24,35 @@ local function get_lsp_cmd(nix_cmd, ...)
   return cmd
 end
 
+local function get_twig_language_server_extension_path(cmd_path)
+  local install_root = vim.fs.dirname(vim.fs.dirname(cmd_path))
+  local wasm_source = vim.fs.joinpath(
+    install_root,
+    "lib",
+    "node_modules",
+    "tree-sitter-twig",
+    "tree-sitter-twig.wasm"
+  )
+
+  if not vim.uv.fs_stat(wasm_source) then
+    return nil
+  end
+
+  local extension_path = vim.fs.joinpath(vim.fn.stdpath("cache"), "twig-language-server")
+  local out_dir = vim.fs.joinpath(extension_path, "out")
+  local wasm_target = vim.fs.joinpath(out_dir, "tree-sitter-twig.wasm")
+
+  vim.fn.mkdir(out_dir, "p")
+  if not vim.uv.fs_stat(wasm_target) then
+    local ok = vim.uv.fs_symlink(wasm_source, wasm_target)
+    if not ok then
+      vim.uv.fs_copyfile(wasm_source, wasm_target)
+    end
+  end
+
+  return extension_path
+end
+
 -- CRD apiVersion groups that use datreeio/CRDs-catalog for schemas
 local CRD_GROUPS = {
   ["argoproj.io"] = true,           -- Argo CD, Workflows, Rollouts
@@ -240,6 +269,14 @@ return {
 
             return get_lsp_cmd("twiggy-language-server", "--stdio")
           end,
+          init_options = function(cmd)
+            if not cmd[1]:match("twig%-language%-server") then
+              return nil
+            end
+
+            local extension_path = get_twig_language_server_extension_path(cmd[1])
+            return extension_path and { extensionPath = extension_path } or nil
+          end,
           capabilities = capabilities,
         },
 
@@ -282,6 +319,18 @@ return {
         tailwindcss = {
           cmd = get_lsp_cmd("tailwindcss-language-server", "--stdio"),
           capabilities = capabilities,
+          settings = {
+            tailwindCSS = {
+              files = {
+                exclude = {
+                  "**/.direnv/**",
+                  "**/.devenv/**",
+                  "**/.git/**",
+                  "**/node_modules/**",
+                },
+              },
+            },
+          },
         },
 
         -- HTML
@@ -476,6 +525,10 @@ return {
               table.insert(disabled_servers, server_name)
               goto continue
             end
+          end
+
+          if type(server_config.init_options) == "function" then
+            server_config.init_options = server_config.init_options(server_config.cmd)
           end
         else
           -- No cmd specified, skip this server

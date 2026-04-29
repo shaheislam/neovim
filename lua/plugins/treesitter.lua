@@ -40,6 +40,7 @@ local markdown_injections_query = [[
 return {
   {
     "nvim-treesitter/nvim-treesitter",
+    branch = "master",
     build = ":TSUpdate",
     lazy = false,
     opts = {

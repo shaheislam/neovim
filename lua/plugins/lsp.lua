@@ -223,6 +223,26 @@ return {
           capabilities = capabilities,
         },
 
+        -- PHP (runtime and binary supplied by per-project Nix devshells)
+        phpactor = {
+          cmd = get_lsp_cmd("phpactor", "language-server"),
+          capabilities = capabilities,
+        },
+
+        -- Twig templates. Prefer nixpkgs' twig-language-server, but support
+        -- twiggy-language-server if a project or machine provides that binary.
+        twiggy_language_server = {
+          cmd = function()
+            local twig_cmd = get_lsp_cmd("twig-language-server", "--stdio")
+            if twig_cmd then
+              return twig_cmd
+            end
+
+            return get_lsp_cmd("twiggy-language-server", "--stdio")
+          end,
+          capabilities = capabilities,
+        },
+
         -- TypeScript/JavaScript
         ts_ls = {
           cmd = get_lsp_cmd("typescript-language-server", "--stdio"),
@@ -255,6 +275,12 @@ return {
         -- CSS/SCSS/Less
         cssls = {
           cmd = get_lsp_cmd("vscode-css-language-server", "--stdio"),
+          capabilities = capabilities,
+        },
+
+        -- Tailwind CSS (project-provided; useful for Symfony Tailwind projects)
+        tailwindcss = {
+          cmd = get_lsp_cmd("tailwindcss-language-server", "--stdio"),
           capabilities = capabilities,
         },
 
@@ -329,6 +355,12 @@ return {
         -- JSON
         jsonls = {
           cmd = get_lsp_cmd("vscode-json-language-server", "--stdio"),
+          capabilities = capabilities,
+        },
+
+        -- XML (phpunit.xml.dist, phpcs.xml.dist, Symfony XML configs)
+        lemminx = {
+          cmd = get_lsp_cmd("lemminx"),
           capabilities = capabilities,
         },
 

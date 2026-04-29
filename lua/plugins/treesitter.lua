@@ -54,12 +54,13 @@ return {
         "rust",
         "python",
         "javascript", "typescript",
+        "php", "phpdoc",
         "c",
         -- Data/config
         "json", "yaml", "toml",
         -- Markup
         "markdown", "markdown_inline",
-        "html",
+        "html", "css", "scss", "twig",
         "typst",
         -- Injection support (enables highlighting inside host language strings)
         "sql", "regex",

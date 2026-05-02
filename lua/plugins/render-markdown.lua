@@ -7,9 +7,9 @@ return {
     "nvim-treesitter/nvim-treesitter",
     "nvim-tree/nvim-web-devicons",
   },
-  ft = { "markdown", "AgenticChat" },
+  ft = { "markdown" },
   opts = {
-    file_types = { "markdown", "AgenticChat" },
+    file_types = { "markdown" },
 
     -- Render modes
     render_modes = { "n", "c" },

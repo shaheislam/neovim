@@ -91,7 +91,7 @@ grep -r "'<leader>xx'" lua/ --include="*.lua"
 **Leader groups** (stay within these):
 | Prefix | Purpose | Example |
 |--------|---------|---------|
-| `<leader>a` | AI / CodeCompanion | `<leader>aa` toggle chat |
+| `<leader>a` | AI / OpenCode / Sidekick | `<leader>ao` OpenCode, `<leader>as` Sidekick |
 | `<leader>c` | Code / LSP actions | `<leader>ca` code action |
 | `<leader>f` | Find / Files (fzf) | `<leader>ff` find files |
 | `<leader>g` | Git operations | `<leader>gs` git status |

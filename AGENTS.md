@@ -18,7 +18,7 @@ bd dolt push          # Push bead state to remote
 - Read `.claude/context/ai-cheatsheet.md` for the fast operator view.
 - Read `.claude/context/ai-recipes.md` for the expected handoff patterns between learning, investigation, execution, and review.
 - Treat `.plan.md` as the control plane for the current task.
-- Use `CodeCompanion` for learning, `agentic.nvim` for investigation, `opencode.nvim` for bounded execution, and `claude-code.nvim` for larger delivery loops.
+- Use `opencode.nvim` as the Neovim bridge into OpenCode, and `sidekick.nvim` for learning-oriented Copilot NES / CLI assist.
 - Treat git diff, diagnostics, and quickfix as the required review plane before handoff.
 
 ## Landing the Plane (Session Completion)

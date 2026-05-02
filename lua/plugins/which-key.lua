@@ -49,10 +49,8 @@ return {
 			wk.add({
 				-- Core groups
 				{ "<leader>a", group = "ai", icon = "󰚩 " },
-				{ "<leader>aa", group = "agentic", icon = "󱙺 " },
-				{ "<leader>aC", group = "claude-code", icon = "󱚣 " },
-				{ "<leader>ac", group = "codecompanion", icon = "󰭹 " },
 				{ "<leader>ao", group = "opencode", icon = "󰘦 " },
+				{ "<leader>as", group = "sidekick", icon = "󰭹 " },
 				{ "<leader>c", group = "code", icon = " " },
 				{ "<leader>aw", desc = "Wrapped dashboard" },
 				{ "<leader>l", group = "lsp", icon = " " },

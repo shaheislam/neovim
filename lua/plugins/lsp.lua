@@ -53,6 +53,58 @@ local function get_twig_language_server_extension_path(cmd_path)
   return extension_path
 end
 
+local function copilot_sign_in(bufnr, client)
+  client:request("signIn", vim.empty_dict(), function(err, result)
+    if err then
+      vim.notify(err.message, vim.log.levels.ERROR)
+      return
+    end
+
+    if result.command then
+      local code = result.userCode
+      vim.fn.setreg("+", code)
+      vim.fn.setreg("*", code)
+
+      local continue = vim.fn.confirm(
+        "Copied your one-time code to clipboard.\nOpen the browser to complete the sign-in process?",
+        "&Yes\n&No"
+      )
+
+      if continue == 1 then
+        client:exec_cmd(result.command, { bufnr = bufnr }, function(cmd_err, cmd_result)
+          if cmd_err then
+            vim.notify(cmd_err.message, vim.log.levels.ERROR)
+            return
+          end
+
+          if cmd_result.status == "OK" then
+            vim.notify("Signed in as " .. cmd_result.user .. ".")
+          end
+        end)
+      end
+    end
+
+    if result.status == "PromptUserDeviceFlow" then
+      vim.notify("Enter your one-time code " .. result.userCode .. " in " .. result.verificationUri)
+    elseif result.status == "AlreadySignedIn" then
+      vim.notify("Already signed in as " .. result.user .. ".")
+    end
+  end)
+end
+
+local function copilot_sign_out(_, client)
+  client:request("signOut", vim.empty_dict(), function(err, result)
+    if err then
+      vim.notify(err.message, vim.log.levels.ERROR)
+      return
+    end
+
+    if result.status == "NotSignedIn" then
+      vim.notify("Not signed in.")
+    end
+  end)
+end
+
 -- CRD apiVersion groups that use datreeio/CRDs-catalog for schemas
 local CRD_GROUPS = {
   ["argoproj.io"] = true,           -- Argo CD, Workflows, Rollouts
@@ -492,6 +544,36 @@ return {
         graphql = {
           cmd = get_lsp_cmd("graphql-lsp", "server", "-m", "stream"),
           capabilities = capabilities,
+        },
+
+        -- GitHub Copilot LSP for sidekick.nvim Next Edit Suggestions
+        copilot = {
+          cmd = get_lsp_cmd("copilot-language-server", "--stdio"),
+          root_markers = { ".git" },
+          init_options = {
+            editorInfo = {
+              name = "Neovim",
+              version = tostring(vim.version()),
+            },
+            editorPluginInfo = {
+              name = "sidekick.nvim",
+              version = "1.0.0",
+            },
+          },
+          settings = {
+            telemetry = {
+              telemetryLevel = "all",
+            },
+          },
+          on_attach = function(client, bufnr)
+            vim.api.nvim_buf_create_user_command(bufnr, "LspCopilotSignIn", function()
+              copilot_sign_in(bufnr, client)
+            end, { desc = "Sign in Copilot with GitHub" })
+
+            vim.api.nvim_buf_create_user_command(bufnr, "LspCopilotSignOut", function()
+              copilot_sign_out(bufnr, client)
+            end, { desc = "Sign out Copilot with GitHub" })
+          end,
         },
 
         -- Protocol Buffers (upstream uses 'buf' CLI, not standalone binary)

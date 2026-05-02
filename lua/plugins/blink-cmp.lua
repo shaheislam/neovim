@@ -12,9 +12,7 @@ return {
     event = { "InsertEnter", "CmdlineEnter" },
     opts = {
       enabled = function()
-        return vim.bo.filetype ~= "AgenticInput"
-          and vim.bo.filetype ~= "gwtt-prompt"
-          and vim.bo.buftype ~= "prompt"
+        return vim.bo.filetype ~= "gwtt-prompt" and vim.bo.buftype ~= "prompt"
       end,
 
       -- Appearance
@@ -23,21 +21,14 @@ return {
         nerd_font_variant = "mono",
       },
 
-      -- Sources
-      sources = {
-        default = { "lsp", "path", "snippets", "buffer", "git", "codecompanion" },
-        per_filetype = {
-          markdown = { "obsidian", "obsidian_new", "obsidian_tags", "lsp", "path", "snippets", "buffer", "git" },
-        },
-        providers = {
-          codecompanion = {
-            name = "CodeCompanion",
-            module = "codecompanion.providers.completion.blink",
-            enabled = function()
-              return vim.bo.filetype == "codecompanion"
-            end,
-          },
-          git = {
+		-- Sources
+		sources = {
+			default = { "lsp", "path", "snippets", "buffer", "git" },
+			per_filetype = {
+				markdown = { "obsidian", "obsidian_new", "obsidian_tags", "lsp", "path", "snippets", "buffer", "git" },
+			},
+			providers = {
+				git = {
             module = "blink-cmp-git",
             name = "Git",
             enabled = function()

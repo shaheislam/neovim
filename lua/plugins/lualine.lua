@@ -41,8 +41,8 @@ return {
 						theme = "auto",
 						globalstatus = true,
 						disabled_filetypes = {
-							statusline = { "dashboard", "alpha", "starter", "snacks_dashboard", "AgenticChat", "AgenticInput", "AgenticCode", "AgenticFiles", "AgenticDiagnostics" },
-							winbar = { "AgenticChat", "AgenticInput", "AgenticCode", "AgenticFiles", "AgenticDiagnostics" },
+							statusline = { "dashboard", "alpha", "starter", "snacks_dashboard" },
+							winbar = {},
 						},
 					component_separators = { left = "", right = "" },
 					section_separators = { left = "", right = "" },

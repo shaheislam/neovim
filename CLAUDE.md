@@ -85,8 +85,8 @@ lua/lsp-hierarchy.lua       # LSP type hierarchy utilities
 - Quick cheat sheet: `.claude/context/ai-cheatsheet.md`
 - Practical recipes: `.claude/context/ai-recipes.md`
 - `.plan.md` is the control plane for the active task; keep it aligned with the worktree when direction changes
-- Prefer one delivery harness per task; use `CodeCompanion` for learning and routing, `agentic.nvim` for investigation, and `claude-code` / `opencode` for execution
-- Treat Neovim as a context router into the surrounding hook-driven dotfiles system, not as a separate orchestration layer
+- Prefer one delivery harness per task; use `opencode.nvim` as the Neovim bridge into OpenCode, and `sidekick.nvim` for learning-oriented Copilot NES / CLI assist
+- Treat Neovim as a context router into OpenCode and the surrounding hook-driven dotfiles system, not as a separate orchestration layer
 - Treat diagnostics, quickfix, and git diff as the review plane before considering work complete
 
 ## Testing Changes

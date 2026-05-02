@@ -49,7 +49,7 @@ local function open_notification_history()
   local buf = vim.api.nvim_create_buf(false, true)
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(win, buf)
-  vim.api.nvim_buf_set_name(buf, "Notifications")
+  vim.api.nvim_buf_set_name(buf, "Notifications " .. buf)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].bufhidden = "wipe"

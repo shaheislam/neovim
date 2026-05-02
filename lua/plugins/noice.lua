@@ -1,4 +1,76 @@
 -- Noice.nvim configuration to ensure text fits in message window
+local function open_notification_history()
+  local ok, notify = pcall(require, "notify")
+  if not ok then
+    vim.notify("nvim-notify is not available", vim.log.levels.WARN)
+    return
+  end
+
+  local history = notify.history()
+  local lines = {}
+
+  if #history == 0 then
+    lines = { "No notifications in history." }
+  else
+    for _, notif in ipairs(history) do
+      local time = notif.time and vim.fn.strftime("%H:%M:%S", notif.time) or "--:--:--"
+      local level = notif.level and tostring(notif.level) or "INFO"
+      local title = ""
+
+      if type(notif.title) == "table" then
+        title = table.concat(notif.title, " ")
+      elseif notif.title then
+        title = tostring(notif.title)
+      end
+
+      local header = string.format("[%s] %s", time, level)
+      if title ~= "" then
+        header = header .. " " .. title
+      end
+      table.insert(lines, header)
+
+      if type(notif.message) == "table" then
+        for _, message_line in ipairs(notif.message) do
+          table.insert(lines, tostring(message_line))
+        end
+      elseif notif.message then
+        for _, message_line in ipairs(vim.split(tostring(notif.message), "\n", { plain = true })) do
+          table.insert(lines, message_line)
+        end
+      end
+
+      table.insert(lines, "")
+    end
+  end
+
+  vim.cmd("botright split")
+  vim.cmd("resize " .. math.max(1, math.floor(vim.o.lines * 0.2)))
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  local win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(win, buf)
+  vim.api.nvim_buf_set_name(buf, "Notifications")
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].swapfile = false
+  vim.bo[buf].filetype = "notify-history"
+  vim.bo[buf].modifiable = false
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+  vim.wo[win].cursorline = false
+
+  local close = function()
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+  end
+  vim.keymap.set("n", "q", close, { buffer = buf, silent = true, desc = "Close Notifications" })
+  vim.keymap.set("n", "<Esc>", close, { buffer = buf, silent = true, desc = "Close Notifications" })
+
+  vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(buf), 0 })
+end
+
 return {
   "folke/noice.nvim",
   enabled = true,
@@ -18,6 +90,7 @@ return {
     { "<leader>mh", function() require("noice").cmd("history") end, desc = "Message History" },
     { "<leader>ml", function() vim.cmd("Noice last split") end, desc = "Last Message" },
     { "<leader>md", function() require("noice").cmd("dismiss") end, desc = "Dismiss Messages" },
+    { "<leader>n", open_notification_history, desc = "Notification History" },
     -- Toggle persistent messages
     { "<leader>mp", function()
       vim.g.noice_persistent_messages = not vim.g.noice_persistent_messages

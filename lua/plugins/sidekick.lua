@@ -23,7 +23,11 @@ local function request_nes()
   end
 
   local nes = require("sidekick.nes")
-  nes.update()
+  if nes.enabled then
+    nes.update()
+  else
+    nes.enable(true)
+  end
   vim.notify("Sidekick NES requested via " .. client.name, vim.log.levels.INFO)
 
   vim.defer_fn(function()
@@ -58,6 +62,18 @@ local function jump_or_apply_nes()
   else
     vim.notify("Sidekick NES: no active suggestion to jump/apply", vim.log.levels.INFO)
   end
+end
+
+local function accept_ai_edit()
+  if require("sidekick").nes_jump_or_apply() then
+    return
+  end
+
+  if vim.lsp.inline_completion and vim.lsp.inline_completion.get() then
+    return
+  end
+
+  vim.notify("No Sidekick NES or inline completion available", vim.log.levels.INFO)
 end
 
 local function clear_nes()
@@ -118,9 +134,9 @@ return {
       },
       {
         "<M-e>",
-        jump_or_apply_nes,
+        accept_ai_edit,
         mode = { "n", "i" },
-        desc = "Jump/Apply Next Edit Suggestion",
+        desc = "Accept AI Edit",
       },
       {
         "<leader>asu",
@@ -136,6 +152,12 @@ return {
       },
     },
     opts = {
+      nes = {
+        enabled = false,
+        trigger = {
+          events = {},
+        },
+      },
       cli = {
         watch = true,
         tools = {

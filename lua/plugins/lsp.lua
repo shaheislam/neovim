@@ -566,6 +566,12 @@ return {
             },
           },
           on_attach = function(client, bufnr)
+            if vim.lsp.inline_completion then
+              vim.lsp.inline_completion.enable(true, {
+                client_id = client.id,
+              })
+            end
+
             vim.api.nvim_buf_create_user_command(bufnr, "LspCopilotSignIn", function()
               copilot_sign_in(bufnr, client)
             end, { desc = "Sign in Copilot with GitHub" })

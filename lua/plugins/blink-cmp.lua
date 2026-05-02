@@ -1,6 +1,24 @@
 -- Blink.cmp - Fast completion engine
 -- Minimal setup for nvim-mini
 
+local function accept_tab_completion_or_ai(cmp)
+  if cmp.is_menu_visible() then
+    return cmp.select_and_accept()
+  end
+
+  local ok, sidekick = pcall(require, "sidekick")
+  local apply_ok, applied = false, false
+  if ok then
+    apply_ok, applied = pcall(sidekick.nes_jump_or_apply)
+  end
+
+  if apply_ok and applied then
+    return true
+  end
+
+  return vim.lsp.inline_completion and vim.lsp.inline_completion.get()
+end
+
 return {
   {
     "saghen/blink.cmp",
@@ -122,7 +140,7 @@ return {
       -- Keymap
       keymap = {
         preset = "default", -- C-y to accept, C-n/C-p for navigation
-        ["<Tab>"] = { "select_and_accept", "fallback" },
+        ["<Tab>"] = { accept_tab_completion_or_ai, "fallback" },
         ["<S-Tab>"] = { "select_prev", "fallback" },
         ["<C-space>"] = { "show", "show_documentation", "hide_documentation" },
         ["<C-e>"] = { "hide" },

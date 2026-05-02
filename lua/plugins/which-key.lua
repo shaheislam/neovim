@@ -45,12 +45,18 @@ return {
 			local wk = require("which-key")
 			wk.setup(opts)
 
+			-- Prefixes are otherwise allowed to fall through to normal-mode commands
+			-- on timeout, e.g. `<leader>a` replaying `a` and entering insert mode.
+			vim.keymap.set({ "n", "x" }, "<leader>a", "<Nop>", { desc = "AI", silent = true })
+			vim.keymap.set({ "n", "x" }, "<leader>ao", "<Nop>", { desc = "OpenCode", silent = true })
+			vim.keymap.set({ "n", "x" }, "<leader>as", "<Nop>", { desc = "NES", silent = true })
+
 			-- Define key groups (leader key mappings)
 			wk.add({
 				-- Core groups
 				{ "<leader>a", group = "ai", icon = "󰚩 " },
 				{ "<leader>ao", group = "opencode", icon = "󰘦 " },
-				{ "<leader>as", group = "sidekick", icon = "󰭹 " },
+				{ "<leader>as", group = "nes", icon = "󰭹 " },
 				{ "<leader>c", group = "code", icon = " " },
 				{ "<leader>aw", desc = "Wrapped dashboard" },
 				{ "<leader>l", group = "lsp", icon = " " },

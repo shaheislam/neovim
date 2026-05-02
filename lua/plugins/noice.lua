@@ -197,6 +197,18 @@ return {
       },
     })
 
+    -- Neovim 0.12 can emit bare UI events such as `restart`. Current Noice
+    -- expects grouped events like `msg_show`; ignore untyped events locally.
+    local ui = require("noice.ui")
+    local get_handler = ui.get_handler
+    ui.get_handler = function(event, ...)
+      if type(event) == "string" and not event:find("_", 1, true) then
+        return nil
+      end
+
+      return get_handler(event, ...)
+    end
+
     require("noice").setup(opts)
 
     -- Single vim.notify override for persistent mode timeout control

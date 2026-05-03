@@ -4,6 +4,11 @@
 return {
   "3rd/image.nvim",
   ft = { "markdown" },
+  -- Kitty graphics replies can leak through tmux/WezTerm as shell input
+  -- (for example: Gi=31337;OKl), so keep inline images outside tmux only.
+  enabled = function()
+    return vim.env.TMUX == nil
+  end,
   dependencies = {
     "nvim-treesitter/nvim-treesitter",
   },

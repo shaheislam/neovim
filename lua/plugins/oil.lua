@@ -1,9 +1,9 @@
--- Oil.nvim - File Browser
+-- Canola.nvim - Oil-compatible file browser
 -- Required by fzf-lua config
 
 return {
   {
-    "stevearc/oil.nvim",
+    "barrettruth/canola.nvim",
     dependencies = { "nvim-tree/nvim-web-devicons" },
     lazy = false,
     cmd = { "Oil" },

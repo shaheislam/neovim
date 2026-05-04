@@ -54,6 +54,67 @@ return {
     end,
   },
 
+  -- Matugen (optional dynamic theme from ~/.config/matugen/colors.json)
+  {
+    "daedlock/matugen.nvim",
+    lazy = false,
+    priority = 998,
+    opts = {
+      colors_path = vim.fn.expand("~/.config/matugen/colors.json"),
+      watch = false,
+    },
+    config = function(_, opts)
+      require("matugen").setup(opts)
+
+      local function activate_matugen()
+        vim.cmd.colorscheme("matugen")
+      end
+
+      vim.api.nvim_create_user_command("Matugen", activate_matugen, {
+        desc = "Activate the matugen colorscheme",
+      })
+
+      vim.api.nvim_create_user_command("Mutagen", activate_matugen, {
+        desc = "Alias for :Matugen",
+      })
+
+      local group = vim.api.nvim_create_augroup("matugen_watch", { clear = true })
+
+      vim.api.nvim_create_autocmd("ColorScheme", {
+        group = group,
+        pattern = "matugen",
+        callback = function()
+          vim.g.colors_name = "matugen"
+          vim.cmd([[silent! MatugenWatch on]])
+        end,
+      })
+
+      vim.api.nvim_create_autocmd("ColorScheme", {
+        group = group,
+        pattern = "*",
+        callback = function(event)
+          if event.match == "matugen" then
+            return
+          end
+
+          vim.defer_fn(function()
+            if vim.g.colors_name ~= "matugen" then
+              vim.cmd([[silent! MatugenWatch off]])
+            end
+          end, 0)
+        end,
+      })
+
+      vim.api.nvim_create_autocmd("User", {
+        group = group,
+        pattern = "MatugenReloaded",
+        callback = function()
+          vim.g.colors_name = "matugen"
+        end,
+      })
+    end,
+  },
+
   -- Kanagawa
   {
     "rebelot/kanagawa.nvim",

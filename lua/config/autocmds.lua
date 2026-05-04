@@ -128,6 +128,16 @@ vim.api.nvim_create_autocmd("ColorScheme", {
   callback = set_transparent_floats,
 })
 
+-- matugen.nvim reloads in place when colors.json changes and emits a User event
+-- instead of a full ColorScheme event. Reapply transparency after its highlights land.
+vim.api.nvim_create_autocmd("User", {
+  group = augroup("transparent_floats_matugen"),
+  pattern = "MatugenReloaded",
+  callback = function()
+    vim.defer_fn(set_transparent_floats, 20)
+  end,
+})
+
 -- Also apply on startup after colorscheme is loaded
 vim.api.nvim_create_autocmd("VimEnter", {
   group = augroup("transparent_floats_init"),

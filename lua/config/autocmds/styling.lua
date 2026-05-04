@@ -126,6 +126,15 @@ function M.setup()
     desc = "Apply consistent italic/bold styling across all themes",
   })
 
+  vim.api.nvim_create_autocmd("User", {
+    group = augroup("consistent_highlights_matugen"),
+    pattern = "MatugenReloaded",
+    callback = function()
+      vim.defer_fn(apply_consistent_styles, 20)
+    end,
+    desc = "Reapply consistent styling after matugen reloads",
+  })
+
   -- Also apply on startup after colorscheme is loaded
   vim.api.nvim_create_autocmd("VimEnter", {
     group = augroup("consistent_highlights_init"),

@@ -2,6 +2,58 @@
 
 local M = {}
 
+local function parse_args(args)
+  if args == "" then
+    return { "." }
+  end
+
+  local parsed = {}
+  local current = {}
+  local quote = nil
+  local escaped = false
+
+  for i = 1, #args do
+    local char = args:sub(i, i)
+
+    if escaped then
+      table.insert(current, char)
+      escaped = false
+    elseif char == "\\" then
+      escaped = true
+    elseif quote then
+      if char == quote then
+        quote = nil
+      else
+        table.insert(current, char)
+      end
+    elseif char == "'" or char == '"' then
+      quote = char
+    elseif char:match("%s") then
+      if #current > 0 then
+        table.insert(parsed, table.concat(current))
+        current = {}
+      end
+    else
+      table.insert(current, char)
+    end
+  end
+
+  if escaped then
+    table.insert(current, "\\")
+  end
+
+  if quote then
+    vim.notify("Unclosed quote in filter command", vim.log.levels.ERROR, { title = "filter" })
+    return nil
+  end
+
+  if #current > 0 then
+    table.insert(parsed, table.concat(current))
+  end
+
+  return #parsed > 0 and parsed or { "." }
+end
+
 local function visual_text_range()
   local start_pos = vim.fn.getpos("'<")
   local end_pos = vim.fn.getpos("'>")
@@ -20,9 +72,9 @@ end
 
 local function run_filter_command(binary, cmd)
   local filter = require("config.filter")
-  local args = cmd.fargs or {}
-  if #args == 0 then
-    args = { "." }
+  local args = parse_args(cmd.args)
+  if not args then
+    return
   end
 
   if cmd.range == 2 then

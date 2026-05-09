@@ -35,6 +35,7 @@ vim.g.loaded_rplugin = 1
 -- Load core configuration
 require("config.options")
 require("config.keymaps")
+require("config.usercommands").setup()
 require("config.autocmds")
 
 -- Setup lazy.nvim with minimal plugins

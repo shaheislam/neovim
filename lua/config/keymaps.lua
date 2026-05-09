@@ -65,6 +65,13 @@ setup_scroll_mappings()
 keymap({ "n", "x" }, "gq", function() return require("format").gq() end, { expr = true, desc = "Format (treesitter-aware)" })
 keymap({ "n", "x" }, "gw", function() return require("format").gw() end, { expr = true, desc = "Format keeping cursor (treesitter-aware)" })
 
+-- Structured data filters. Visual mappings intentionally use command-line mode
+-- so Neovim passes the selected range to :JQ/:YQ.
+keymap("n", "<leader>cj", "<cmd>JQ .<cr>", { desc = "Format JSON with jq" })
+keymap("x", "<leader>cj", ":JQ .<cr>", { desc = "Format JSON selection with jq" })
+keymap("n", "<leader>cy", "<cmd>YQ -P .<cr>", { desc = "Format YAML with yq" })
+keymap("x", "<leader>cy", ":YQ -P .<cr>", { desc = "Format YAML selection with yq" })
+
 -- Search navigation (centered)
 keymap("n", "n", "nzzzv", { desc = "Next search result (centered)" })
 keymap("n", "N", "Nzzzv", { desc = "Previous search result (centered)" })

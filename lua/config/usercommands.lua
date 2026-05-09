@@ -76,15 +76,17 @@ local function run_filter_command(binary, cmd)
   if not args then
     return
   end
+  local opts = binary == "yq" and { preserve_indent = true, yaml_inline_value = true } or nil
 
   if cmd.range == 2 then
     local visual_start = vim.fn.line("'<")
     local visual_end = vim.fn.line("'>")
     local is_characterwise_visual = vim.fn.visualmode() == "v" and cmd.line1 == visual_start and cmd.line2 == visual_end
     if is_characterwise_visual then
-      filter.replace_text_with_command_output(binary, args, visual_text_range())
+      local start_row, start_col, end_row, end_col = visual_text_range()
+      filter.replace_text_with_command_output(binary, args, start_row, start_col, end_row, end_col, opts)
     else
-      filter.replace_range_with_command_output(binary, args, cmd.line1, cmd.line2)
+      filter.replace_range_with_command_output(binary, args, cmd.line1, cmd.line2, opts)
     end
     return
   end

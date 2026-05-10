@@ -1482,13 +1482,33 @@ return {
 				use_icons = true, -- File icons in file panel
 				show_help_hints = true, -- Show hint popups in file panel
 				watch_index = true, -- Update views on index changes
+				diffopt = { algorithm = "histogram", linematch = 60 }, -- Cleaner hunk boundaries and intra-line pairing
 				persist_selections = { enabled = true }, -- Keep reviewed-file marks across reopen/restart
 
 				-- Signs in file panel
 				signs = {
-					fold_closed = "",
-					fold_open = "",
+					fold_closed = "▸",
+					fold_open = "▾",
 					done = "✓",
+					selected_file = "●",
+					unselected_file = "○",
+					selected_dir = "●",
+					partially_selected_dir = "◐",
+					unselected_dir = "○",
+				},
+
+				status_icons = {
+					A = "+",
+					["?"] = "?",
+					M = "~",
+					R = "→",
+					C = "=",
+					T = "T",
+					U = "!",
+					X = "X",
+					D = "-",
+					B = "B",
+					["!"] = "!",
 				},
 
 				-- File panel configuration
@@ -1497,16 +1517,26 @@ return {
 					tree_options = {
 						flatten_dirs = true, -- Flatten single-child directories
 						folder_statuses = "only_folded", -- show_folded, never_folded, only_folded
+						folder_count_style = "grouped",
+						folder_trailing_slash = true,
+					},
+					list_options = {
+						path_style = "basename",
 					},
 					win_config = {
 						position = "left",
-						width = 35,
+						width = "auto",
 						win_opts = {},
 					},
+					show_branch_name = true,
+					mark_placement = "sign_column",
 				},
 
 				-- File history panel configuration
 				file_history_panel = {
+					stat_style = "both",
+					date_format = "relative",
+					commit_format = { "hash", "subject", "author", "date", "ref", "status", "files", "stats" },
 					log_options = {
 						git = {
 							single_file = {
@@ -1524,6 +1554,8 @@ return {
 						height = 16,
 						win_opts = {},
 					},
+					show = true,
+					commit_subject_max_length = 72,
 				},
 
 				-- Default args for common workflows
@@ -1670,6 +1702,16 @@ return {
 						layout = "diff2_horizontal",
 						disable_diagnostics = true, -- Disable LSP diagnostics in file history diff buffers
 						winbar_info = true,
+						pin_local = false,
+					},
+					cycle_layouts = {
+						default = { "diff2_horizontal", "diff2_vertical", "diff1_inline" },
+						merge_tool = { "diff3_horizontal", "diff3_vertical", "diff3_mixed", "diff4_mixed", "diff1_plain" },
+					},
+					inline = {
+						style = "unified",
+						deletion_highlight = "hanging",
+						deletion_treesitter = true,
 					},
 				},
 

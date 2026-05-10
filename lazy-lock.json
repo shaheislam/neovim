@@ -9,7 +9,7 @@
   "catppuccin": { "branch": "main", "commit": "426dbebe06b5c69fd846ceb17b42e12f890aedf1" },
   "crates.nvim": { "branch": "main", "commit": "694357861ec9ebf12475ddcdd04ea45a0923c32d" },
   "cyberdream.nvim": { "branch": "main", "commit": "d1866f5b606896ca530be00bafbd12a3e6bb6efd" },
-  "diffview.nvim": { "branch": "main", "commit": "c37560aea2134d1eb067664d77045318dfc15fdf" },
+  "diffview.nvim": { "branch": "main", "commit": "fe01c7c3f11575c8d732fc0c1d52890d33ce41c0" },
   "everforest": { "branch": "master", "commit": "aeef62ee97872d2557d25904d160ec93a4a355f8" },
   "friendly-snippets": { "branch": "main", "commit": "6cd7280adead7f586db6fccbd15d2cac7e2188b9" },
   "fzf": { "branch": "master", "commit": "b4a86a9c8a688159131a27b6ec9dbce72ec11573" },

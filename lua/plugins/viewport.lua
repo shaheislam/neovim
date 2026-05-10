@@ -13,6 +13,16 @@ return {
     config = function()
       local viewport = require("viewport")
 
+      local function toggle_zoom()
+        local ok, mini_misc = pcall(require, "mini.misc")
+        if ok and mini_misc.zoom then
+          mini_misc.zoom(nil, { border = "none" })
+          return
+        end
+
+        require("viewport.actions").toggle_maximize()
+      end
+
       viewport.setup({
         resize_mode = {
           resize_amount = 2,
@@ -38,19 +48,17 @@ return {
 
       -- Keymaps
       vim.keymap.set('n', '<C-z>', function()
-        require('viewport.actions').toggle_maximize()
+        toggle_zoom()
       end, { desc = "Toggle maximize current window" })
 
       -- Terminal-mode zoom (works in opencode.nvim and other terminal buffers)
       vim.keymap.set('t', '<C-z>', function()
         local win = vim.api.nvim_get_current_win()
         vim.cmd([[stopinsert]])
-        require('viewport.actions').toggle_maximize()
+        toggle_zoom()
         -- Deferred so startinsert runs after the mapping stack completes
         vim.schedule(function()
-          if vim.api.nvim_win_is_valid(win)
-            and vim.api.nvim_get_current_win() == win
-            and vim.bo.buftype == 'terminal' then
+          if vim.api.nvim_win_is_valid(win) and vim.bo.buftype == 'terminal' then
             vim.cmd('startinsert')
           end
         end)

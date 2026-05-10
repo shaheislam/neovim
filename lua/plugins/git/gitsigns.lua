@@ -43,7 +43,7 @@ return {
 			max_file_length = 40000, -- Support word diff on larger files
 
 			-- Current line blame in virtual text
-			current_line_blame = true,
+			current_line_blame = false,
 			current_line_blame_opts = {
 				virt_text = true,
 				virt_text_pos = "eol", -- 'eol' | 'overlay' | 'right_align'
@@ -163,27 +163,40 @@ return {
 				map("n", "<leader>hB", gs.toggle_current_line_blame, { desc = "Toggle blame line" })
 				map("n", "<leader>hv", gs.blame, { desc = "Blame buffer (full)" })
 
-				-- Open blame commit in DiffView
-				map("n", "<leader>go", function()
-					local blame = vim.b.gitsigns_blame_line_dict
-					if not blame then
-						vim.notify(
-							"No blame info available. Enable current_line_blame or run :Gitsigns blame_line first",
-							vim.log.levels.WARN
-						)
+				-- Open blame commit in DiffView on demand, without requiring persistent blame virtual text.
+				map("n", "<leader>hO", function()
+					local file = vim.api.nvim_buf_get_name(bufnr)
+					if file == "" then
+						vim.notify("No file for git blame", vim.log.levels.WARN)
 						return
 					end
 
-					-- Handle uncommitted changes (boundary)
-					if blame.sha == nil or blame.sha:match("^0+$") then
-						vim.notify("Line not yet committed", vim.log.levels.INFO)
-						return
-					end
+					local line = vim.api.nvim_win_get_cursor(0)[1]
+					vim.system({
+						"git",
+						"blame",
+						"--porcelain",
+						"-L",
+						line .. "," .. line,
+						"--",
+						file,
+					}, { text = true }, function(result)
+						vim.schedule(function()
+							if result.code ~= 0 or not result.stdout then
+								vim.notify("git blame failed", vim.log.levels.WARN)
+								return
+							end
 
-					-- Open the commit in DiffView using ^! syntax (single commit diff)
-					vim.cmd("DiffviewOpen " .. blame.sha .. "^!")
-					-- Show FROM/TO/CKPT info buffer
-					show_single_commit_info(blame.sha)
+							local sha = result.stdout:match("^(%x+)")
+							if not sha or sha:match("^0+$") then
+								vim.notify("Line not yet committed", vim.log.levels.INFO)
+								return
+							end
+
+							vim.cmd("DiffviewOpen " .. sha .. "^!")
+							show_single_commit_info(sha)
+						end)
+					end)
 				end, { desc = "Open blame commit in DiffView" })
 
 				-- Advanced diff features
@@ -204,30 +217,21 @@ return {
 				-- Show deleted lines as virtual text
 				map("n", "<leader>ht", gs.toggle_deleted, { desc = "Toggle deleted" })
 
-				-- Visual diff toggles
-				map("n", "<leader>hw", gs.toggle_word_diff, { desc = "Toggle word diff" })
-				map("n", "<leader>hL", gs.toggle_linehl, { desc = "Toggle line highlight" })
-
 				-- Yank deleted lines from current hunk
 				map("n", "<leader>hy", function()
-					-- Get the current hunk
 					local hunks = gs.get_hunks(bufnr)
 					if not hunks or #hunks == 0 then
 						vim.notify("No hunks found", vim.log.levels.WARN)
 						return
 					end
 
-					-- Find the hunk at cursor position
-					local cursor = vim.api.nvim_win_get_cursor(0)
-					local current_line = cursor[1]
+					local current_line = vim.api.nvim_win_get_cursor(0)[1]
 					local target_hunk = nil
-
 					for _, hunk in ipairs(hunks) do
-						-- Check if cursor is within this hunk's range
-						if
-							current_line >= hunk.added.start
-							and current_line <= (hunk.added.start + hunk.added.count)
-						then
+						local added_start = hunk.added and hunk.added.start or 0
+						local added_count = hunk.added and hunk.added.count or 0
+						local added_end = math.max(added_start, added_start + added_count - 1)
+						if current_line >= added_start and current_line <= added_end then
 							target_hunk = hunk
 							break
 						end
@@ -238,27 +242,10 @@ return {
 						return
 					end
 
-					-- Extract deleted lines from the hunk
 					local deleted_lines = {}
-					if target_hunk.removed and target_hunk.removed.count > 0 then
-						-- Get the diff for this hunk
-						local diff_text = gs.get_hunks(bufnr, { greedy = false })
-
-						-- Get lines from git show for this hunk
-						local file_path = vim.api.nvim_buf_get_name(bufnr)
-						local git_cmd = string.format(
-							"git diff HEAD -- %s | awk '/^@@.*@@/{flag=1; next} flag && /^-/{print substr($0,2)}'",
-							vim.fn.shellescape(file_path)
-						)
-
-						local handle = io.popen(git_cmd)
-						if handle then
-							local result = handle:read("*a")
-							handle:close()
-
-							for line in result:gmatch("[^\r\n]+") do
-								table.insert(deleted_lines, line)
-							end
+					for _, line in ipairs(target_hunk.lines or {}) do
+						if line:sub(1, 1) == "-" and not line:match("^%-%-%-") then
+							table.insert(deleted_lines, line:sub(2))
 						end
 					end
 

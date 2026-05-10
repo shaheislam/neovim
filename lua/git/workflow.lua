@@ -454,6 +454,53 @@ local function checkout_commit(which)
 	end
 end
 
+local function get_remote_base_url()
+	local remote = vim.fn.system("MISE_QUIET=1 git remote get-url origin 2>/dev/null"):gsub("%s+$", "")
+	if vim.v.shell_error ~= 0 or remote == "" then
+		return nil
+	end
+
+	remote = remote:gsub("%.git$", "")
+	local host, path = remote:match("^git@([^:]+):(.+)$")
+	if host and path then
+		return "https://" .. host .. "/" .. path
+	end
+
+	local https = remote:match("^(https?://.+)$")
+	return https
+end
+
+local function open_commit_in_browser(sha)
+	if not sha or sha == "" then
+		vim.notify("No commit under cursor", vim.log.levels.WARN)
+		return
+	end
+
+	local base_url = get_remote_base_url()
+	if not base_url then
+		vim.notify("No origin remote URL found", vim.log.levels.WARN)
+		return
+	end
+
+	local url = base_url .. "/commit/" .. sha
+	if vim.ui.open then
+		vim.ui.open(url)
+	else
+		vim.fn.jobstart({ "open", url }, { detach = true })
+	end
+end
+
+local function copy_commit_hash(sha)
+	if not sha or sha == "" then
+		vim.notify("No commit under cursor", vim.log.levels.WARN)
+		return
+	end
+
+	vim.fn.setreg('"', sha)
+	vim.fn.setreg("+", sha)
+	vim.notify("Copied commit " .. sha:sub(1, 12), vim.log.levels.INFO)
+end
+
 -- Show commit info in a split buffer below Diffview
 local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to_msg, to_date)
 	-- Create buffer if it doesn't exist or was deleted
@@ -782,6 +829,11 @@ end
 
 -- Show commit info buffer for a single commit (resolves parent, formats FROM/TO/CKPT)
 local function show_single_commit_info(sha)
+	if not sha or sha == "" then
+		vim.notify("No commit under cursor", vim.log.levels.WARN)
+		return
+	end
+
 	local parent_sha = vim.fn.system("MISE_QUIET=1 git rev-parse " .. sha .. "^ 2>/dev/null"):gsub("%s+", "")
 	local parent_msg =
 		vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
@@ -879,6 +931,8 @@ local M = {
 	get_git_dir = get_git_dir,
 	get_main_repo_info = get_main_repo_info,
 	get_diffview_current_file = get_diffview_current_file,
+	open_commit_in_browser = open_commit_in_browser,
+	copy_commit_hash = copy_commit_hash,
 }
 
 local did_setup = false

@@ -32,6 +32,7 @@ return {
 		"DiffviewClose",
 		"DiffviewToggleFiles",
 		"DiffviewFocusFiles",
+		"DiffFiles",
 	},
 	keys = {
 		{
@@ -135,79 +136,28 @@ return {
 		},
 		{ "<leader>gr", "<cmd>DiffviewReviewedList<cr>", desc = "Reviewed files" },
 		{ "<leader>gX", "<cmd>DiffviewReviewedClear<cr>", desc = "Clear reviewed files" },
+		{
+			"<leader>gF",
+			function()
+				vim.ui.input({ prompt = "File 1: ", completion = "file" }, function(file1)
+					if not file1 or file1 == "" then
+						return
+					end
+					vim.ui.input({ prompt = "File 2: ", completion = "file" }, function(file2)
+						if file2 and file2 ~= "" then
+							vim.cmd("DiffFiles " .. vim.fn.fnameescape(file1) .. " " .. vim.fn.fnameescape(file2))
+						end
+					end)
+				end)
+			end,
+			desc = "Diff two files",
+		},
 	},
 	config = function()
 		local actions = require("diffview.actions")
 		local api = require("diffview.api")
-		local selections = api.selections
 		local function diffview_auto_switch_enabled()
 			return vim.g.diffview_auto_switch ~= false
-		end
-
-		local function set_diffview_revs(revs)
-			revs = vim.trim(revs or "")
-			if revs == "" then
-				vim.notify("Usage: DiffviewSetRevs <rev-range>", vim.log.levels.WARN)
-				return
-			end
-
-			local ok, lib = pcall(require, "diffview.lib")
-			if not ok or not lib.get_current_view() then
-				vim.notify("Open a Diffview first", vim.log.levels.WARN)
-				return
-			end
-
-			local set_ok, err = pcall(api.set_revs, revs)
-			if not set_ok then
-				vim.notify("Diffview rev retarget failed: " .. tostring(err), vim.log.levels.WARN)
-				return
-			end
-
-			vim.notify("Diffview revs: " .. revs, vim.log.levels.INFO)
-		end
-
-		local function get_reviewed_paths()
-			local ok, lib = pcall(require, "diffview.lib")
-			if not ok or not lib.get_current_view() then
-				vim.notify("Open a Diffview first", vim.log.levels.WARN)
-				return nil
-			end
-
-			return selections.get_paths()
-		end
-
-		local function list_reviewed_files()
-			local paths = get_reviewed_paths()
-			if not paths then
-				return
-			end
-			if #paths == 0 then
-				vim.notify("No reviewed files marked in this Diffview", vim.log.levels.INFO)
-				return
-			end
-
-			local items = vim.tbl_map(function(path)
-				return { filename = path, text = "reviewed" }
-			end, paths)
-			vim.fn.setqflist({}, " ", {
-				title = "Diffview reviewed files",
-				items = items,
-			})
-			vim.cmd("copen")
-		end
-
-		local function clear_reviewed_files()
-			local paths = get_reviewed_paths()
-			if not paths then
-				return
-			end
-			if #paths == 0 then
-				vim.notify("No reviewed files to clear", vim.log.levels.INFO)
-				return
-			end
-
-			selections.clear()
-			vim.notify("Cleared reviewed marks for " .. #paths .. " file(s)", vim.log.levels.INFO)
 		end
 
 		-- Forward declarations: auto-follow functions referenced in
@@ -859,6 +809,8 @@ return {
 			},
 		})
 
+		require("git.diffview_workflow").setup({ api = api })
+
 		-- Shared conflict-state polling: checks local + cross-worktree git conflict files
 		-- (MERGE_HEAD, REBASE_HEAD, CHERRY_PICK_HEAD, REVERT_HEAD)
 		-- Returns true if a reopen was triggered (caller should return early)
@@ -1146,25 +1098,6 @@ return {
 			return "ok"
 		end
 
-		vim.api.nvim_create_user_command("DiffviewSetRevs", function(opts)
-			set_diffview_revs(opts.args)
-		end, {
-			nargs = 1,
-			desc = "Retarget the current Diffview to a new revision range",
-		})
-
-		vim.api.nvim_create_user_command("DiffviewReviewedList", function()
-			list_reviewed_files()
-		end, {
-			desc = "List reviewed Diffview files in quickfix",
-		})
-
-		vim.api.nvim_create_user_command("DiffviewReviewedClear", function()
-			clear_reviewed_files()
-		end, {
-			desc = "Clear reviewed Diffview file marks",
-		})
-
 		-- VimLeave: clean up tmux socket var on exit (prevents stale sockets
 		-- when Neovim crashes or is killed without closing Diffview first).
 		vim.api.nvim_create_autocmd("VimLeave", {
@@ -1349,28 +1282,5 @@ return {
 			desc = "Follow buffer repo: retarget Diffview when switching to a different repo",
 		})
 
-		-- Arbitrary file comparison command (VSCode-style syntax)
-		vim.api.nvim_create_user_command("DiffFiles", function(opts)
-			local args = vim.split(opts.args, " ")
-			if #args ~= 2 then
-				vim.notify("Usage: DiffFiles <file1> <file2>", vim.log.levels.ERROR)
-				return
-			end
-			vim.cmd("tabnew " .. vim.fn.fnameescape(args[1]))
-			vim.cmd("vertical diffsplit " .. vim.fn.fnameescape(args[2]))
-		end, { nargs = "+", complete = "file", desc = "Diff two arbitrary files" })
-
-		-- Keymap for interactive file comparison
-		vim.keymap.set("n", "<leader>gF", function()
-			vim.ui.input({ prompt = "File 1: ", completion = "file" }, function(file1)
-				if file1 then
-					vim.ui.input({ prompt = "File 2: ", completion = "file" }, function(file2)
-						if file2 then
-							vim.cmd("DiffFiles " .. file1 .. " " .. file2)
-						end
-					end)
-				end
-			end)
-		end, { desc = "Diff two files" })
 	end,
 }

@@ -146,10 +146,10 @@ return {
 				{ "<leader>gW", desc = "Git Graph Current File Split" },
 				{ "<leader>gY", desc = "Git Graph Current File" },
 				{ "<leader>gY", desc = "Git Graph Selected Lines", mode = "v" },
-				{ "<leader>go", desc = "Open commit in DiffView" },
 				{ "<leader>gr", desc = "Reviewed files" },
 				{ "<leader>gX", desc = "Clear reviewed files" },
 				{ "<leader>gK", desc = "Compare clipboard" },
+				{ "<leader>gF", desc = "Diff two files" },
 
 				-- Window/viewport operations
 				{ "<leader>wv", desc = "Viewport Resize Mode" },
@@ -165,10 +165,12 @@ return {
 				{ "<leader>hi", desc = "Preview hunk inline" },
 				{ "<leader>hb", desc = "Blame line" },
 				{ "<leader>hB", desc = "Toggle blame line" },
+				{ "<leader>hO", desc = "Open blame commit in DiffView" },
 				{ "<leader>hd", desc = "Diff this" },
 				{ "<leader>ht", desc = "Toggle deleted" },
 				{ "<leader>hw", desc = "Toggle word diff" },
-				{ "<leader>hL", desc = "Toggle line highlight" },
+				{ "<leader>hl", desc = "Toggle line highlight" },
+				{ "<leader>hL", desc = "Send hunks to location list" },
 
 				-- Bracket mappings (navigation)
 				{ "]q", desc = "Next quickfix item" },

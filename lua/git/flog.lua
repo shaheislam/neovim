@@ -83,11 +83,14 @@ function M.open_selected_lines_graph()
 end
 
 function M.open_commit_in_diffview()
-	require("git.diffview").open_commit(flog_format("%h"))
-end
+	local hash = flog_format("%h")
+	if hash == "" then
+		vim.notify("No commit under cursor", vim.log.levels.WARN)
+		return
+	end
 
-function M.open_commit_path_in_diffview()
-	require("git.diffview").open_commit(flog_format("%h"), flog_format("%P"))
+	require("git.diffview").open_commit(hash)
+	require("git.workflow").show_single_commit_info(hash)
 end
 
 function M.open_selection_in_diffview()
@@ -99,6 +102,14 @@ function M.open_selection_in_diffview()
 	local newer = flog_hash_at_line(top)
 	local older = flog_hash_at_line(bottom)
 	require("git.diffview").open_range(older, newer)
+end
+
+function M.copy_commit_hash()
+	require("git.workflow").copy_commit_hash(flog_format("%h"))
+end
+
+function M.open_commit_in_browser()
+	require("git.workflow").open_commit_in_browser(flog_format("%h"))
 end
 
 function M.apply_style()
@@ -155,6 +166,8 @@ function M.setup()
 			configure_graph_window()
 			vim.keymap.set("n", "<CR>", M.open_commit_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview commit" }))
 			vim.keymap.set("v", "<CR>", M.open_selection_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview selected range" }))
+			vim.keymap.set("n", "y", M.copy_commit_hash, vim.tbl_extend("force", opts, { desc = "Copy commit hash" }))
+			vim.keymap.set("n", "gx", M.open_commit_in_browser, vim.tbl_extend("force", opts, { desc = "Open commit in browser" }))
 		end,
 	})
 end

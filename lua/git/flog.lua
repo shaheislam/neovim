@@ -36,6 +36,15 @@ local function flog_format(format)
 	return vim.trim(value or "")
 end
 
+local function flog_hash_at_line(line)
+	local ok, commit = pcall(vim.fn["flog#floggraph#commit#GetAtLine"], line)
+	if not ok or type(commit) ~= "table" then
+		return ""
+	end
+
+	return vim.trim(commit.hash or "")
+end
+
 function M.open_graph()
 	vim.cmd("Flog " .. graph_args)
 end
@@ -82,8 +91,13 @@ function M.open_commit_path_in_diffview()
 end
 
 function M.open_selection_in_diffview()
-	local newer = flog_format("%(h'>)")
-	local older = flog_format("%(h'<)")
+	local start_line = vim.fn.line("v")
+	local end_line = vim.fn.line(".")
+	local top = math.min(start_line, end_line)
+	local bottom = math.max(start_line, end_line)
+
+	local newer = flog_hash_at_line(top)
+	local older = flog_hash_at_line(bottom)
 	require("git.diffview").open_range(older, newer)
 end
 

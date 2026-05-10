@@ -46,6 +46,11 @@ return {
 		},
 	},
 	init = function()
+		vim.g.flog_enable_extended_chars = false
+		vim.g.flog_enable_dynamic_branch_hl = true
+		vim.g.flog_enable_dynamic_commit_hl = true
+		vim.g.flog_num_branch_colors = 8
+
 		vim.g.flog_permanent_default_opts = {
 			all = true,
 			date = "relative",

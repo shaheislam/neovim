@@ -2,6 +2,21 @@ local M = {}
 
 local graph_args = "-auto-update"
 
+local branch_palette = {
+	"#9ece6a",
+	"#e0af68",
+	"#ff9e64",
+	"#f7768e",
+	"#bb9af7",
+	"#7aa2f7",
+	"#2ac3de",
+	"#7dcfff",
+}
+
+local function set_hl(group, opts)
+	vim.api.nvim_set_hl(0, group, opts)
+end
+
 local function current_file()
 	local file = vim.fn.expand("%")
 	if file == "" then
@@ -72,13 +87,58 @@ function M.open_selection_in_diffview()
 	require("git.diffview").open_range(older, newer)
 end
 
+function M.apply_style()
+	set_hl("FlogNormal", { bg = "NONE" })
+	set_hl("FlogCursorLine", { bg = "#2a3148" })
+	set_hl("FlogEndOfBuffer", { fg = "#1f2335", bg = "NONE" })
+
+	set_hl("flogHash", { fg = "#bb9af7" })
+	set_hl("flogAuthor", { fg = "#9ece6a" })
+	set_hl("flogDate", { fg = "#ff9e64" })
+	set_hl("flogRef", { fg = "#7aa2f7" })
+	set_hl("flogRefTag", { fg = "#e0af68", bold = true })
+	set_hl("flogRefRemote", { fg = "#2ac3de" })
+	set_hl("flogRefHead", { fg = "#f7768e", bold = true })
+	set_hl("flogRefHeadArrow", { fg = "#565f89" })
+	set_hl("flogRefHeadBranch", { fg = "#c0caf5", bold = true })
+	set_hl("flogCollapsedCommit", { fg = "#565f89", italic = true })
+	set_hl("flogCommit", { fg = "#c0caf5", bold = true })
+
+	for index, color in ipairs(branch_palette) do
+		set_hl("flogBranch" .. index, { fg = color, bold = true })
+		set_hl("flogGraphBranch" .. index, { fg = color, bold = true })
+	end
+	set_hl("flogBranch0", { link = "flogBranch1" })
+end
+
+local function configure_graph_window()
+	vim.wo.cursorline = true
+	vim.wo.number = false
+	vim.wo.relativenumber = false
+	vim.wo.signcolumn = "no"
+	vim.wo.foldcolumn = "0"
+	vim.wo.colorcolumn = ""
+	vim.wo.list = false
+	vim.wo.wrap = false
+	vim.wo.winhighlight = "Normal:FlogNormal,CursorLine:FlogCursorLine,EndOfBuffer:FlogEndOfBuffer"
+end
+
 function M.setup()
+	M.apply_style()
+
+	vim.api.nvim_create_autocmd("ColorScheme", {
+		group = vim.api.nvim_create_augroup("FlogStyling", { clear = true }),
+		callback = M.apply_style,
+		desc = "Apply Flog graph styling",
+	})
+
 	vim.api.nvim_create_autocmd("FileType", {
 		group = vim.api.nvim_create_augroup("FlogDiffviewBridge", { clear = true }),
 		pattern = "floggraph",
 		callback = function(args)
 			local opts = { buffer = args.buf, silent = true }
-			vim.wo.cursorline = true
+			M.apply_style()
+			configure_graph_window()
 			vim.keymap.set("n", "dv", M.open_commit_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview commit" }))
 			vim.keymap.set("n", "dp", M.open_commit_path_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview commit paths" }))
 			vim.keymap.set("v", "dV", M.open_selection_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview selected range" }))

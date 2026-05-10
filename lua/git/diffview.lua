@@ -5,6 +5,10 @@ local function trim(value)
 end
 
 local function append_extra(args, extra_args)
+	if type(extra_args) ~= "string" then
+		return args
+	end
+
 	extra_args = trim(extra_args)
 	if extra_args == "" then
 		return args

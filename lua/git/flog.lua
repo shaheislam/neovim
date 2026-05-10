@@ -53,13 +53,35 @@ function M.open_graph_split()
 	vim.cmd("Flogsplit " .. graph_args)
 end
 
+function M.open_paths_graph(paths, split)
+	if not paths or #paths == 0 then
+		vim.notify("No files selected for Flog path history", vim.log.levels.WARN)
+		return
+	end
+
+	local cmd = split and "Flogsplit" or "Flog"
+	local args = { cmd, graph_args }
+	for _, file in ipairs(paths) do
+		if file and file ~= "" then
+			table.insert(args, "-path=" .. vim.fn.fnameescape(file))
+		end
+	end
+
+	if #args == 2 then
+		vim.notify("No files selected for Flog path history", vim.log.levels.WARN)
+		return
+	end
+
+	vim.cmd(table.concat(args, " "))
+end
+
 function M.open_current_file_graph()
 	local file = current_file()
 	if not file then
 		return
 	end
 
-	vim.cmd("Flog " .. graph_args .. " -path=" .. file)
+	M.open_paths_graph({ file })
 end
 
 function M.open_current_file_graph_split()
@@ -68,7 +90,7 @@ function M.open_current_file_graph_split()
 		return
 	end
 
-	vim.cmd("Flogsplit " .. graph_args .. " -path=" .. file)
+	M.open_paths_graph({ file }, true)
 end
 
 function M.open_selected_lines_graph()

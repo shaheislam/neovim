@@ -154,9 +154,9 @@ local function build_header(picker_name)
     oldfiles = "M-g: global │ M-s: git │ M-l: local │ M-d: buf dir │ M-p: parent",
   }
   local util_keys = {
-    files    = "C-y: copy │ C-f: full path │ C-r: history │ C-t: preview",
-    grep     = "C-y: copy │ C-r: history │ C-g: grep/lgrep │ M-i: ignore │ C-h: hidden │ M-q: qf │ C-t: preview",
-    frecency = "C-x: delete score │ C-y: copy │ C-f: full path │ C-t: preview",
+    files    = "C-g: git graph │ C-y: copy │ C-f: full path │ C-r: history │ C-t: preview",
+    grep     = "C-g: git graph │ C-y: copy │ C-r: history │ M-i: ignore │ C-h: hidden │ M-q: qf │ C-t: preview",
+    frecency = "C-g: git graph │ C-x: delete score │ C-y: copy │ C-f: full path │ C-t: preview",
     buffers  = "C-y: copy │ C-f: full path │ C-d: delete │ C-r: history │ C-t: preview",
     oldfiles = "C-r: history",
   }
@@ -164,6 +164,92 @@ local function build_header(picker_name)
   if scope_keys[picker_name] then table.insert(parts, scope_keys[picker_name]) end
   if util_keys[picker_name] then table.insert(parts, util_keys[picker_name]) end
   return #parts > 0 and table.concat(parts, "\n") or nil
+end
+
+local function selected_file_paths(selected, opts)
+  if not selected or #selected == 0 then return {} end
+
+  local path = require("fzf-lua.path")
+  local cwd = opts and (opts.cwd or opts._cwd) or vim.fn.getcwd()
+  local files = {}
+  local seen = {}
+  for _, entry in ipairs(selected) do
+    local file = path.entry_to_file(entry, opts)
+    local filepath = file and (file.path or file.bufname)
+    if filepath and filepath ~= "" then
+      if not vim.startswith(filepath, "/") and not vim.startswith(filepath, "~") then
+        filepath = cwd .. "/" .. filepath
+      end
+      filepath = vim.fn.fnamemodify(filepath, ":p")
+      if not seen[filepath] then
+        seen[filepath] = true
+        table.insert(files, filepath)
+      end
+    end
+  end
+
+  return files
+end
+
+local function open_selected_paths_graph_split(selected, opts)
+  require("git.flog").open_paths_graph(selected_file_paths(selected, opts), true)
+end
+
+local function selected_commit_hashes(selected)
+  if not selected or #selected == 0 then return {} end
+
+  local hashes = {}
+  local seen = {}
+  for _, entry in ipairs(selected) do
+    entry = require("fzf-lua.utils").strip_ansi_coloring(entry)
+    local hash = entry:match("^%s*([a-f0-9]+)")
+    if hash and not seen[hash] then
+      seen[hash] = true
+      table.insert(hashes, hash)
+    end
+  end
+
+  return hashes
+end
+
+local function open_selected_commits_diffview(selected, extra_args)
+  local hashes = selected_commit_hashes(selected)
+  if #hashes == 0 then
+    vim.notify("No commits selected for Diffview", vim.log.levels.WARN)
+    return
+  end
+  if #hashes > 2 then
+    vim.notify("Select one commit or two commits for Diffview", vim.log.levels.WARN)
+    return
+  end
+
+  local diffview = require("git.diffview")
+  if #hashes == 1 then
+    diffview.open_commit(hashes[1], extra_args)
+    require("git.workflow").show_single_commit_info(hashes[1])
+  else
+    diffview.open_range(hashes[2], hashes[1], extra_args)
+  end
+end
+
+local function current_buffer_diffview_args()
+  local file = vim.fn.expand("%:p")
+  if file == "" then return nil end
+
+  local git_dir = vim.fs.find(".git", { path = vim.fn.fnamemodify(file, ":h"), upward = true })[1]
+  if not git_dir then return nil end
+
+  local git_root = vim.fn.fnamemodify(git_dir, ":h:p")
+  local rel = vim.fn.fnamemodify(file, ":p")
+  if vim.startswith(rel, git_root) then
+    rel = rel:sub(#git_root + 1)
+  end
+
+  return "-- " .. vim.fn.fnameescape(rel)
+end
+
+local function open_selected_buffer_commits_diffview(selected)
+  open_selected_commits_diffview(selected, current_buffer_diffview_args())
 end
 
 return {
@@ -1286,6 +1372,7 @@ return {
           end,
           actions = {
             ["default"] = file_edit_with_cwd,  -- Custom action to handle cwd properly
+            ["ctrl-g"] = open_selected_paths_graph_split,
             ["alt-g"] = create_scope_action(function() return vim.fn.expand("~/work") end, "Global"),
             ["alt-s"] = create_scope_action(function()
               local git_root = get_service_repo_dir()
@@ -1390,7 +1477,7 @@ return {
             ["alt-o"] = select_directory(),
             ["alt-q"] = create_qf_scope_action(),
             -- Advanced grep controls
-            ["ctrl-g"] = { actions.grep_lgrep },
+            ["ctrl-g"] = open_selected_paths_graph_split,
             ["ctrl-r"] = search_history_action(),  -- Search history
             ["alt-i"] = { actions.toggle_ignore },
             ["ctrl-h"] = { actions.toggle_hidden },
@@ -1649,11 +1736,14 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("git_commits"),
-                ["--header"] = "C-y: copy SHA | C-r: search history",
+                ["--header"] = "C-g: Diffview | C-y: copy SHA | C-r: search history",
               }
             end,
             actions = {
               ["default"] = actions.git_checkout,
+              ["ctrl-g"] = function(selected)
+                open_selected_commits_diffview(selected)
+              end,
               ["ctrl-r"] = search_history_action(),  -- Search history
               ["ctrl-y"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
@@ -1672,11 +1762,14 @@ return {
             fzf_opts = function()
               return {
                 ["--history"] = get_history_path("git_bcommits"),
-                ["--header"] = "C-y: copy SHA | C-r: search history",
+                ["--header"] = "C-g: Diffview | C-y: copy SHA | C-r: search history",
               }
             end,
             actions = {
               ["default"] = actions.git_buf_edit,
+              ["ctrl-g"] = function(selected)
+                open_selected_buffer_commits_diffview(selected)
+              end,
               ["ctrl-r"] = search_history_action(),  -- Search history
               ["ctrl-y"] = function(selected, opts)
                 if not selected or #selected == 0 then return end
@@ -2372,7 +2465,20 @@ return {
       { "<leader>gg", function() require("fzf-lua").git_status() end, desc = "Git status" },
       { "<leader>gl", function() require("fzf-lua").git_commits() end, desc = "Git commits" },
       { "<leader>gb", function() require("fzf-lua").git_branches() end, desc = "Git branches" },
-      { "<leader>gf", function() require("fzf-lua").git_files() end, desc = "Git files" },
+      {
+        "<leader>gf",
+        function()
+          local fzf = require("fzf-lua")
+          local files_actions = fzf.config.globals.files and fzf.config.globals.files.actions or {}
+          fzf.git_files({
+            fzf_opts = { ["--header"] = build_header("files") },
+            actions = vim.tbl_extend("keep", {
+              ["ctrl-g"] = open_selected_paths_graph_split,
+            }, files_actions),
+          })
+        end,
+        desc = "Git files"
+      },
       { "<leader>gC", function() require("fzf-lua").git_bcommits() end, desc = "Git buffer commits" },
       { "<leader>gs", function() require("fzf-lua").git_stash() end, desc = "Git stash" },
       {

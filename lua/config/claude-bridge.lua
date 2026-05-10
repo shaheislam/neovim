@@ -118,14 +118,20 @@ local function write_state(data)
   data.project = vim.fn.getcwd()
   data.nvim_pid = vim.fn.getpid()
 
-  local tmp = state_file .. ".tmp"
+  local tmp = string.format("%s.%s.tmp", state_file, vim.fn.getpid())
   local f = io.open(tmp, "w")
   if not f then
+    vim.notify("Claude bridge failed to open temp state file: " .. tmp, vim.log.levels.WARN)
     return
   end
   f:write(vim.json.encode(data))
   f:close()
-  os.rename(tmp, state_file)
+
+  local ok, err = os.rename(tmp, state_file)
+  if not ok then
+    vim.fn.delete(tmp)
+    vim.notify("Claude bridge failed to publish state file: " .. tostring(err), vim.log.levels.WARN)
+  end
 end
 
 -- Collect diagnostics (capped, sorted by severity then file)
@@ -291,7 +297,7 @@ local function cleanup()
     if tonumber(state.nvim_pid) == vim.fn.getpid() then
       vim.fn.delete(state_file)
     end
-    vim.fn.delete(state_file .. ".tmp")
+    vim.fn.delete(string.format("%s.%s.tmp", state_file, vim.fn.getpid()))
   end
 
   state_dir = nil

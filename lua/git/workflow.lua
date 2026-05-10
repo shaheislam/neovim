@@ -22,18 +22,15 @@ local function compare_clipboard()
 	vim.bo[scratch_buf].filetype = ft
 	vim.cmd("diffthis")
 
-	-- Function to close the diff (works from either buffer)
+	-- Function to close the diff from the scratch buffer without leaking mappings into the source buffer.
 	local function close_diff()
 		vim.cmd("diffoff!")
-		-- Close scratch buffer if it exists
 		if vim.api.nvim_buf_is_valid(scratch_buf) then
 			vim.cmd("bwipeout " .. scratch_buf)
 		end
 	end
 
-	-- Add q to close the diff on BOTH buffers
-		vim.keymap.set("n", "q", close_diff, { buffer = scratch_buf, desc = "Close diff" })
-		vim.keymap.set("n", "q", close_diff, { buffer = original_buf, desc = "Close diff" })
+	vim.keymap.set("n", "q", close_diff, { buffer = scratch_buf, desc = "Close diff" })
 
 	-- Go back to original window and enable diff
 	vim.cmd("wincmd p")
@@ -81,14 +78,10 @@ local function compare_clipboard_selection()
 	vim.bo[buf2].filetype = ft
 	vim.cmd("diffthis")
 
-	-- Add q to close the diff tab (works from either buffer)
-		vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf1, desc = "Close diff" })
-		vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf2, desc = "Close diff" })
+	-- Add q to close the diff tab from either scratch buffer.
+	vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf1, desc = "Close diff" })
+	vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf2, desc = "Close diff" })
 end
-
--- Clipboard diff keymaps
-vim.keymap.set("n", "<leader>gK", compare_clipboard, { desc = "Compare clipboard vs buffer" })
-vim.keymap.set("v", "<leader>gK", compare_clipboard_selection, { desc = "Compare clipboard vs selection" })
 
 -- ============================================================================
 -- Commit Cycling - Navigate through commit history in Diffview
@@ -108,10 +101,6 @@ local commit_cycle_state = {
 -- Buffer for commit info display
 local commit_info_bufnr = nil
 
--- Track buffers modified by diff_buf_read for restoration on view_closed.
--- Values store prior state: { inlay_hints = bool, symbol_usage = bool }
-local diffview_modified_bufs = {}
-
 -- Cross-worktree merge detection state
 local cross_worktree_state = {
 	active = false,
@@ -119,15 +108,6 @@ local cross_worktree_state = {
 	main_work_dir = nil,
 	main_git_dir = nil,
 }
-
--- Repo-following state: tracks which repo root Diffview is currently showing,
--- so BufEnter can detect when the user switches to a buffer in a different repo.
-local diffview_current_root = nil
--- Monotonic sequence for RPC vs timer deconfliction.
--- RPC increments follow_rpc_seq on each event; the timer skips when new
--- RPC events have arrived since its last tick (sequence-based, not time-based).
-local follow_rpc_seq = 0
-local follow_timer_seen_seq = 0
 
 -- Find the repo/worktree root by walking up from dir to find .git.
 -- Returns the directory containing .git (the working tree root), or nil.
@@ -271,7 +251,8 @@ local function get_tmux_active_pane_cwd()
 		return nil
 	end
 	local out = vim.fn.system(
-		"tmux list-panes -t " .. vim.fn.shellescape(wid)
+		"tmux list-panes -t "
+			.. vim.fn.shellescape(wid)
 			.. " -F '#{pane_active} #{pane_id} #{pane_current_path}' 2>/dev/null"
 	)
 	if vim.v.shell_error ~= 0 then
@@ -507,10 +488,10 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 				vim.bo.bufhidden = "wipe"
 				vim.cmd("startinsert") -- Enter terminal mode so user can scroll
 			end
-			end, { buffer = commit_info_bufnr, desc = "Checkout commit / Show checkpoint" })
+		end, { buffer = commit_info_bufnr, desc = "Checkout commit / Show checkpoint" })
 		-- Add keymap to close Diffview with q
 		vim.keymap.set("n", "q", "<cmd>DiffviewClose<cr>", {
-				buffer = commit_info_bufnr,
+			buffer = commit_info_bufnr,
 			desc = "Close Diffview",
 		})
 	end
@@ -544,17 +525,47 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 	local to_msg_hl = get_commit_hl_group(to_sha)
 
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 2, { end_col = 6, hl_group = "CommitInfoFrom" })
-	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, 8, { end_col = 8 + #from_sha_short, hl_group = "CommitInfoSha" })
-	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, from_date_start, { end_col = from_date_end, hl_group = "CommitInfoDate" })
-	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 0, from_msg_start, { end_col = #lines[1], hl_group = from_msg_hl })
+	vim.api.nvim_buf_set_extmark(
+		commit_info_bufnr,
+		ns,
+		0,
+		8,
+		{ end_col = 8 + #from_sha_short, hl_group = "CommitInfoSha" }
+	)
+	vim.api.nvim_buf_set_extmark(
+		commit_info_bufnr,
+		ns,
+		0,
+		from_date_start,
+		{ end_col = from_date_end, hl_group = "CommitInfoDate" }
+	)
+	vim.api.nvim_buf_set_extmark(
+		commit_info_bufnr,
+		ns,
+		0,
+		from_msg_start,
+		{ end_col = #lines[1], hl_group = from_msg_hl }
+	)
 
 	-- Line 1: TO - "  TO    abc1234  2025-12-01 10:30:15 +0000  commit message"
 	local to_date_start = 8 + #to_sha_short + 2
 	local to_date_end = to_date_start + #to_date
 	local to_msg_start = to_date_end + 2
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 2, { end_col = 4, hl_group = "CommitInfoTo" })
-	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, 8, { end_col = 8 + #to_sha_short, hl_group = "CommitInfoSha" })
-	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, to_date_start, { end_col = to_date_end, hl_group = "CommitInfoDate" })
+	vim.api.nvim_buf_set_extmark(
+		commit_info_bufnr,
+		ns,
+		1,
+		8,
+		{ end_col = 8 + #to_sha_short, hl_group = "CommitInfoSha" }
+	)
+	vim.api.nvim_buf_set_extmark(
+		commit_info_bufnr,
+		ns,
+		1,
+		to_date_start,
+		{ end_col = to_date_end, hl_group = "CommitInfoDate" }
+	)
 	vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 1, to_msg_start, { end_col = #lines[2], hl_group = to_msg_hl })
 
 	-- Line 2: CKPT line (always present)
@@ -772,8 +783,10 @@ end
 -- Show commit info buffer for a single commit (resolves parent, formats FROM/TO/CKPT)
 local function show_single_commit_info(sha)
 	local parent_sha = vim.fn.system("MISE_QUIET=1 git rev-parse " .. sha .. "^ 2>/dev/null"):gsub("%s+", "")
-	local parent_msg = vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
-	local parent_date = vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
+	local parent_msg =
+		vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
+	local parent_date =
+		vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
 	local current_msg = vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. sha):gsub("\n", "")
 	local current_date = vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. sha):gsub("\n", "")
 
@@ -850,29 +863,6 @@ local function cycle_commit(direction, file_scoped)
 	open_commit_diff(next_sha, file_path)
 end
 
--- Global keymaps for commit cycling (work from any buffer)
-vim.keymap.set("n", "]r", function()
-	cycle_commit("next", true)
-end, { desc = "Next commit (file)" })
-vim.keymap.set("n", "[r", function()
-	cycle_commit("prev", true)
-end, { desc = "Prev commit (file)" })
-vim.keymap.set("n", "]R", function()
-	cycle_commit("next", false)
-end, { desc = "Next commit (repo)" })
-vim.keymap.set("n", "[R", function()
-	cycle_commit("prev", false)
-end, { desc = "Prev commit (repo)" })
-
--- Keymaps for checking out FROM/TO commits
-vim.keymap.set("n", "gco", function()
-	checkout_commit("to")
-end, { desc = "Checkout TO commit" })
-vim.keymap.set("n", "gcO", function()
-	checkout_commit("from")
-end, { desc = "Checkout FROM commit" })
-
-
 local M = {
 	commit_cycle_state = commit_cycle_state,
 	cross_worktree_state = cross_worktree_state,
@@ -890,5 +880,37 @@ local M = {
 	get_main_repo_info = get_main_repo_info,
 	get_diffview_current_file = get_diffview_current_file,
 }
+
+local did_setup = false
+
+function M.setup()
+	if did_setup then
+		return
+	end
+	did_setup = true
+
+	vim.keymap.set("n", "<leader>gK", compare_clipboard, { desc = "Compare clipboard vs buffer" })
+	vim.keymap.set("v", "<leader>gK", compare_clipboard_selection, { desc = "Compare clipboard vs selection" })
+
+	vim.keymap.set("n", "]r", function()
+		cycle_commit("next", true)
+	end, { desc = "Next commit (file)" })
+	vim.keymap.set("n", "[r", function()
+		cycle_commit("prev", true)
+	end, { desc = "Prev commit (file)" })
+	vim.keymap.set("n", "]R", function()
+		cycle_commit("next", false)
+	end, { desc = "Next commit (repo)" })
+	vim.keymap.set("n", "[R", function()
+		cycle_commit("prev", false)
+	end, { desc = "Prev commit (repo)" })
+
+	vim.keymap.set("n", "gco", function()
+		checkout_commit("to")
+	end, { desc = "Checkout TO commit" })
+	vim.keymap.set("n", "gcO", function()
+		checkout_commit("from")
+	end, { desc = "Checkout FROM commit" })
+end
 
 return M

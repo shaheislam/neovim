@@ -1,6 +1,6 @@
 -- Git integration for nvim-mini
 
-require("git.workflow")
+require("git.workflow").setup()
 
 local specs = {}
 

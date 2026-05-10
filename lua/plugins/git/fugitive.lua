@@ -1,30 +1,30 @@
 -- Fugitive for comprehensive Git integration
 
 return {
-		"tpope/vim-fugitive",
-		cmd = { "Git", "G", "Gread", "Gwrite", "Gdiffsplit", "Gvdiffsplit", "Gedit", "Gsplit", "GBrowse" },
-		keys = {
-			{
-				"<leader>gp",
-				function()
-					vim.cmd("belowright 15split")
-					vim.cmd("Git push")
-				end,
-				desc = "Git push",
-			},
-			{
-				"<leader>gc",
-				function()
-					vim.cmd("belowright split")
-					vim.cmd("Git commit")
-				end,
-				desc = "Git commit",
-			},
-			{ "<leader>gB", "<cmd>GBrowse<cr>", desc = "Open in GitHub/GitLab" },
+	"tpope/vim-fugitive",
+	cmd = { "Git", "G", "Gread", "Gwrite", "Gdiffsplit", "Gvdiffsplit", "Gedit", "Gsplit", "GBrowse" },
+	keys = {
+		{
+			"<leader>gp",
+			function()
+				vim.cmd("belowright 15split")
+				vim.cmd("Git push")
+			end,
+			desc = "Git push",
 		},
-		init = function()
-			-- Command-line abbreviations for Git commands (init runs before plugin loads)
-			vim.cmd([[
+		{
+			"<leader>gc",
+			function()
+				vim.cmd("belowright split")
+				vim.cmd("Git commit")
+			end,
+			desc = "Git commit",
+		},
+		{ "<leader>gB", "<cmd>GBrowse<cr>", desc = "Open in GitHub/GitLab" },
+	},
+	init = function()
+		-- Command-line abbreviations for Git commands (init runs before plugin loads)
+		vim.cmd([[
 				" Base command
 				cnoreabbrev <expr> G getcmdtype() == ':' && getcmdline() == 'G' ? 'Git' : 'G'
 
@@ -72,46 +72,46 @@ return {
 				cnoreabbrev <expr> grh getcmdtype() == ':' && getcmdline() == 'grh' ? 'Git reset HEAD' : 'grh'
 				cnoreabbrev <expr> grhh getcmdtype() == ':' && getcmdline() == 'grhh' ? 'Git reset --hard HEAD' : 'grhh'
 			]])
-		end,
-		config = function()
-			-- Configure Ivy-style appearance for fugitive buffers
-			vim.api.nvim_create_autocmd("FileType", {
-				pattern = "fugitive",
-				callback = function(args)
-					-- Ivy-style minimal appearance
-					vim.wo.number = false
-					vim.wo.relativenumber = false
-					vim.wo.signcolumn = "no"
-					vim.wo.foldcolumn = "0"
-					vim.wo.wrap = false
-					vim.wo.cursorline = true
-					vim.wo.statusline = " Git " -- Minimal status line
+	end,
+	config = function()
+		-- Configure Ivy-style appearance for fugitive buffers
+		vim.api.nvim_create_autocmd("FileType", {
+			pattern = "fugitive",
+			callback = function(args)
+				-- Ivy-style minimal appearance
+				vim.wo.number = false
+				vim.wo.relativenumber = false
+				vim.wo.signcolumn = "no"
+				vim.wo.foldcolumn = "0"
+				vim.wo.wrap = false
+				vim.wo.cursorline = true
+				vim.wo.statusline = " Git " -- Minimal status line
 
-					-- Buffer-local keymaps for Ivy-style navigation
-					local opts = { buffer = args.buf, silent = true }
-					vim.keymap.set("n", "q", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Close" }))
-					vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Close" }))
-					vim.keymap.set("n", "r", "<cmd>edit<cr>", vim.tbl_extend("force", opts, { desc = "Refresh" }))
-					vim.keymap.set("n", "<CR>", "<CR>", vim.tbl_extend("force", opts, { desc = "Select/Open" }))
-				end,
-				group = vim.api.nvim_create_augroup("FugitiveIvyStyle", { clear = true }),
-			})
+				-- Buffer-local keymaps for Ivy-style navigation
+				local opts = { buffer = args.buf, silent = true }
+				vim.keymap.set("n", "q", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Close" }))
+				vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Close" }))
+				vim.keymap.set("n", "r", "<cmd>edit<cr>", vim.tbl_extend("force", opts, { desc = "Refresh" }))
+				vim.keymap.set("n", "<CR>", "<CR>", vim.tbl_extend("force", opts, { desc = "Select/Open" }))
+			end,
+			group = vim.api.nvim_create_augroup("FugitiveIvyStyle", { clear = true }),
+		})
 
-			-- Auto-style git commit buffers
-			vim.api.nvim_create_autocmd("FileType", {
-				pattern = "gitcommit",
-				callback = function(args)
-					vim.wo.number = true
-					vim.wo.relativenumber = false
-					vim.wo.signcolumn = "no"
-					vim.wo.colorcolumn = "72"
-					vim.bo.textwidth = 72
+		-- Auto-style git commit buffers
+		vim.api.nvim_create_autocmd("FileType", {
+			pattern = "gitcommit",
+			callback = function(args)
+				vim.wo.number = true
+				vim.wo.relativenumber = false
+				vim.wo.signcolumn = "no"
+				vim.wo.colorcolumn = "72"
+				vim.bo.textwidth = 72
 
-					-- Commit buffer keymaps
-					local opts = { buffer = args.buf, silent = true }
-					vim.keymap.set("n", "q", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Cancel commit" }))
-				end,
-				group = vim.api.nvim_create_augroup("GitCommitStyle", { clear = true }),
-			})
-		end,
-	}
+				-- Commit buffer keymaps
+				local opts = { buffer = args.buf, silent = true }
+				vim.keymap.set("n", "q", "<cmd>close<cr>", vim.tbl_extend("force", opts, { desc = "Cancel commit" }))
+			end,
+			group = vim.api.nvim_create_augroup("GitCommitStyle", { clear = true }),
+		})
+	end,
+}

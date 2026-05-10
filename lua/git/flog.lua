@@ -153,9 +153,8 @@ function M.setup()
 			local opts = { buffer = args.buf, silent = true }
 			M.apply_style()
 			configure_graph_window()
-			vim.keymap.set("n", "dv", M.open_commit_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview commit" }))
-			vim.keymap.set("n", "dp", M.open_commit_path_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview commit paths" }))
-			vim.keymap.set("v", "dV", M.open_selection_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview selected range" }))
+			vim.keymap.set("n", "<CR>", M.open_commit_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview commit" }))
+			vim.keymap.set("v", "<CR>", M.open_selection_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview selected range" }))
 		end,
 	})
 end

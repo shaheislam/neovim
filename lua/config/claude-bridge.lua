@@ -83,13 +83,25 @@ local function ensure_state_dir()
   end
 
   local stat = vim.uv.fs_stat(state_dir)
+  if stat and stat.type == "directory" then
+    return true
+  end
+
   if stat and stat.type ~= "directory" then
-    vim.notify("Claude bridge path exists but is not a directory: " .. state_dir, vim.log.levels.WARN)
-    return false
+    local deleted = vim.fn.delete(state_dir, "rf")
+    if deleted ~= 0 then
+      vim.notify("Claude bridge path exists but is not a directory: " .. state_dir, vim.log.levels.WARN)
+      return false
+    end
   end
 
   local ok, err = pcall(vim.fn.mkdir, state_dir, "p")
   if not ok then
+    local retry_stat = vim.uv.fs_stat(state_dir)
+    if retry_stat and retry_stat.type == "directory" then
+      return true
+    end
+
     vim.notify("Claude bridge failed to create state directory: " .. tostring(err), vim.log.levels.WARN)
     return false
   end
@@ -272,13 +284,18 @@ local function on_git_changed()
   end, config.git_debounce_ms)
 end
 
--- Cleanup state directory
+-- Cleanup only this instance's state file; the project directory is shared.
 local function cleanup()
-  if state_dir then
-    vim.fn.delete(state_dir, "rf")
-    state_dir = nil
-    state_file = nil
+  if state_file then
+    local state = read_state()
+    if tonumber(state.nvim_pid) == vim.fn.getpid() then
+      vim.fn.delete(state_file)
+    end
+    vim.fn.delete(state_file .. ".tmp")
   end
+
+  state_dir = nil
+  state_file = nil
 end
 
 function M.setup(opts)

@@ -167,6 +167,7 @@ local function configure_graph_window()
 	vim.wo.colorcolumn = ""
 	vim.wo.list = false
 	vim.wo.wrap = false
+	vim.wo.concealcursor = "nv"
 	vim.wo.winhighlight = "Normal:FlogNormal,CursorLine:FlogCursorLine,EndOfBuffer:FlogEndOfBuffer"
 end
 

@@ -188,6 +188,7 @@ function M.setup()
 			configure_graph_window()
 			vim.keymap.set("n", "<CR>", M.open_commit_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview commit" }))
 			vim.keymap.set("v", "<CR>", M.open_selection_in_diffview, vim.tbl_extend("force", opts, { desc = "Diffview selected range" }))
+			vim.keymap.set("n", "q", "<cmd>quit<cr>", vim.tbl_extend("force", opts, { desc = "Close git graph" }))
 			vim.keymap.set("n", "y", M.copy_commit_hash, vim.tbl_extend("force", opts, { desc = "Copy commit hash" }))
 			vim.keymap.set("n", "gx", M.open_commit_in_browser, vim.tbl_extend("force", opts, { desc = "Open commit in browser" }))
 		end,

@@ -254,7 +254,6 @@ return {
 						local content = table.concat(deleted_lines, "\n")
 						vim.fn.setreg('"', content)
 						vim.fn.setreg("+", content) -- Also copy to system clipboard
-						vim.notify(string.format("Yanked %d deleted line(s)", #deleted_lines), vim.log.levels.INFO)
 					else
 						vim.notify("No deleted lines in current hunk", vim.log.levels.WARN)
 					end

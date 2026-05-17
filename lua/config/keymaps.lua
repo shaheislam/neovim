@@ -186,10 +186,6 @@ local function yank_with_path(use_relative)
 
   -- Copy to clipboard
   vim.fn.setreg("+", output)
-
-  -- Notify
-  local path_type = use_relative and "relative" or "absolute"
-  vim.notify(string.format("Yanked %s:%s (%s)", file_path, line_range, path_type), vim.log.levels.INFO)
 end
 
 -- Visual mode keymaps for yanking with paths
@@ -236,7 +232,6 @@ keymap("n", "<leader>yl", function()
   local url = github_permalink({ start_line = vim.fn.line(".") })
   if url then
     vim.fn.setreg("+", url)
-    vim.notify(url, vim.log.levels.INFO)
   end
 end, { desc = "Copy GitHub permalink" })
 
@@ -249,7 +244,6 @@ keymap("v", "<leader>yl", function()
   local url = github_permalink({ start_line = start_line, end_line = end_line })
   if url then
     vim.fn.setreg("+", url)
-    vim.notify(url, vim.log.levels.INFO)
   end
 end, { desc = "Copy GitHub permalink (selection)" })
 
@@ -261,7 +255,6 @@ keymap("n", "<leader>yL", function()
     local rel_path = get_git_relative_path()
     local md = string.format("[`%s:%d`](%s)", rel_path, line, url)
     vim.fn.setreg("+", md)
-    vim.notify(md, vim.log.levels.INFO)
   end
 end, { desc = "Copy GitHub permalink (markdown)" })
 
@@ -275,6 +268,5 @@ keymap("v", "<leader>yL", function()
     local rel_path = get_git_relative_path()
     local md = string.format("[`%s:%s`](%s)", rel_path, format_line_range(start_line, end_line), url)
     vim.fn.setreg("+", md)
-    vim.notify(md, vim.log.levels.INFO)
   end
 end, { desc = "Copy GitHub permalink (markdown, selection)" })

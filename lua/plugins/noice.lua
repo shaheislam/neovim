@@ -479,6 +479,7 @@ return {
             { find = "^%d+ changes?;" }, -- More undo/redo messages
             { find = "^%d+ fewer lines" }, -- Line deletion messages
             { find = "^%d+ more lines" }, -- Line addition messages
+            { find = "yanked$" }, -- Native yank confirmations
             { find = "Already at oldest change" }, -- Undo limit reached
             { find = "Already at newest change" }, -- Redo limit reached
             { find = "%-%-No lines in buffer%-%-" }, -- Empty buffer message

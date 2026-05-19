@@ -53,6 +53,268 @@ local function get_twig_language_server_extension_path(cmd_path)
   return extension_path
 end
 
+local function normalize_path(path)
+  if not path or path == "" then
+    return nil
+  end
+
+  return vim.fs.normalize(vim.fn.expand(path:gsub("%s+$", "")))
+end
+
+local function read_first_line(path)
+  local ok, lines = pcall(vim.fn.readfile, path, "", 1)
+  if not ok or not lines or not lines[1] then
+    return nil
+  end
+
+  return normalize_path(lines[1])
+end
+
+local function garmin_language_server_jar(sdk_root)
+  sdk_root = normalize_path(sdk_root)
+  if not sdk_root then
+    return nil
+  end
+
+  local jar = vim.fs.joinpath(sdk_root, "bin", "LanguageServer.jar")
+  return vim.uv.fs_stat(jar) and jar or nil
+end
+
+local function get_garmin_sdk_root()
+  for _, path in ipairs({ vim.env.CONNECTIQ_HOME, vim.env.GARMIN_CONNECTIQ_SDK }) do
+    if garmin_language_server_jar(path) then
+      return normalize_path(path)
+    end
+  end
+
+  local cfg_paths = {
+    vim.g.monkeyc_current_sdk_cfg_path,
+    "~/Library/Application Support/Garmin/ConnectIQ/current-sdk.cfg",
+    "~/.Garmin/ConnectIQ/current-sdk.cfg",
+  }
+
+  for _, cfg in ipairs(cfg_paths) do
+    cfg = normalize_path(cfg)
+    if cfg and vim.uv.fs_stat(cfg) then
+      local sdk_root = read_first_line(cfg)
+      if garmin_language_server_jar(sdk_root) then
+        return sdk_root
+      end
+    end
+  end
+
+  local monkeyc = get_command_path("monkeyc")
+  if monkeyc then
+    local real_monkeyc = vim.uv.fs_realpath(monkeyc) or monkeyc
+    local sdk_root = vim.fs.dirname(vim.fs.dirname(real_monkeyc))
+    if garmin_language_server_jar(sdk_root) then
+      return sdk_root
+    end
+  end
+
+  return nil
+end
+
+local function get_monkeyc_lsp_cmd()
+  local sdk_root = get_garmin_sdk_root()
+  local jar = garmin_language_server_jar(sdk_root)
+  local java = get_command_path(vim.g.monkeyc_java_path or "java")
+  if not jar or not java then
+    return nil
+  end
+
+  return {
+    java,
+    "-Dapple.awt.UIElement=true",
+    "-classpath",
+    jar,
+    "com.garmin.monkeybrains.languageserver.LSLauncher",
+  }
+end
+
+local function ensure_table(parent, key)
+  parent[key] = parent[key] or {}
+  return parent[key]
+end
+
+local function get_monkeyc_capabilities(base_capabilities)
+  local caps = vim.deepcopy(base_capabilities)
+  local text_document = ensure_table(caps, "textDocument")
+
+  ensure_table(text_document, "declaration").dynamicRegistration = true
+  ensure_table(text_document, "implementation").dynamicRegistration = true
+  ensure_table(text_document, "typeDefinition").dynamicRegistration = true
+  ensure_table(text_document, "documentHighlight").dynamicRegistration = true
+  ensure_table(text_document, "hover").dynamicRegistration = true
+
+  local signature_help = ensure_table(text_document, "signatureHelp")
+  signature_help.contextSupport = true
+  signature_help.dynamicRegistration = true
+
+  text_document.foldingRange = {
+    lineFoldingOnly = true,
+    dynamicRegistration = true,
+  }
+
+  caps.workspace = {
+    didChangeWorkspaceFolders = {
+      dynamicRegistration = true,
+    },
+  }
+
+  return caps
+end
+
+local function get_monkeyc_root(bufnr)
+  local path = vim.api.nvim_buf_get_name(bufnr)
+  if path == "" then
+    path = vim.fn.getcwd()
+  end
+
+  return vim.fs.root(path, { "monkey.jungle", "manifest.xml" })
+end
+
+local function get_monkeyc_jungle_files(root_dir)
+  local configured = vim.g.monkeyc_jungle_files or vim.env.MONKEYC_JUNGLE_FILES or "monkey.jungle"
+  local relative = type(configured) == "table" and configured or vim.split(configured, ",", { trimempty = true })
+  local absolute = {}
+
+  for _, file in ipairs(relative) do
+    if file:sub(1, 1) == "/" then
+      absolute[#absolute + 1] = normalize_path(file)
+    else
+      absolute[#absolute + 1] = vim.fs.joinpath(root_dir, file)
+    end
+  end
+
+  return table.concat(relative, ","), absolute
+end
+
+local function get_monkeyc_test_devices(root_dir)
+  local configured = vim.g.monkeyc_default_device or vim.env.MONKEYC_DEFAULT_DEVICE
+  if configured and configured ~= "" then
+    return vim.split(configured, ",", { trimempty = true })
+  end
+
+  local manifest = vim.fs.joinpath(root_dir, "manifest.xml")
+  local ok, lines = pcall(vim.fn.readfile, manifest)
+  if ok then
+    local content = table.concat(lines, "\n")
+    local devices = {}
+    for product_id in content:gmatch('<iq:product%s+id="([^"]+)"') do
+      devices[#devices + 1] = product_id
+    end
+
+    if #devices > 0 then
+      return devices
+    end
+  end
+
+  return { "enduro3" }
+end
+
+local function get_monkeyc_developer_key_path(root_dir)
+  local path = vim.g.monkeyc_connect_iq_dev_key_path
+    or vim.env.CONNECTIQ_DEVELOPER_KEY
+    or vim.env.GARMIN_CONNECTIQ_DEVELOPER_KEY
+
+  if path and path ~= "" then
+    return vim.fn.expand(path)
+  end
+
+  for _, name in ipairs({ "developer_key.der", "developer_key.pem" }) do
+    local local_key = vim.fs.joinpath(root_dir, name)
+    if vim.uv.fs_stat(local_key) then
+      return local_key
+    end
+  end
+
+  return vim.fn.expand("~/.Garmin/connect_iq_dev_key.der")
+end
+
+local function get_monkeyc_workspace_config(root_dir)
+  local jungle_files, absolute_jungle_files = get_monkeyc_jungle_files(root_dir)
+  local compiler_options = vim.g.monkeyc_compiler_options or vim.env.MONKEYC_COMPILER_OPTIONS or ""
+
+  return {
+    settings = {
+      {
+        developerKeyPath = get_monkeyc_developer_key_path(root_dir),
+        compilerWarnings = true,
+        compilerOptions = compiler_options,
+        developerId = "",
+        jungleFiles = jungle_files,
+        javaPath = "",
+        typeCheckLevel = "Default",
+        optimizationLevel = "Default",
+        testDevices = get_monkeyc_test_devices(root_dir),
+        debugLogLevel = "Default",
+      },
+    },
+    init_options = {
+      publishWarnings = vim.g.monkeyc_publish_warnings ~= false,
+      compilerOptions = compiler_options,
+      typeCheckMsgDisplayed = false,
+      workspaceSettings = {
+        {
+          path = root_dir,
+          jungleFiles = absolute_jungle_files,
+        },
+      },
+    },
+  }
+end
+
+local function patch_monkeyc_client(client)
+  client.server_capabilities.completionProvider = {
+    triggerCharacters = { ".", ":" },
+    resolveProvider = false,
+    documentSelector = {
+      {
+        pattern = "**/*.{mc,mcgen}",
+      },
+    },
+  }
+
+  if client._monkeyc_request_patched then
+    return
+  end
+  client._monkeyc_request_patched = true
+
+  local methods = vim.lsp.protocol.Methods
+  local request = client.request
+  client.request = function(method, params, handler, bufnr_req)
+    if method == methods.textDocument_definition or method == "textDocument/definition" then
+      return request(method, params, function(err, result, context, config)
+        local function fix_uri(uri)
+          return uri:gsub("^file:/([^/])", "file:///%1")
+        end
+
+        if result and vim.islist(result) then
+          for _, item in ipairs(result) do
+            if item.uri then
+              item.uri = fix_uri(item.uri)
+            end
+          end
+        elseif result and result.uri then
+          result.uri = fix_uri(result.uri)
+        end
+
+        if handler then
+          return handler(err, result, context, config)
+        end
+      end, bufnr_req)
+    end
+
+    if method == methods.textDocument_signatureHelp or method == "textDocument/signatureHelp" then
+      params = params or {}
+      params.context = params.context or { triggerKind = 1 }
+    end
+
+    return request(method, params, handler, bufnr_req)
+  end
+end
+
 local function copilot_sign_in(bufnr, client)
   client:request("signIn", vim.empty_dict(), function(err, result)
     if err then
@@ -544,6 +806,34 @@ return {
         graphql = {
           cmd = get_lsp_cmd("graphql-lsp", "server", "-m", "stream"),
           capabilities = capabilities,
+        },
+
+        -- Garmin Connect IQ / Monkey C (official SDK LanguageServer.jar)
+        monkeyc_ls = {
+          cmd = get_monkeyc_lsp_cmd,
+          filetypes = { "monkey-c", "monkeyc", "jungle", "mss" },
+          root_dir = function(bufnr, on_dir)
+            local root_dir = get_monkeyc_root(bufnr)
+            if root_dir then
+              on_dir(root_dir)
+            end
+          end,
+          workspace_required = true,
+          capabilities = get_monkeyc_capabilities(capabilities),
+          before_init = function(params, config)
+            local root_dir = config.root_dir or vim.fn.getcwd()
+            local monkeyc_config = get_monkeyc_workspace_config(root_dir)
+
+            config.settings = monkeyc_config.settings
+            params.initializationOptions = vim.tbl_deep_extend(
+              "force",
+              params.initializationOptions or {},
+              monkeyc_config.init_options
+            )
+          end,
+          on_attach = function(client)
+            patch_monkeyc_client(client)
+          end,
         },
 
         -- GitHub Copilot LSP for sidekick.nvim Next Edit Suggestions

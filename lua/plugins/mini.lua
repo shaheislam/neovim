@@ -5,8 +5,11 @@ return {
   {
     "echasnovski/mini.nvim",
     version = false, -- use main branch for latest features
-    event = "VeryLazy",
+    lazy = false,
+    priority = 1000,
     config = function()
+      vim.cmd.colorscheme("miniautumn")
+
       -- ===== Text Editing Modules =====
 
       -- mini.ai: Enhanced text objects (around/inside functions, classes, etc.)

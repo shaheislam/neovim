@@ -4,6 +4,9 @@
 # Neovim debug log
 .nvimlog
 
+# Repo-local annotations and temporary agent scratch files
+.tmp/
+
 # Rust build output (rust-analyzer)
 target/
 

@@ -13,6 +13,9 @@ require("config.hotreload").setup()
 -- Load Claude Code bridge (writes editor state for Claude Code hooks)
 require("config.claude-bridge").setup()
 
+-- Load repo-local annotations (stored in .tmp/annotations.json)
+require("config.annotations").setup()
+
 -- Load kubectl helpers
 require("config.kubectl").setup()
 

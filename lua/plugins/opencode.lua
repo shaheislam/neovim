@@ -1,14 +1,47 @@
 -- opencode.nvim - AI coding agent integration
--- Connects to opencode server (running with --port) via HTTP + SSE
+-- Connects to the launchd-managed OpenCode server via HTTP + SSE
 -- Shares editor context (buffers, selections, diagnostics) with the agent
 
 local opencode_port = 4096
 local opencode_ready_delay = 500
 local opencode_startup_timeout = 30000
 local opencode_startup_poll = 500
+local opencode_service = "com.dotfiles.opencode-serve"
+local opencode_username = vim.env.OPENCODE_SERVER_USERNAME or "opencode"
+
+local function opencode_password()
+  if vim.env.OPENCODE_SERVER_PASSWORD and vim.env.OPENCODE_SERVER_PASSWORD ~= "" then
+    return vim.env.OPENCODE_SERVER_PASSWORD
+  end
+
+  local state_home = vim.env.XDG_STATE_HOME or vim.fn.expand("~/.local/state")
+  local password_file = state_home .. "/opencode/server.password"
+  if vim.fn.filereadable(password_file) == 1 then
+    return table.concat(vim.fn.readfile(password_file), "")
+  end
+
+  return nil
+end
+
+local function opencode_env_prefix()
+  local password = opencode_password()
+  if not password or password == "" then
+    return "OPENCODE_SERVER_USERNAME=" .. vim.fn.shellescape(opencode_username) .. " "
+  end
+
+  return "OPENCODE_SERVER_USERNAME="
+    .. vim.fn.shellescape(opencode_username)
+    .. " OPENCODE_SERVER_PASSWORD="
+    .. vim.fn.shellescape(password)
+    .. " "
+end
 
 local function opencode_command()
-  return "opencode --port " .. opencode_port
+  return opencode_env_prefix()
+    .. "opencode attach http://127.0.0.1:"
+    .. opencode_port
+    .. " --dir "
+    .. vim.fn.shellescape(vim.fn.getcwd())
 end
 
 local function opencode_terminal_opts()
@@ -19,13 +52,19 @@ local function opencode_terminal_opts()
 end
 
 local function check_opencode_ready(callback)
-  local job = vim.fn.jobstart({
+  local curl_args = {
     "curl",
     "-fsS",
     "--max-time",
     "1",
-    "http://127.0.0.1:" .. opencode_port .. "/path",
-  }, {
+  }
+  local password = opencode_password()
+  if password and password ~= "" then
+    vim.list_extend(curl_args, { "-u", opencode_username .. ":" .. password })
+  end
+  table.insert(curl_args, "http://127.0.0.1:" .. opencode_port .. "/path")
+
+  local job = vim.fn.jobstart(curl_args, {
     stdout_buffered = true,
     stderr_buffered = true,
     on_exit = function(_, code)
@@ -46,8 +85,22 @@ local function start_opencode_terminal()
   require("opencode.terminal").open(opencode_command(), opencode_terminal_opts())
 end
 
+local function kickstart_opencode_service()
+  if vim.fn.has("macunix") ~= 1 then return end
+
+  vim.fn.jobstart({
+    "launchctl",
+    "kickstart",
+    "-k",
+    "gui/" .. vim.fn.system({ "id", "-u" }):gsub("%s+", "") .. "/" .. opencode_service,
+  }, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+  })
+end
+
 local function resolve_opencode_port(callback)
-  local started = false
+  local kicked = false
   local deadline = vim.uv.now() + opencode_startup_timeout
 
   local function poll()
@@ -57,14 +110,9 @@ local function resolve_opencode_port(callback)
         return
       end
 
-      if not started then
-        started = true
-        local ok, err = pcall(start_opencode_terminal)
-        if not ok then
-          vim.notify("Failed to start OpenCode: " .. err, vim.log.levels.ERROR, { title = "opencode" })
-          callback(nil)
-          return
-        end
+      if not kicked then
+        kicked = true
+        kickstart_opencode_service()
       end
 
       if vim.uv.now() >= deadline then

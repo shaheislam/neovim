@@ -240,6 +240,30 @@ local function run_prompt(name)
   end
 end
 
+local function send_visual_selection()
+  local start_pos = vim.fn.getpos("'<")
+  local end_pos = vim.fn.getpos("'>")
+  local start_line = start_pos[2]
+  local end_line = end_pos[2]
+  if start_line == 0 or end_line == 0 then
+    vim.notify("No selection to send", vim.log.levels.WARN, { title = "opencode" })
+    return
+  end
+  if start_line > end_line then start_line, end_line = end_line, start_line end
+
+  local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+  if #lines == 0 then
+    vim.notify("No selection to send", vim.log.levels.WARN, { title = "opencode" })
+    return
+  end
+
+  require("config.opencode_http").append_prompt(table.concat(lines, "\n"), {
+    title = "opencode",
+    success = "Sent selection to OpenCode",
+    fallback_clipboard = true,
+  })
+end
+
 local function extend_opencode_publish_timeout()
   local server = require("opencode.server")
   local publish_timeout = 10
@@ -301,6 +325,12 @@ return {
         ask_with_context("@this: ", true),
         mode = { "n", "x" },
         desc = "Ask opencode (submit)",
+      },
+      {
+        "<leader>aoS",
+        send_visual_selection,
+        mode = "x",
+        desc = "Send selection to OpenCode prompt",
       },
       {
         "<leader>aoB",

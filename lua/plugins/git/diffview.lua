@@ -20,6 +20,52 @@ local diffview_current_root = nil
 local follow_rpc_seq = 0
 local follow_timer_seen_seq = 0
 
+local function git_lines(args)
+	local result = vim.fn.systemlist(vim.list_extend({ "git" }, args))
+	if vim.v.shell_error ~= 0 then
+		return {}
+	end
+	return vim.tbl_filter(function(line)
+		return line and line ~= ""
+	end, result)
+end
+
+local function git_branches()
+	local branches = { "HEAD" }
+	local seen = { HEAD = true }
+	for _, branch in ipairs(git_lines({ "branch", "--all", "--format=%(refname:short)" })) do
+		branch = branch:gsub("^origin/", "")
+		if not seen[branch] then
+			seen[branch] = true
+			table.insert(branches, branch)
+		end
+	end
+	return branches
+end
+
+local function git_commits()
+	return git_lines({ "log", "--pretty=format:%h %s", "--abbrev-commit", "--decorate", "--no-merges" })
+end
+
+local function open_revision_pair(first, second)
+	if not first or not second then return end
+	if first == second then
+		vim.notify("Please select different revisions", vim.log.levels.ERROR)
+		return
+	end
+	vim.cmd("DiffviewOpen " .. first .. ".." .. second)
+end
+
+local function pick_two_revisions(items, prompt, transform)
+	vim.ui.select(items, { prompt = prompt .. " first:" }, function(first)
+		if not first then return end
+		vim.ui.select(items, { prompt = prompt .. " second:" }, function(second)
+			if not second then return end
+			open_revision_pair(transform(first), transform(second))
+		end)
+	end)
+end
+
 return {
 	"dlyongemallo/diffview.nvim",
 	dependencies = { "nvim-lua/plenary.nvim" },
@@ -118,6 +164,20 @@ return {
 				end
 			end,
 			desc = "PR preview (vs base)",
+		},
+		{
+			"<leader>gdb",
+			function()
+				pick_two_revisions(git_branches(), "Diff branches", function(branch) return branch end)
+			end,
+			desc = "Diff two branches",
+		},
+		{
+			"<leader>gdc",
+			function()
+				pick_two_revisions(git_commits(), "Diff commits", function(commit) return vim.split(commit, " ")[1] end)
+			end,
+			desc = "Diff two commits",
 		},
 		-- Staged changes only
 		{ "<leader>gS", "<cmd>DiffviewOpen --staged<cr>", desc = "Staged changes" },

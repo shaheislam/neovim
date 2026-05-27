@@ -56,6 +56,7 @@ return {
 				-- Core groups
 				{ "<leader>a", group = "ai", icon = "󰚩 " },
 				{ "<leader>ao", group = "opencode", icon = "󰘦 " },
+				{ "<leader>aoS", desc = "Send selection to OpenCode", mode = "v" },
 				{ "<leader>as", group = "nes", icon = "󰭹 " },
 				{ "<leader>c", group = "code", icon = " " },
 				{ "<leader>aw", desc = "Wrapped dashboard" },
@@ -139,6 +140,8 @@ return {
 				{ "<leader>gb", desc = "Git Branches" },
 				{ "<leader>gc", desc = "Git Commit (create)" },
 				{ "<leader>gd", desc = "Toggle Diffview" },
+				{ "<leader>gdb", desc = "Diff two branches" },
+				{ "<leader>gdc", desc = "Diff two commits" },
 				{ "<leader>gl", desc = "Git Log" },
 				{ "<leader>gf", desc = "Git Files" },
 				{ "<leader>gG", desc = "Git Graph" },

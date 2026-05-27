@@ -9,6 +9,12 @@ local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "Annotate" })
 end
 
+local function active_annotations(items)
+  return vim.tbl_filter(function(item)
+    return type(item.text) == "string" and not item.text:match("^RESOLVED:")
+  end, items)
+end
+
 local function current_buffer_path(bufnr)
   local path = vim.api.nvim_buf_get_name(bufnr or 0)
   if path == "" or path:match("^annotate://") then return nil end
@@ -229,13 +235,25 @@ local function ask_items(items)
 
   local ok, opencode = pcall(require, "opencode")
   if not ok then
-    vim.fn.setreg("+", prompt)
-    notify("opencode.nvim is not loaded; copied annotations instead", vim.log.levels.WARN)
+    require("config.opencode_http").append_prompt(prompt, {
+      title = "Annotate",
+      success = "Sent " .. #items .. " annotation(s) to OpenCode",
+      fallback_clipboard = true,
+    })
     return
   end
 
-  opencode.ask(prompt, { submit = true })
-  notify("Sent " .. #items .. " annotation(s) to OpenCode")
+  local ask_ok = pcall(opencode.ask, prompt, { submit = true })
+  if ask_ok then
+    notify("Sent " .. #items .. " annotation(s) to OpenCode")
+    return
+  end
+
+  require("config.opencode_http").append_prompt(prompt, {
+    title = "Annotate",
+    success = "Sent " .. #items .. " annotation(s) to OpenCode",
+    fallback_clipboard = true,
+  })
 end
 
 function M.copy_current()
@@ -246,14 +264,14 @@ function M.copy_current()
   local line = math.max(vim.api.nvim_win_get_cursor(0)[1], 1)
   local items = vim.tbl_filter(function(item)
     return line_matches(item, file, line)
-  end, read_annotations(root))
+  end, active_annotations(read_annotations(root)))
   copy_items(items)
 end
 
 function M.copy_all()
   local root = repo_root()
   if not root then return end
-  copy_items(read_annotations(root))
+  copy_items(active_annotations(read_annotations(root)))
 end
 
 function M.ask_current()
@@ -264,20 +282,20 @@ function M.ask_current()
   local line = math.max(vim.api.nvim_win_get_cursor(0)[1], 1)
   local items = vim.tbl_filter(function(item)
     return line_matches(item, file, line)
-  end, read_annotations(root))
+  end, active_annotations(read_annotations(root)))
   ask_items(items)
 end
 
 function M.ask_all()
   local root = repo_root()
   if not root then return end
-  ask_items(read_annotations(root))
+  ask_items(active_annotations(read_annotations(root)))
 end
 
-function M.list()
+function M.qflist()
   local root = repo_root()
   if not root then return end
-  local annotations = read_annotations(root)
+  local annotations = active_annotations(read_annotations(root))
   local items = {}
   for _, item in ipairs(annotations) do
     table.insert(items, {
@@ -289,6 +307,120 @@ function M.list()
   end
   vim.fn.setqflist({}, " ", { title = "Annotations", items = items })
   vim.cmd.copen()
+end
+
+local function selected_panel_item(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local line = vim.api.nvim_win_get_cursor(0)[1]
+  return vim.b[bufnr].annotation_items and vim.b[bufnr].annotation_items[line]
+end
+
+local function close_panel_window()
+  local win = vim.api.nvim_get_current_win()
+  if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+end
+
+local function jump_to_item(item)
+  if not item then return end
+  close_panel_window()
+  vim.cmd.edit(vim.fn.fnameescape(item.root .. "/" .. item.file))
+  vim.api.nvim_win_set_cursor(0, { item.line, 0 })
+end
+
+local function delete_item(item)
+  if not item then return end
+  local annotations = vim.tbl_filter(function(candidate)
+    return not (candidate.file == item.file and candidate.line == item.line and candidate.text == item.text)
+  end, read_annotations(item.root))
+  write_annotations(item.root, annotations)
+  M.refresh_all()
+  M.list()
+end
+
+local function edit_item(item)
+  if not item then return end
+  vim.ui.input({ prompt = "Annotation: ", default = item.text }, function(text)
+    if not text or text == "" then return end
+    local annotations = read_annotations(item.root)
+    for _, candidate in ipairs(annotations) do
+      if candidate.file == item.file and candidate.line == item.line and candidate.text == item.text then
+        candidate.text = text
+        break
+      end
+    end
+    write_annotations(item.root, annotations)
+    M.refresh_all()
+    M.list()
+  end)
+end
+
+function M.list()
+  local root = repo_root()
+  if not root then return end
+
+  local annotations = active_annotations(read_annotations(root))
+  if #annotations == 0 then
+    notify("No annotations", vim.log.levels.INFO)
+    return
+  end
+
+  local width = math.min(math.max(math.floor(vim.o.columns * 0.75), 60), vim.o.columns - 4)
+  local height = math.min(math.max(#annotations + 2, 8), math.max(vim.o.lines - 6, 8))
+  local row = math.max(math.floor((vim.o.lines - height) / 2) - 1, 0)
+  local col = math.max(math.floor((vim.o.columns - width) / 2), 0)
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  local lines = {}
+  local items = {}
+
+  for _, item in ipairs(annotations) do
+    local panel_item = vim.tbl_extend("force", { root = root }, item)
+    table.insert(items, panel_item)
+    table.insert(lines, format_item(item))
+  end
+
+  vim.api.nvim_buf_set_name(bufnr, "annotate://list")
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.bo[bufnr].bufhidden = "wipe"
+  vim.bo[bufnr].buftype = "nofile"
+  vim.bo[bufnr].modifiable = false
+  vim.bo[bufnr].filetype = "annotate"
+  vim.b[bufnr].annotation_items = items
+
+  local win = vim.api.nvim_open_win(bufnr, true, {
+    relative = "editor",
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    border = "rounded",
+    title = " Annotations ",
+    title_pos = "center",
+    style = "minimal",
+  })
+  vim.wo[win].cursorline = true
+
+  local function map(lhs, rhs, desc)
+    vim.keymap.set("n", lhs, rhs, { buffer = bufnr, nowait = true, silent = true, desc = desc })
+  end
+
+  map("q", close_panel_window, "Close annotations")
+  map("<Esc>", close_panel_window, "Close annotations")
+  map("<CR>", function() jump_to_item(selected_panel_item(bufnr)) end, "Open annotation")
+  map("o", function() jump_to_item(selected_panel_item(bufnr)) end, "Open annotation")
+  map("e", function() edit_item(selected_panel_item(bufnr)) end, "Edit annotation")
+  map("d", function() delete_item(selected_panel_item(bufnr)) end, "Delete annotation")
+  map("c", function()
+    local item = selected_panel_item(bufnr)
+    if item then copy_items({ item }) end
+  end, "Copy annotation")
+  map("a", function()
+    local item = selected_panel_item(bufnr)
+    if item then ask_items({ item }) end
+  end, "Ask OpenCode")
+  map("A", function() ask_items(items) end, "Ask OpenCode about all")
+  map("?", function()
+    notify("Keys: <CR>/o open, e edit, d delete, c copy, a ask, A ask all, q close")
+  end, "Annotation help")
 end
 
 local function jump(direction)
@@ -336,11 +468,12 @@ function M.setup()
     elseif action == "ask" then M.ask_current()
     elseif action == "askall" then M.ask_all()
     elseif action == "list" then M.list()
+    elseif action == "qflist" then M.qflist()
     elseif action == "delete" then M.delete_current()
     elseif action == "deleteall" then M.delete_all()
     else vim.notify("Unknown Annotate action: " .. action, vim.log.levels.ERROR)
     end
-  end, { nargs = "?", complete = function() return { "add", "copy", "copyall", "ask", "askall", "list", "delete", "deleteall" } end })
+  end, { nargs = "?", complete = function() return { "add", "copy", "copyall", "ask", "askall", "list", "qflist", "delete", "deleteall" } end })
 
   vim.keymap.set("n", "<leader>ana", M.add_current, { desc = "Add annotation" })
   vim.keymap.set("x", "<leader>ana", M.add_visual, { desc = "Add annotation" })

@@ -116,7 +116,29 @@ local function apply_consistent_styles()
   -- LSP Inlay Hints: boost visibility across all themes
   -- Default theme colors (#545C7E on #262640) are nearly invisible on dark terminals
   vim.api.nvim_set_hl(0, "LspInlayHint", { fg = "#7A88A8", italic = true })
+
+  -- Diffview: keep the gutter/inline diff cues without painting full-line blocks.
+  local transparent_diff = {
+    DiffAdd = { bg = "NONE" },
+    DiffDelete = { bg = "NONE" },
+    DiffChange = { bg = "NONE" },
+    DiffText = { bg = "NONE" },
+    DiffviewDiffAdd = { bg = "NONE" },
+    DiffviewDiffDelete = { bg = "NONE" },
+    DiffviewDiffChange = { bg = "NONE" },
+    DiffviewDiffText = { bg = "NONE" },
+    DiffviewDiffAddAsDelete = { bg = "NONE" },
+  }
+
+  for group, style in pairs(transparent_diff) do
+    merge_style(group, style)
+  end
+
+  vim.api.nvim_set_hl(0, "DiffviewDiffAddInline", { fg = "#9ece6a", bg = "NONE", underline = true })
+  vim.api.nvim_set_hl(0, "DiffviewDiffDeleteInline", { fg = "#f7768e", bg = "NONE", strikethrough = true })
 end
+
+M.apply_consistent_styles = apply_consistent_styles
 
 function M.setup()
   -- Apply consistent styles after any colorscheme change

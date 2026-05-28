@@ -809,6 +809,11 @@ return {
 			},
 		})
 
+		local ok_styling, styling = pcall(require, "config.autocmds.styling")
+		if ok_styling then
+			styling.apply_consistent_styles()
+		end
+
 		require("git.diffview_workflow").setup({ api = api })
 
 		-- Shared conflict-state polling: checks local + cross-worktree git conflict files

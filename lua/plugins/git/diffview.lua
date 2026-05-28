@@ -172,6 +172,21 @@ return {
 		local stop_follow_timer
 		local gutter_ns = vim.api.nvim_create_namespace("diffview_gutter_signs")
 
+		local function is_old_diff_side(winid)
+			local win_pos = vim.fn.win_screenpos(winid)
+			local win_col = win_pos[2] or 0
+			local rightmost_col = win_col
+
+			for _, other_winid in ipairs(vim.api.nvim_list_wins()) do
+				if vim.api.nvim_win_is_valid(other_winid) and vim.wo[other_winid].diff then
+					local other_pos = vim.fn.win_screenpos(other_winid)
+					rightmost_col = math.max(rightmost_col, other_pos[2] or 0)
+				end
+			end
+
+			return win_col < rightmost_col
+		end
+
 		local function refresh_diffview_gutters(bufnr)
 			if not vim.api.nvim_buf_is_valid(bufnr) then
 				return
@@ -190,9 +205,7 @@ return {
 							local line_hl = details and details.line_hl_group
 							local gutter_hl
 
-							if line_hl == "DiffviewDiffAdd" then
-								gutter_hl = "DiffviewGutterAdd"
-							elseif line_hl == "DiffviewDiffDelete" or line_hl == "DiffviewDiffAddAsDelete" then
+							if line_hl == "DiffviewDiffDelete" or line_hl == "DiffviewDiffAddAsDelete" then
 								gutter_hl = "DiffviewGutterDelete"
 							elseif line_hl == "DiffviewDiffChange" or line_hl == "DiffviewDiffText" then
 								gutter_hl = "DiffviewGutterChange"
@@ -215,6 +228,7 @@ return {
 			for _, winid in ipairs(vim.api.nvim_list_wins()) do
 				if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_win_get_buf(winid) == bufnr then
 					pcall(vim.api.nvim_set_current_win, winid)
+					local old_diff_side = is_old_diff_side(winid)
 					for row = 0, vim.api.nvim_buf_line_count(bufnr) - 1 do
 						if not placed[row] then
 							local diff_hl_id = vim.fn.diff_hlID(row + 1, 1)
@@ -222,7 +236,7 @@ return {
 							local gutter_hl
 
 							if diff_hl == "DiffAdd" or diff_hl == "DiffviewDiffAdd" then
-								gutter_hl = "DiffviewGutterAdd"
+								gutter_hl = old_diff_side and "DiffviewGutterDelete" or "DiffviewGutterAdd"
 							elseif diff_hl == "DiffDelete" or diff_hl == "DiffviewDiffDelete" then
 								gutter_hl = "DiffviewGutterDelete"
 							elseif

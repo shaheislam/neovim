@@ -274,6 +274,7 @@ return {
 			for _, winid in ipairs(vim.api.nvim_list_wins()) do
 				if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_win_get_buf(winid) == bufnr then
 					pcall(vim.api.nvim_set_current_win, winid)
+					local word_hl = is_old_diff_side(winid) and "DiffviewWordDelete" or "DiffviewWordChange"
 
 					for row = 0, vim.api.nvim_buf_line_count(bufnr) - 1 do
 						local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
@@ -303,7 +304,7 @@ return {
 								for _, span in ipairs(spans) do
 									vim.api.nvim_buf_set_extmark(bufnr, word_change_ns, row, span[1], {
 										end_col = span[2],
-										hl_group = "DiffviewWordChange",
+										hl_group = word_hl,
 										priority = 400,
 									})
 								end

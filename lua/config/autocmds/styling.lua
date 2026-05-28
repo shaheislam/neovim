@@ -137,7 +137,7 @@ local function apply_consistent_styles()
   vim.api.nvim_set_hl(0, "DiffviewDiffAddInline", { fg = "#9ece6a", bg = "NONE", underline = true })
   vim.api.nvim_set_hl(0, "DiffviewDiffDeleteInline", { fg = "#f7768e", bg = "NONE", strikethrough = true })
   vim.api.nvim_set_hl(0, "DiffviewDiffText", { fg = "#e0af68", bg = "#3a3220", bold = true })
-  vim.api.nvim_set_hl(0, "DiffviewGutterAdd", { fg = "#9ece6a", bg = "NONE" })
+  vim.api.nvim_set_hl(0, "DiffviewGutterAdd", { fg = "#4f7d43", bg = "NONE" })
   vim.api.nvim_set_hl(0, "DiffviewGutterDelete", { fg = "#f7768e", bg = "NONE" })
   vim.api.nvim_set_hl(0, "DiffviewGutterChange", { fg = "#e0af68", bg = "NONE" })
 end

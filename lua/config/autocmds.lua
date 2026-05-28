@@ -92,6 +92,8 @@ local function set_transparent_floats()
   -- Make floating windows transparent by linking to Normal
   vim.api.nvim_set_hl(0, "NormalFloat", { link = "Normal" })
   vim.api.nvim_set_hl(0, "FloatBorder", { link = "Normal" })
+  vim.api.nvim_set_hl(0, "FloatTitle", { link = "Normal" })
+  vim.api.nvim_set_hl(0, "FloatFooter", { link = "Normal" })
 
   -- Make popup menus (completion) use transparent background
   vim.api.nvim_set_hl(0, "Pmenu", { bg = normal_hl.bg })
@@ -105,6 +107,7 @@ local function set_transparent_floats()
   vim.api.nvim_set_hl(0, "WhichKey", { link = "Normal" })
   vim.api.nvim_set_hl(0, "WhichKeyFloat", { link = "Normal" })
   vim.api.nvim_set_hl(0, "WhichKeyBorder", { link = "Normal" })
+  vim.api.nvim_set_hl(0, "WhichKeyTitle", { link = "Normal" })
 
   -- Make blink.cmp menus transparent
   vim.api.nvim_set_hl(0, "BlinkCmpMenu", { link = "Normal" })

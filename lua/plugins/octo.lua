@@ -102,7 +102,7 @@ return {
         -- File panel (similar to diffview)
         file_panel = {
           size = 10,
-          use_icons = true,
+          icons = true,
         },
 
         -- Mappings within octo buffers

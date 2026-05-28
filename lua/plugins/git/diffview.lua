@@ -171,6 +171,7 @@ return {
 		local start_follow_timer
 		local stop_follow_timer
 		local gutter_ns = vim.api.nvim_create_namespace("diffview_gutter_signs")
+		local word_change_ns = vim.api.nvim_create_namespace("diffview_word_changes")
 
 		local function is_old_diff_side(winid)
 			local win_pos = vim.fn.win_screenpos(winid)
@@ -262,6 +263,58 @@ return {
 			pcall(vim.api.nvim_set_current_win, current_win)
 		end
 
+		local function refresh_diffview_word_changes(bufnr)
+			if not vim.api.nvim_buf_is_valid(bufnr) then
+				return
+			end
+
+			vim.api.nvim_buf_clear_namespace(bufnr, word_change_ns, 0, -1)
+
+			local current_win = vim.api.nvim_get_current_win()
+			for _, winid in ipairs(vim.api.nvim_list_wins()) do
+				if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_win_get_buf(winid) == bufnr then
+					pcall(vim.api.nvim_set_current_win, winid)
+
+					for row = 0, vim.api.nvim_buf_line_count(bufnr) - 1 do
+						local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+						local content_len = #(line:match("%S.*%S") or line:match("%S") or "")
+						if content_len > 0 then
+							local spans = {}
+							local span_start = nil
+							local changed_cols = 0
+
+							for col = 1, #line + 1 do
+								local diff_hl_id = vim.fn.diff_hlID(row + 1, col)
+								local diff_hl = diff_hl_id > 0 and vim.fn.synIDattr(diff_hl_id, "name") or ""
+								local is_changed_word = diff_hl == "DiffText" or diff_hl == "DiffviewDiffText"
+
+								if is_changed_word and not span_start then
+									span_start = col - 1
+								elseif not is_changed_word and span_start then
+									local span_end = col - 1
+									changed_cols = changed_cols + span_end - span_start
+									table.insert(spans, { span_start, span_end })
+									span_start = nil
+								end
+							end
+
+							-- If almost the whole line changed, keep it transparent; only partial edits get yellow.
+							if changed_cols > 0 and changed_cols < content_len * 0.75 then
+								for _, span in ipairs(spans) do
+									vim.api.nvim_buf_set_extmark(bufnr, word_change_ns, row, span[1], {
+										end_col = span[2],
+										hl_group = "DiffviewWordChange",
+										priority = 400,
+									})
+								end
+							end
+						end
+					end
+				end
+			end
+			pcall(vim.api.nvim_set_current_win, current_win)
+		end
+
 		local function configure_diffview_gutter_window(winid)
 			vim.api.nvim_set_option_value("signcolumn", "yes:1", { win = winid })
 			vim.api.nvim_set_option_value("statuscolumn", "%=%l %s", { win = winid })
@@ -271,7 +324,9 @@ return {
 			for _, winid in ipairs(vim.api.nvim_list_wins()) do
 				if vim.api.nvim_win_is_valid(winid) and vim.wo[winid].diff then
 					configure_diffview_gutter_window(winid)
-					refresh_diffview_gutters(vim.api.nvim_win_get_buf(winid))
+					local bufnr = vim.api.nvim_win_get_buf(winid)
+					refresh_diffview_gutters(bufnr)
+					refresh_diffview_word_changes(bufnr)
 				end
 			end
 		end
@@ -914,9 +969,11 @@ return {
 
 					vim.defer_fn(function()
 						refresh_diffview_gutters(bufnr)
+						refresh_diffview_word_changes(bufnr)
 					end, 50)
 					vim.defer_fn(function()
 						refresh_diffview_gutters(bufnr)
+						refresh_diffview_word_changes(bufnr)
 					end, 250)
 					vim.defer_fn(refresh_visible_diffview_gutters, 500)
 				end,

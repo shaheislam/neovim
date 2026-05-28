@@ -170,6 +170,97 @@ return {
 		local follow_timer_refs = 0
 		local start_follow_timer
 		local stop_follow_timer
+		local gutter_ns = vim.api.nvim_create_namespace("diffview_gutter_signs")
+
+		local function refresh_diffview_gutters(bufnr)
+			if not vim.api.nvim_buf_is_valid(bufnr) then
+				return
+			end
+
+			vim.api.nvim_buf_clear_namespace(bufnr, gutter_ns, 0, -1)
+			local placed = {}
+
+			for _, ns in pairs(vim.api.nvim_get_namespaces()) do
+				if ns ~= gutter_ns then
+					local ok, marks = pcall(vim.api.nvim_buf_get_extmarks, bufnr, ns, 0, -1, { details = true })
+					if ok then
+						for _, mark in ipairs(marks) do
+							local row = mark[2]
+							local details = mark[4]
+							local line_hl = details and details.line_hl_group
+							local gutter_hl
+
+							if line_hl == "DiffviewDiffAdd" then
+								gutter_hl = "DiffviewGutterAdd"
+							elseif line_hl == "DiffviewDiffDelete" or line_hl == "DiffviewDiffAddAsDelete" then
+								gutter_hl = "DiffviewGutterDelete"
+							elseif line_hl == "DiffviewDiffChange" or line_hl == "DiffviewDiffText" then
+								gutter_hl = "DiffviewGutterChange"
+							end
+
+							if gutter_hl and not placed[row] then
+								vim.api.nvim_buf_set_extmark(bufnr, gutter_ns, row, 0, {
+									sign_text = "▎",
+									sign_hl_group = gutter_hl,
+									priority = 300,
+								})
+								placed[row] = true
+							end
+						end
+					end
+				end
+			end
+
+			local current_win = vim.api.nvim_get_current_win()
+			for _, winid in ipairs(vim.api.nvim_list_wins()) do
+				if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_win_get_buf(winid) == bufnr then
+					pcall(vim.api.nvim_set_current_win, winid)
+					for row = 0, vim.api.nvim_buf_line_count(bufnr) - 1 do
+						if not placed[row] then
+							local diff_hl_id = vim.fn.diff_hlID(row + 1, 1)
+							local diff_hl = diff_hl_id > 0 and vim.fn.synIDattr(diff_hl_id, "name") or ""
+							local gutter_hl
+
+							if diff_hl == "DiffAdd" or diff_hl == "DiffviewDiffAdd" then
+								gutter_hl = "DiffviewGutterAdd"
+							elseif diff_hl == "DiffDelete" or diff_hl == "DiffviewDiffDelete" then
+								gutter_hl = "DiffviewGutterDelete"
+							elseif
+								diff_hl == "DiffChange"
+								or diff_hl == "DiffText"
+								or diff_hl == "DiffviewDiffChange"
+							then
+								gutter_hl = "DiffviewGutterChange"
+							end
+
+							if gutter_hl then
+								vim.api.nvim_buf_set_extmark(bufnr, gutter_ns, row, 0, {
+									sign_text = "▎",
+									sign_hl_group = gutter_hl,
+									priority = 300,
+								})
+								placed[row] = true
+							end
+						end
+					end
+				end
+			end
+			pcall(vim.api.nvim_set_current_win, current_win)
+		end
+
+		local function configure_diffview_gutter_window(winid)
+			vim.api.nvim_set_option_value("signcolumn", "yes:1", { win = winid })
+			vim.api.nvim_set_option_value("statuscolumn", "%=%l %s", { win = winid })
+		end
+
+		local function refresh_visible_diffview_gutters()
+			for _, winid in ipairs(vim.api.nvim_list_wins()) do
+				if vim.api.nvim_win_is_valid(winid) and vim.wo[winid].diff then
+					configure_diffview_gutter_window(winid)
+					refresh_diffview_gutters(vim.api.nvim_win_get_buf(winid))
+				end
+			end
+		end
 
 		require("diffview").setup({
 			diff_binaries = false, -- Show diffs for binaries
@@ -427,6 +518,8 @@ return {
 				-- Called when diffview is opened
 				view_opened = function(view)
 					vim.notify("Diffview opened", vim.log.levels.DEBUG)
+					vim.defer_fn(refresh_visible_diffview_gutters, 100)
+					vim.defer_fn(refresh_visible_diffview_gutters, 400)
 					-- Disable incline globally while DiffView is open.
 					-- The filetype-based exclusion (DiffviewFiles/DiffviewFileHistory)
 					-- only catches the file panel, not the actual diff buffer views
@@ -725,12 +818,11 @@ return {
 					-- Reduce redraw cost: disable expensive per-line rendering
 					vim.wo.cursorline = false
 					vim.wo.relativenumber = false
-					vim.wo.signcolumn = "no"
+					vim.wo.signcolumn = "yes:1"
 					vim.wo.foldcolumn = "0"
 					vim.wo.foldmethod = "manual"
-					-- Clear custom statuscolumn — native 'number' option renders
-					-- line numbers in C without per-line expression evaluation
-					vim.wo.statuscolumn = ""
+					-- Draw Diffview-only signs after the line number, matching the reference layout.
+					vim.wo.statuscolumn = "%=%l %s"
 
 					-- Disable blink.pairs matchparen per-buffer (re-evaluates on every CursorMoved)
 					vim.b[bufnr].blink_pairs = false
@@ -805,6 +897,14 @@ return {
 						buffer = bufnr,
 						desc = "Close Diffview",
 					})
+
+					vim.defer_fn(function()
+						refresh_diffview_gutters(bufnr)
+					end, 50)
+					vim.defer_fn(function()
+						refresh_diffview_gutters(bufnr)
+					end, 250)
+					vim.defer_fn(refresh_visible_diffview_gutters, 500)
 				end,
 			},
 		})
@@ -1286,6 +1386,5 @@ return {
 			end,
 			desc = "Follow buffer repo: retarget Diffview when switching to a different repo",
 		})
-
 	end,
 }

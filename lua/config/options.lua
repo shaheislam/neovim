@@ -143,3 +143,6 @@ opt.shortmess:append("I")
 
 -- LSP Enhancements
 vim.g.auto_refresh_codelens = true -- Enable auto-refresh for code lens
+
+-- Keep Diffview instances stable when moving between tmux panes/repos.
+vim.g.diffview_follow_repo = false

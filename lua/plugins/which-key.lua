@@ -49,6 +49,7 @@ return {
 			-- on timeout, e.g. `<leader>a` replaying `a` and entering insert mode.
 			vim.keymap.set({ "n", "x" }, "<leader>a", "<Nop>", { desc = "AI", silent = true })
 			vim.keymap.set({ "n", "x" }, "<leader>ao", "<Nop>", { desc = "OpenCode", silent = true })
+			vim.keymap.set({ "n", "x" }, "<leader>ap", "<Nop>", { desc = "Pi", silent = true })
 			vim.keymap.set({ "n", "x" }, "<leader>as", "<Nop>", { desc = "NES", silent = true })
 
 			-- Define key groups (leader key mappings)
@@ -57,6 +58,7 @@ return {
 				{ "<leader>a", group = "ai", icon = "󰚩 " },
 				{ "<leader>ao", group = "opencode", icon = "󰘦 " },
 				{ "<leader>aoS", desc = "Send selection to OpenCode", mode = "v" },
+				{ "<leader>ap", group = "pi", icon = "π " },
 				{ "<leader>as", group = "nes", icon = "󰭹 " },
 				{ "<leader>c", group = "code", icon = " " },
 				{ "<leader>aw", desc = "Wrapped dashboard" },

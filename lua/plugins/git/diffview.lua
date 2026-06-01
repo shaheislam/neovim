@@ -1,6 +1,7 @@
 -- Diffview for comprehensive git diff and merge conflict resolution
 
 local workflow = require("git.workflow")
+local return_target = require("config.return_target")
 local commit_cycle_state = workflow.commit_cycle_state
 local cross_worktree_state = workflow.cross_worktree_state
 local close_commit_info_window = workflow.close_commit_info_window
@@ -17,8 +18,23 @@ local get_main_repo_info = workflow.get_main_repo_info
 
 local diffview_modified_bufs = {}
 local diffview_current_root = nil
+local diffview_return_target = nil
+local diffview_suppress_restore = false
 local follow_rpc_seq = 0
 local follow_timer_seen_seq = 0
+
+local function close_diffview_restore()
+	vim.cmd("DiffviewClose")
+end
+
+local function diffview_internal_reopen(command)
+	diffview_suppress_restore = true
+	pcall(vim.cmd, "DiffviewClose")
+	vim.defer_fn(function()
+		pcall(vim.cmd, command)
+		diffview_suppress_restore = false
+	end, 100)
+end
 
 return {
 	"dlyongemallo/diffview.nvim",
@@ -39,22 +55,45 @@ return {
 			"<leader>gd",
 			function()
 				if next(require("diffview.lib").views) == nil then
+					diffview_return_target = return_target.capture({ force = true }) or return_target.last()
 					vim.cmd("DiffviewOpen")
 				else
-					vim.cmd("DiffviewClose")
+					close_diffview_restore()
 				end
 			end,
 			desc = "Toggle Diffview",
 		},
-		{ "<leader>gh", "<cmd>DiffviewFileHistory %<cr>", desc = "File History" },
-		{ "<leader>gH", "<cmd>DiffviewFileHistory<cr>", desc = "Repository History" },
-		{ "<leader>gm", "<cmd>DiffviewOpen<cr>", desc = "Open Diffview (merge conflicts)" },
+		{
+			"<leader>gh",
+			function()
+				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				vim.cmd("DiffviewFileHistory %")
+			end,
+			desc = "File History",
+		},
+		{
+			"<leader>gH",
+			function()
+				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				vim.cmd("DiffviewFileHistory")
+			end,
+			desc = "Repository History",
+		},
+		{
+			"<leader>gm",
+			function()
+				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				vim.cmd("DiffviewOpen")
+			end,
+			desc = "Open Diffview (merge conflicts)",
+		},
 		-- Line evolution tracing - normal mode (single line)
 		{
 			"<leader>gL",
 			function()
 				local line = vim.fn.line(".")
 				local file = vim.fn.expand("%")
+				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
 				vim.cmd(string.format("DiffviewFileHistory -L%d,%d:%s", line, line, file))
 			end,
 			desc = "Line history (cursor)",
@@ -66,6 +105,7 @@ return {
 				local start_line = vim.fn.line("'<")
 				local end_line = vim.fn.line("'>")
 				local file = vim.fn.expand("%")
+				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
 				vim.cmd(string.format("DiffviewFileHistory -L%d,%d:%s", start_line, end_line, file))
 			end,
 			mode = "v",
@@ -98,6 +138,7 @@ return {
 				end
 
 				local function open_diff(base)
+					diffview_return_target = return_target.capture({ force = true }) or return_target.last()
 					vim.cmd("DiffviewOpen " .. base .. "...HEAD")
 				end
 
@@ -120,8 +161,22 @@ return {
 			desc = "PR preview (vs base)",
 		},
 		-- Staged changes only
-		{ "<leader>gS", "<cmd>DiffviewOpen --staged<cr>", desc = "Staged changes" },
-		{ "<leader>gT", "<cmd>DiffviewFileHistory -g --range=stash<cr>", desc = "Stash history" },
+		{
+			"<leader>gS",
+			function()
+				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				vim.cmd("DiffviewOpen --staged")
+			end,
+			desc = "Staged changes",
+		},
+		{
+			"<leader>gT",
+			function()
+				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				vim.cmd("DiffviewFileHistory -g --range=stash")
+			end,
+			desc = "Stash history",
+		},
 		{
 			"<leader>gR",
 			function()
@@ -439,7 +494,7 @@ return {
 					{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
 					{ "n", "<leader>e", actions.focus_files, { desc = "Focus file panel" } },
 					{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
-					{ "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close Diffview" } },
+					{ "n", "q", close_diffview_restore, { desc = "Close Diffview" } },
 
 					-- Conflict resolution (single hunk)
 					{ "n", "co", actions.conflict_choose("ours"), { desc = "Choose OURS" } },
@@ -491,7 +546,7 @@ return {
 					{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
 					{ "n", "<leader>e", actions.focus_entry, { desc = "Focus diff entry" } },
 					{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
-					{ "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close Diffview" } },
+					{ "n", "q", close_diffview_restore, { desc = "Close Diffview" } },
 
 					-- Tree options
 					{ "n", "i", actions.listing_style, { desc = "Toggle listing style" } },
@@ -531,7 +586,7 @@ return {
 					{ "n", "g<C-x>", actions.cycle_layout, { desc = "Cycle layout" } },
 					{ "n", "<leader>e", actions.focus_entry, { desc = "Focus diff entry" } },
 					{ "n", "<leader>b", actions.toggle_files, { desc = "Toggle file panel" } },
-					{ "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close Diffview" } },
+					{ "n", "q", close_diffview_restore, { desc = "Close Diffview" } },
 				},
 				option_panel = {
 					{ "n", "<tab>", actions.select_entry, { desc = "Select option" } },
@@ -587,6 +642,8 @@ return {
 			hooks = {
 				-- Called when diffview is opened
 				view_opened = function(view)
+					diffview_return_target = diffview_return_target or return_target.last()
+					return_target.suspend()
 					vim.notify("Diffview opened", vim.log.levels.DEBUG)
 					vim.defer_fn(refresh_visible_diffview_gutters, 100)
 					vim.defer_fn(refresh_visible_diffview_gutters, 400)
@@ -650,13 +707,10 @@ return {
 											reopening = true
 											handle:stop()
 											view._git_watcher = nil
-											pcall(vim.cmd, "DiffviewClose")
+											diffview_internal_reopen("DiffviewOpen")
 											vim.defer_fn(function()
-												if diffview_auto_switch_enabled() then
-													pcall(vim.cmd, "DiffviewOpen")
-												end
 												reopening = false
-											end, 100)
+											end, 120)
 											return
 										end
 
@@ -730,13 +784,10 @@ return {
 												cross_worktree_state.main_git_dir = main_info.main_git_dir
 												main_handle:stop()
 												view._main_repo_watcher = nil
-												pcall(vim.cmd, "DiffviewClose")
+												diffview_internal_reopen("DiffviewOpen -C" .. main_info.main_work_dir)
 												vim.defer_fn(function()
-													if diffview_auto_switch_enabled() then
-														pcall(vim.cmd, "DiffviewOpen -C" .. main_info.main_work_dir)
-													end
 													main_reopening = false
-												end, 100)
+												end, 120)
 											elseif not main_merging and cross_worktree_state.active then
 												-- Main repo conflict resolved - switch back to worktree view
 												main_reopening = true
@@ -747,13 +798,10 @@ return {
 												cross_worktree_state.main_git_dir = nil
 												main_handle:stop()
 												view._main_repo_watcher = nil
-												pcall(vim.cmd, "DiffviewClose")
+												diffview_internal_reopen("DiffviewOpen")
 												vim.defer_fn(function()
-													if diffview_auto_switch_enabled() then
-														pcall(vim.cmd, "DiffviewOpen")
-													end
 													main_reopening = false
-												end, 100)
+												end, 120)
 											end
 										end, 300)
 									end)
@@ -860,8 +908,16 @@ return {
 								end
 							end
 						end
-						diffview_modified_bufs = {}
+							diffview_modified_bufs = {}
 					end)
+
+					if not diffview_suppress_restore and not commit_cycle_state.is_cycling then
+						vim.schedule(function()
+							return_target.restore(diffview_return_target)
+							diffview_return_target = nil
+							return_target.resume()
+						end)
+					end
 				end,
 				diff_buf_read = function(bufnr)
 					-- Track this buffer with prior state for exact restoration
@@ -963,7 +1019,7 @@ return {
 					end, 100)
 
 					-- Ensure q closes diffview in ALL diff buffers (including index)
-					vim.keymap.set("n", "q", "<cmd>DiffviewClose<cr>", {
+					vim.keymap.set("n", "q", close_diffview_restore, {
 						buffer = bufnr,
 						desc = "Close Diffview",
 					})
@@ -1014,10 +1070,7 @@ return {
 			local is_conflicting = check_conflict_state(git_path) ~= nil
 			if view._was_merging ~= nil and is_conflicting ~= view._was_merging then
 				view._was_merging = is_conflicting
-				pcall(vim.cmd, "DiffviewClose")
-				vim.defer_fn(function()
-					pcall(vim.cmd, "DiffviewOpen")
-				end, 100)
+				diffview_internal_reopen("DiffviewOpen")
 				return true
 			end
 
@@ -1031,10 +1084,7 @@ return {
 					cross_worktree_state.main_work_dir = main_info.main_work_dir
 					cross_worktree_state.main_git_dir = main_info.main_git_dir
 					diffview_current_root = vim.fn.resolve((main_info.main_work_dir:gsub("/$", "")))
-					pcall(vim.cmd, "DiffviewClose")
-					vim.defer_fn(function()
-						pcall(vim.cmd, "DiffviewOpen -C" .. main_info.main_work_dir)
-					end, 100)
+					diffview_internal_reopen("DiffviewOpen -C" .. main_info.main_work_dir)
 					return true
 				elseif not main_conflicting and cross_worktree_state.active then
 					cross_worktree_state.active = false
@@ -1043,10 +1093,7 @@ return {
 					cross_worktree_state.main_git_dir = nil
 					local cwd_root = find_repo_root(vim.fn.getcwd())
 					diffview_current_root = cwd_root and vim.fn.resolve(cwd_root) or nil
-					pcall(vim.cmd, "DiffviewClose")
-					vim.defer_fn(function()
-						pcall(vim.cmd, "DiffviewOpen")
-					end, 100)
+					diffview_internal_reopen("DiffviewOpen")
 					return true
 				end
 			end
@@ -1111,6 +1158,7 @@ return {
 			repo_switch_in_progress = true
 			local prev_root = diffview_current_root
 			diffview_current_root = new_root
+			diffview_suppress_restore = true
 			pcall(vim.cmd, "DiffviewClose")
 			vim.defer_fn(function()
 				local open_ok, err = pcall(vim.cmd, "DiffviewOpen -C" .. vim.fn.fnameescape(new_root))
@@ -1118,6 +1166,7 @@ return {
 					diffview_current_root = prev_root
 					vim.notify("Diffview retarget failed: " .. tostring(err), vim.log.levels.WARN)
 				end
+				diffview_suppress_restore = false
 				repo_switch_in_progress = false
 			end, 100)
 		end

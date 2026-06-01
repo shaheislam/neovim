@@ -16,6 +16,9 @@ require("config.claude-bridge").setup()
 -- Load repo-local annotations (stored in .tmp/annotations.json)
 require("config.annotations").setup()
 
+-- Track the last real editing buffer for transient UI close/restore flows
+require("config.return_target").setup()
+
 -- Load kubectl helpers
 require("config.kubectl").setup()
 

@@ -125,4 +125,15 @@ function M.append_prompt(text, opts)
   end)
 end
 
+function M.publish_command(command, callback)
+  if not command or command == "" then
+    if callback then callback(false, "Missing OpenCode TUI command") end
+    return
+  end
+
+  M.post("/tui/publish", { type = "tui.command.execute", properties = { command = command } }, function(ok, output)
+    if callback then callback(ok, output) end
+  end)
+end
+
 return M

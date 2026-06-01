@@ -52,6 +52,12 @@ local function selected_items(selected, entry_map)
 	return items
 end
 
+local function append_lines(lines, text)
+	for line in (text .. "\n"):gmatch("(.-)\n") do
+		table.insert(lines, line)
+	end
+end
+
 local function item_payload(item)
 	local header = ("[%s %s] %s"):format(item.role, item.kind, item.time)
 	if item.session and item.session.title then
@@ -64,6 +70,41 @@ local function item_payload(item)
 		header = header .. " - " .. item.title
 	end
 	return header .. "\n" .. item.text
+end
+
+local function preview_lines(item)
+	local lines = {
+		"# OpenCode Selection",
+		"",
+		"Session: " .. ((item.session and (item.session.title or item.session.id)) or "unknown"),
+		"Session ID: " .. ((item.session and item.session.id) or "unknown"),
+		"Role: " .. (item.role or "unknown"),
+		"Kind: " .. (item.kind or "unknown"),
+		"Time: " .. (item.time or ""),
+		"Message ID: " .. (item.message_id or ""),
+		"Part ID: " .. (item.part_id or ""),
+	}
+
+	if item.tool and item.tool ~= "" then
+		table.insert(lines, "Tool: " .. item.tool)
+	end
+	if item.title and item.title ~= "" then
+		table.insert(lines, "Title: " .. item.title)
+	end
+
+	table.insert(lines, "")
+	table.insert(lines, "---")
+	table.insert(lines, "")
+	append_lines(lines, vim.trim(item.text or ""))
+	return lines
+end
+
+local function preview_command(temp_dir)
+	local path = vim.fn.shellescape(temp_dir) .. "/{1}.md"
+	if vim.fn.executable("bat") == 1 then
+		return "bat --color=always --style=plain --language=markdown " .. path
+	end
+	return "cat " .. path
 end
 
 local function send_to_prompt(items)
@@ -105,6 +146,159 @@ local function switch_tui_session(item)
 			message = "Could not switch OpenCode session"
 		end
 		vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
+	end)
+end
+
+local function timeline_anchor_for_message(message, message_idx)
+	local info = message.info or {}
+	if info.role ~= "user" then
+		return nil
+	end
+
+	for _, part in ipairs(message.parts or {}) do
+		if part.type == "text" and not part.synthetic and vim.trim(part.text or "") ~= "" then
+			return {
+				message_idx = message_idx,
+				message_id = info.id or part.messageID,
+			}
+		end
+	end
+
+	return nil
+end
+
+local function timeline_anchors(messages)
+	local anchors = {}
+	for message_idx, message in ipairs(messages or {}) do
+		local anchor = timeline_anchor_for_message(message, message_idx)
+		if anchor and anchor.message_id then
+			table.insert(anchors, anchor)
+		end
+	end
+	return anchors
+end
+
+local function resolve_timeline_anchor(item)
+	if not item or not item.messages then
+		return nil
+	end
+
+	local anchors = timeline_anchors(item.messages)
+	local previous_anchor
+	for idx, anchor in ipairs(anchors) do
+		anchor.index = idx
+		if anchor.message_id == item.message_id then
+			anchor.exact = true
+			anchor.total = #anchors
+			return anchor
+		end
+		if anchor.message_idx <= item.message_idx then
+			previous_anchor = anchor
+		else
+			break
+		end
+	end
+
+	if previous_anchor then
+		previous_anchor.exact = false
+		previous_anchor.total = #anchors
+		return previous_anchor
+	end
+
+	return nil
+end
+
+local function publish_commands(commands, callback)
+	local http = require("config.opencode_http")
+	local index = 1
+
+	local function next_command()
+		local command = commands[index]
+		if not command then
+			if callback then
+				callback(true)
+			end
+			return
+		end
+
+		http.publish_command(command, function(ok, output)
+			if not ok then
+				if callback then
+					callback(false, output)
+				end
+				return
+			end
+			index = index + 1
+			next_command()
+		end)
+	end
+
+	next_command()
+end
+
+local function sync_live_timeline(item)
+	if not item or not item.session or not item.session.id then
+		return
+	end
+
+	local anchor = resolve_timeline_anchor(item)
+	if not anchor then
+		vim.notify("No OpenCode timeline anchor found for selection", vim.log.levels.WARN, { title = "opencode" })
+		return
+	end
+
+	local http = require("config.opencode_http")
+	http.post("/tui/select-session", { sessionID = item.session.id }, function(ok, output)
+		if not ok then
+			local message = vim.trim(output or "")
+			if message == "" then
+				message = "Could not switch OpenCode session"
+			end
+			vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
+			return
+		end
+
+		http.publish_command("session.timeline", function(timeline_ok, timeline_output)
+			if not timeline_ok then
+				local message = vim.trim(timeline_output or "")
+				if message == "" then
+					message = "Could not open OpenCode timeline"
+				end
+				vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
+				return
+			end
+
+			vim.defer_fn(function()
+				local commands = {}
+				local from_start = anchor.index - 1
+				local from_end = anchor.total - anchor.index
+				if from_end < from_start then
+					table.insert(commands, "dialog.select.end")
+					for _ = 1, from_end do
+						table.insert(commands, "dialog.select.prev")
+					end
+				else
+					table.insert(commands, "dialog.select.home")
+					for _ = 1, from_start do
+						table.insert(commands, "dialog.select.next")
+					end
+				end
+
+				publish_commands(commands, function(move_ok, move_output)
+					if not move_ok then
+						local message = vim.trim(move_output or "")
+						if message == "" then
+							message = "Could not move OpenCode timeline selection"
+						end
+						vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
+						return
+					end
+
+					local message = anchor.exact and "Synced live OpenCode pane" or "Synced live OpenCode pane to previous user prompt"
+					vim.notify(message, vim.log.levels.INFO, { title = "opencode" })
+				end)
+			end, 80)
+		end)
 	end)
 end
 
@@ -175,12 +369,6 @@ local function build_items(session, messages, scope)
 		end
 	end
 	return items
-end
-
-local function append_lines(lines, text)
-	for line in (text .. "\n"):gmatch("(.-)\n") do
-		table.insert(lines, line)
-	end
 end
 
 local function transcript_name(session)
@@ -266,6 +454,8 @@ local function open_message_picker(items, scope, opts)
 
 	local entries = {}
 	local entry_map = {}
+	local preview_dir = vim.fn.tempname()
+	vim.fn.mkdir(preview_dir, "p")
 	for idx, item in ipairs(items) do
 		local entry = ("%04d  %-9s %-11s %-15s %s"):format(
 			idx,
@@ -276,6 +466,7 @@ local function open_message_picker(items, scope, opts)
 		)
 		table.insert(entries, entry)
 		entry_map[entry] = item
+		vim.fn.writefile(preview_lines(item), ("%s/%04d.md"):format(preview_dir, idx))
 	end
 
 	local function first_item(selected)
@@ -284,9 +475,15 @@ local function open_message_picker(items, scope, opts)
 
 	fzf.fzf_exec(entries, {
 		prompt = "OpenCode " .. label .. "> ",
+		preview = preview_command(preview_dir),
+		winopts = {
+			on_close = function()
+				vim.fn.delete(preview_dir, "rf")
+			end,
+		},
 		fzf_opts = {
 			["--multi"] = true,
-			["--header"] = "Enter: jump transcript | C-a: append | C-y: copy | C-o: open session | C-s: sessions | C-r: refresh",
+			["--header"] = "Enter: jump transcript | C-l: sync live | C-a: append | C-y: copy | C-o: open session | C-s: sessions | C-r: refresh | C-/: preview",
 		},
 		actions = {
 			["default"] = function(selected)
@@ -305,6 +502,9 @@ local function open_message_picker(items, scope, opts)
 			end,
 			["ctrl-o"] = function(selected)
 				switch_tui_session(first_item(selected))
+			end,
+			["ctrl-l"] = function(selected)
+				sync_live_timeline(first_item(selected))
 			end,
 			["ctrl-s"] = function()
 				vim.schedule(function()

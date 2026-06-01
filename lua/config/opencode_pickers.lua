@@ -9,6 +9,8 @@ local scopes = {
 	tool_output = "Tool output",
 }
 
+local scope_order = { "all", "prompts", "assistant", "reasoning", "tools", "tool_output" }
+
 local resolve_timeline_anchor
 local surrounding_payload
 
@@ -64,6 +66,10 @@ local function append_lines(lines, text)
 	for line in (text .. "\n"):gmatch("(.-)\n") do
 		table.insert(lines, line)
 	end
+end
+
+local function tui_error(message)
+	return message .. "\nHint: requires an active OpenCode TUI/server; restart OpenCode if the TUI command state is stale."
 end
 
 local function item_payload(item)
@@ -355,28 +361,28 @@ local function sync_live_timeline(item)
 
 	local anchor = resolve_timeline_anchor(item)
 	if not anchor then
-		vim.notify("No OpenCode timeline anchor found for selection", vim.log.levels.WARN, { title = "opencode" })
+		vim.notify(tui_error("No OpenCode timeline anchor found for selection"), vim.log.levels.WARN, { title = "opencode" })
 		return
 	end
 
 	local http = require("config.opencode_http")
-	http.post("/tui/select-session", { sessionID = item.session.id }, function(ok, output)
+		http.post("/tui/select-session", { sessionID = item.session.id }, function(ok, output)
 		if not ok then
 			local message = vim.trim(output or "")
 			if message == "" then
 				message = "Could not switch OpenCode session"
 			end
-			vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
+			vim.notify(tui_error(message), vim.log.levels.ERROR, { title = "opencode" })
 			return
 		end
 
-		http.publish_command("session.timeline", function(timeline_ok, timeline_output)
+			http.publish_command("session.timeline", function(timeline_ok, timeline_output)
 			if not timeline_ok then
 				local message = vim.trim(timeline_output or "")
 				if message == "" then
 					message = "Could not open OpenCode timeline"
 				end
-				vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
+				vim.notify(tui_error(message), vim.log.levels.ERROR, { title = "opencode" })
 				return
 			end
 
@@ -402,7 +408,7 @@ local function sync_live_timeline(item)
 						if message == "" then
 							message = "Could not move OpenCode timeline selection"
 						end
-						vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
+						vim.notify(tui_error(message), vim.log.levels.ERROR, { title = "opencode" })
 						return
 					end
 
@@ -607,6 +613,8 @@ local function open_transcript(item)
 		"Session: " .. (session.title or session.id or "unknown"),
 		"ID: " .. (session.id or "unknown"),
 		"",
+		"Keys: q close | r refresh | s or / search transcript",
+		"",
 	}
 	local target_line = 1
 
@@ -715,6 +723,31 @@ local function open_message_picker(items, scope, opts)
 		end)
 	end
 
+	local function pick_scope()
+		local scope_entries = {}
+		local scope_map = {}
+		for _, scope_name in ipairs(scope_order) do
+			local entry = ("%-12s %s"):format(scope_name, scopes[scope_name] or scope_name)
+			table.insert(scope_entries, entry)
+			scope_map[entry] = scope_name
+		end
+
+		fzf.fzf_exec(scope_entries, {
+			prompt = "OpenCode Scope> ",
+			fzf_opts = { ["--header"] = "Enter: reopen picker with selected scope" },
+			actions = {
+				["default"] = function(selected)
+					local utils = require("fzf-lua.utils")
+					local key = selected and selected[1] and utils.strip_ansi_coloring(selected[1])
+					local new_scope = key and scope_map[key]
+					if new_scope then
+						reopen(new_scope)
+					end
+				end,
+			},
+		})
+	end
+
 	fzf.fzf_exec(entries, {
 		prompt = "OpenCode " .. label .. "> ",
 		preview = preview_command(preview_dir),
@@ -725,7 +758,7 @@ local function open_message_picker(items, scope, opts)
 		},
 		fzf_opts = {
 			["--multi"] = true,
-			["--header"] = "Enter: transcript | A-l: transcript+live | C-l: live | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-a/p/m/r/t/o: scope | C-/: preview",
+			["--header"] = "Enter: transcript | A-l: transcript+live | C-l: live | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview",
 		},
 		actions = {
 			["default"] = function(selected)
@@ -768,6 +801,9 @@ local function open_message_picker(items, scope, opts)
 			end,
 			["alt-a"] = function()
 				reopen("all")
+			end,
+			["alt-s"] = function()
+				pick_scope()
 			end,
 			["alt-p"] = function()
 				reopen("prompts")

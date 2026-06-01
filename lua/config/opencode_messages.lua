@@ -1,6 +1,7 @@
 local M = {}
 
 local cache_ttl_ms = 5000
+local db_session_limit = 50
 local cache = {
 	sessions = nil,
 	sessions_at = 0,
@@ -66,7 +67,10 @@ local function sql_literal(value)
 end
 
 local function decode_json_value(value)
-	if type(value) ~= "string" or value == "" then
+	if value == vim.NIL or value == nil or value == "" then
+		return nil
+	end
+	if type(value) ~= "string" then
 		return value
 	end
 
@@ -75,6 +79,13 @@ local function decode_json_value(value)
 		return decoded
 	end
 	return value
+end
+
+local function as_table(value)
+	if type(value) == "table" then
+		return value
+	end
+	return {}
 end
 
 local function run_sql(sql, callback)
@@ -183,6 +194,7 @@ select
 from session
 where time_archived is null
 order by time_updated desc
+limit ]] .. db_session_limit .. [[
 ]],
 		function(rows, err)
 			if not rows then
@@ -257,7 +269,7 @@ order by m.time_created asc, m.id asc, p.time_created asc, p.id asc
 			for _, row in ipairs(rows) do
 				local message = by_id[row.message_id]
 				if not message then
-					local info = decode_json_value(row.message_data) or {}
+					local info = as_table(decode_json_value(row.message_data))
 					info.id = row.message_id
 					info.sessionID = row.session_id
 					info.time = info.time or {}
@@ -269,14 +281,16 @@ order by m.time_created asc, m.id asc, p.time_created asc, p.id asc
 				end
 
 				if row.part_id and row.part_data then
-					local part = decode_json_value(row.part_data) or {}
-					part.id = row.part_id
-					part.messageID = row.message_id
-					part.sessionID = row.session_id
-					part.time = part.time or {}
-					part.time.start = part.time.start or row.part_time_created
-					part.time.end_time = part.time.end_time or row.part_time_updated
-					table.insert(message.parts, part)
+					local part = decode_json_value(row.part_data)
+					if type(part) == "table" then
+						part.id = row.part_id
+						part.messageID = row.message_id
+						part.sessionID = row.session_id
+						part.time = part.time or {}
+						part.time.start = part.time.start or row.part_time_created
+						part.time.end_time = part.time.end_time or row.part_time_updated
+						table.insert(message.parts, part)
+					end
 				end
 			end
 
@@ -354,26 +368,26 @@ function M.sessions(callback, opts)
 		return
 	end
 
-	fetch_sessions_from_db(function(sessions, db_err)
-		if not sessions then
-			M.get("/session", function(http_sessions, err)
-				if not http_sessions then
-					callback(nil, err or db_err)
+	M.get("/session", function(http_sessions, http_err)
+		if not http_sessions then
+			fetch_sessions_from_db(function(db_sessions, db_err)
+				if not db_sessions then
+					callback(nil, http_err or db_err)
 					return
 				end
 
-				sort_sessions(http_sessions)
-				cache.sessions = vim.deepcopy(http_sessions)
+				sort_sessions(db_sessions)
+				cache.sessions = vim.deepcopy(db_sessions)
 				cache.sessions_at = vim.uv.now()
-				callback(http_sessions)
+				callback(db_sessions)
 			end)
 			return
 		end
 
-		sort_sessions(sessions)
-		cache.sessions = vim.deepcopy(sessions)
+		sort_sessions(http_sessions)
+		cache.sessions = vim.deepcopy(http_sessions)
 		cache.sessions_at = vim.uv.now()
-		callback(sessions)
+		callback(http_sessions)
 	end)
 end
 
@@ -404,26 +418,26 @@ function M.messages(session_id, callback, opts)
 		return
 	end
 
-	fetch_messages_from_db(session_id, function(messages, db_err)
-		if not messages then
-			M.get("/session/" .. session_id .. "/message", function(http_messages, err)
-				if not http_messages then
-					callback(nil, err or db_err)
+	M.get("/session/" .. session_id .. "/message", function(http_messages, http_err)
+		if not http_messages then
+			fetch_messages_from_db(session_id, function(db_messages, db_err)
+				if not db_messages then
+					callback(nil, http_err or db_err)
 					return
 				end
 				cache.messages[session_id] = {
 					at = vim.uv.now(),
-					messages = vim.deepcopy(http_messages),
+					messages = vim.deepcopy(db_messages),
 				}
-				callback(http_messages)
+				callback(db_messages)
 			end)
 			return
 		end
 		cache.messages[session_id] = {
 			at = vim.uv.now(),
-			messages = vim.deepcopy(messages),
+			messages = vim.deepcopy(http_messages),
 		}
-		callback(messages)
+		callback(http_messages)
 	end)
 end
 

@@ -115,7 +115,37 @@ return {
 		{
 			"<leader>gP",
 			function()
+				local function add_unique(list, seen, branch)
+					branch = vim.trim(branch or "")
+					if branch == "" or seen[branch] then
+						return
+					end
+
+					vim.fn.system(
+						"MISE_QUIET=1 git rev-parse --verify " .. vim.fn.shellescape(branch) .. " 2>/dev/null"
+					)
+					if vim.v.shell_error == 0 then
+						seen[branch] = true
+						table.insert(list, branch)
+					end
+				end
+
 				local function get_available_bases()
+					local available = {}
+					local seen = {}
+
+					local upstream = vim.fn.system(
+						"MISE_QUIET=1 git rev-parse --abbrev-ref --symbolic-full-name "
+							.. vim.fn.shellescape("@{upstream}")
+							.. " 2>/dev/null"
+					)
+					add_unique(available, seen, upstream)
+
+					local default_branch = vim.fn.system(
+						"MISE_QUIET=1 git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null"
+					)
+					add_unique(available, seen, default_branch)
+
 					local candidates = {
 						"origin/main",
 						"origin/master",
@@ -127,19 +157,15 @@ return {
 						"origin/release",
 						"origin/trunk",
 					}
-					local available = {}
 					for _, branch in ipairs(candidates) do
-						vim.fn.system("MISE_QUIET=1 git rev-parse --verify " .. branch .. " 2>/dev/null")
-						if vim.v.shell_error == 0 then
-							table.insert(available, branch)
-						end
+						add_unique(available, seen, branch)
 					end
 					return available
 				end
 
 				local function open_diff(base)
 					diffview_return_target = return_target.capture({ force = true }) or return_target.last()
-					vim.cmd("DiffviewOpen " .. base .. "...HEAD")
+					vim.cmd("DiffviewOpen " .. vim.fn.fnameescape(base .. "...HEAD"))
 				end
 
 				local bases = get_available_bases()
@@ -211,6 +237,17 @@ return {
 	config = function()
 		local actions = require("diffview.actions")
 		local api = require("diffview.api")
+		local function jump_to_first_change()
+			local ok, lib = pcall(require, "diffview.lib")
+			local view = ok and lib.get_current_view() or nil
+			if not view then
+				vim.notify("Open a Diffview first", vim.log.levels.WARN)
+				return
+			end
+
+			actions.jump_to_first_change(view)
+		end
+
 		local function diffview_auto_switch_enabled()
 			return vim.g.diffview_auto_switch ~= false
 		end
@@ -482,6 +519,7 @@ return {
 				disable_defaults = false, -- Keep default keymaps
 				view = {
 					-- Navigation
+					{ "n", "g0", jump_to_first_change, { desc = "First change" } },
 					{ "n", "<tab>", actions.select_next_entry, { desc = "Next file" } },
 					{ "n", "<s-tab>", actions.select_prev_entry, { desc = "Previous file" } },
 					{ "n", "[F", actions.select_first_entry, { desc = "First file" } },
@@ -784,7 +822,9 @@ return {
 												cross_worktree_state.main_git_dir = main_info.main_git_dir
 												main_handle:stop()
 												view._main_repo_watcher = nil
-												diffview_internal_reopen("DiffviewOpen -C" .. main_info.main_work_dir)
+											diffview_internal_reopen(
+												"DiffviewOpen -C" .. vim.fn.fnameescape(main_info.main_work_dir)
+											)
 												vim.defer_fn(function()
 													main_reopening = false
 												end, 120)
@@ -1084,7 +1124,9 @@ return {
 					cross_worktree_state.main_work_dir = main_info.main_work_dir
 					cross_worktree_state.main_git_dir = main_info.main_git_dir
 					diffview_current_root = vim.fn.resolve((main_info.main_work_dir:gsub("/$", "")))
-					diffview_internal_reopen("DiffviewOpen -C" .. main_info.main_work_dir)
+					diffview_internal_reopen(
+						"DiffviewOpen -C" .. vim.fn.fnameescape(main_info.main_work_dir)
+					)
 					return true
 				elseif not main_conflicting and cross_worktree_state.active then
 					cross_worktree_state.active = false

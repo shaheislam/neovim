@@ -1,4 +1,5 @@
 local M = {}
+local workflow = require("git.workflow")
 
 local function current_view()
 	local ok, lib = pcall(require, "diffview.lib")
@@ -80,6 +81,7 @@ local function diff_files(files)
 
 	vim.cmd("tabnew " .. vim.fn.fnameescape(files[1]))
 	vim.cmd("vertical diffsplit " .. vim.fn.fnameescape(files[2]))
+	vim.defer_fn(workflow.jump_to_first_diff, 50)
 end
 
 function M.setup(opts)

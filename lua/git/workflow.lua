@@ -1,5 +1,24 @@
 -- Shared Git workflow helpers for plugin specs
 
+local function jump_to_first_diff()
+	vim.cmd("diffupdate")
+
+	for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+		if vim.api.nvim_win_is_valid(win) and vim.wo[win].diff then
+			vim.api.nvim_win_call(win, function()
+				vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+				local is_diff_at_top = vim.fn.diff_hlID(1, 1) ~= 0 or vim.fn.diff_filler(1) ~= 0
+				if not is_diff_at_top then
+					pcall(vim.cmd, "normal! ]c")
+				end
+
+				vim.cmd("normal! zz")
+			end)
+		end
+	end
+end
+
 -- Clipboard diff utilities
 local function compare_clipboard()
 	-- Get clipboard content
@@ -35,6 +54,7 @@ local function compare_clipboard()
 	-- Go back to original window and enable diff
 	vim.cmd("wincmd p")
 	vim.cmd("diffthis")
+	vim.defer_fn(jump_to_first_diff, 50)
 end
 
 local function compare_clipboard_selection()
@@ -81,6 +101,7 @@ local function compare_clipboard_selection()
 	-- Add q to close the diff tab from either scratch buffer.
 	vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf1, desc = "Close diff" })
 	vim.keymap.set("n", "q", "<cmd>tabclose<cr>", { buffer = buf2, desc = "Close diff" })
+	vim.defer_fn(jump_to_first_diff, 50)
 end
 
 -- ============================================================================
@@ -860,12 +881,6 @@ end
 
 -- Open Diffview for a single commit (comparing to its parent)
 local function open_commit_diff(sha, file_path)
-	-- Set flag to preserve color state during cycling
-	commit_cycle_state.is_cycling = true
-	-- Close existing Diffview if open
-	pcall(vim.cmd, "DiffviewClose")
-	commit_cycle_state.is_cycling = false
-
 	-- Update state
 	commit_cycle_state.current_sha = sha
 	-- Only update file_path if we're doing file-scoped navigation (not nil)
@@ -873,8 +888,33 @@ local function open_commit_diff(sha, file_path)
 		commit_cycle_state.file_path = file_path
 	end
 
-	-- Open new Diffview (sha^! means compare sha to its parent)
-	vim.cmd("DiffviewOpen " .. sha .. "^!")
+	local rev = sha .. "^!"
+	local retargeted = false
+	local ok_lib, lib = pcall(require, "diffview.lib")
+	local ok_api, api = pcall(require, "diffview.api")
+	if ok_lib and ok_api and lib.get_current_view() then
+		retargeted = pcall(api.set_revs, rev)
+		if retargeted then
+			vim.defer_fn(function()
+				local ok_actions, actions = pcall(require, "diffview.actions")
+				local view = lib.get_current_view()
+				if ok_actions and view then
+					actions.jump_to_first_change(view)
+				end
+			end, 100)
+		end
+	end
+
+	if not retargeted then
+		-- Set flag to preserve color state during cycling
+		commit_cycle_state.is_cycling = true
+		-- Close existing Diffview if open
+		pcall(vim.cmd, "DiffviewClose")
+		commit_cycle_state.is_cycling = false
+
+		-- Open new Diffview (sha^! means compare sha to its parent)
+		vim.cmd("DiffviewOpen " .. rev)
+	end
 
 	-- Show FROM/TO/CKPT info buffer
 	show_single_commit_info(sha)
@@ -918,6 +958,7 @@ end
 local M = {
 	commit_cycle_state = commit_cycle_state,
 	cross_worktree_state = cross_worktree_state,
+	jump_to_first_diff = jump_to_first_diff,
 	show_single_commit_info = show_single_commit_info,
 	close_commit_info_window = close_commit_info_window,
 	find_repo_root = find_repo_root,

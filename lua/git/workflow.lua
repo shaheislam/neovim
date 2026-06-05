@@ -119,8 +119,50 @@ local commit_cycle_state = {
 	is_cycling = false, -- Flag to preserve color state during cycling
 }
 
--- Buffer for commit info display
+-- Buffer/window for commit info display
 local commit_info_bufnr = nil
+local commit_info_win = nil
+
+local function calc_commit_info_height(buf_lines, win_width)
+	local height = 0
+	for _, line in ipairs(buf_lines) do
+		-- Each line takes ceil(display_width / win_width) visual rows, minimum 1.
+		height = height + math.max(1, math.ceil(vim.fn.strdisplaywidth(line) / win_width))
+	end
+	return height
+end
+
+local function get_commit_info_float_config(buf_lines)
+	local width = math.max(1, vim.o.columns - 2)
+	local height = math.min(calc_commit_info_height(buf_lines, width), math.max(1, vim.o.lines - vim.o.cmdheight - 2))
+
+	return {
+		relative = "editor",
+		anchor = "SW",
+		row = vim.o.lines - vim.o.cmdheight - 1,
+		col = 1,
+		width = width,
+		height = height,
+		style = "minimal",
+		border = "single",
+		focusable = true,
+		zindex = 40,
+	}
+end
+
+local function reposition_commit_info_window()
+	if not (commit_info_win and vim.api.nvim_win_is_valid(commit_info_win)) then
+		return
+	end
+
+	if not (commit_info_bufnr and vim.api.nvim_buf_is_valid(commit_info_bufnr)) then
+		commit_info_win = nil
+		return
+	end
+
+	local lines = vim.api.nvim_buf_get_lines(commit_info_bufnr, 0, -1, false)
+	vim.api.nvim_win_set_config(commit_info_win, get_commit_info_float_config(lines))
+end
 
 -- Cross-worktree merge detection state
 local cross_worktree_state = {
@@ -522,7 +564,7 @@ local function copy_commit_hash(sha)
 	vim.notify("Copied commit " .. sha:sub(1, 12), vim.log.levels.INFO)
 end
 
--- Show commit info in a split buffer below Diffview
+-- Show commit info in a bottom-anchored float so Neovim split resizing cannot steal rows.
 local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to_msg, to_date)
 	-- Create buffer if it doesn't exist or was deleted
 	if not commit_info_bufnr or not vim.api.nvim_buf_is_valid(commit_info_bufnr) then
@@ -645,60 +687,36 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 		vim.api.nvim_buf_set_extmark(commit_info_bufnr, ns, 2, 8, { end_col = #lines[3], hl_group = "NonText" })
 	end
 
-	-- Find or create window for the buffer
-	local info_win = nil
-	for _, win in ipairs(vim.api.nvim_list_wins()) do
-		if vim.api.nvim_win_get_buf(win) == commit_info_bufnr then
-			info_win = win
-			break
-		end
+	local function configure_commit_info_window(win)
+		vim.wo[win].number = false
+		vim.wo[win].relativenumber = false
+		vim.wo[win].signcolumn = "no"
+		vim.wo[win].cursorline = false
+		vim.wo[win].wrap = true
+		vim.wo[win].linebreak = true
+		vim.wo[win].winhighlight = "Normal:NormalFloat,FloatBorder:FloatBorder"
 	end
 
-	-- Calculate visual height accounting for line wrap
-	local function calc_visual_height(buf_lines, win_width)
-		local height = 0
-		for _, line in ipairs(buf_lines) do
-			-- Each line takes ceil(display_width / win_width) visual rows, minimum 1
-			local display_width = vim.fn.strdisplaywidth(line)
-			height = height + math.max(1, math.ceil(display_width / win_width))
-		end
-		return height
-	end
-
-	if info_win then
-		-- Window exists — resize to match wrapped content
-		local win_width = vim.api.nvim_win_get_width(info_win)
-		vim.api.nvim_win_set_height(info_win, calc_visual_height(lines, win_width))
+	local previous_win = vim.api.nvim_get_current_win()
+	if commit_info_win and vim.api.nvim_win_is_valid(commit_info_win) then
+		vim.api.nvim_win_set_config(commit_info_win, get_commit_info_float_config(lines))
+		configure_commit_info_window(commit_info_win)
 	else
-		-- Create horizontal split at bottom
-		vim.cmd("botright split")
-		vim.api.nvim_win_set_buf(0, commit_info_bufnr)
-		vim.wo[0].number = false
-		vim.wo[0].relativenumber = false
-		vim.wo[0].signcolumn = "no"
-		vim.wo[0].cursorline = false
-		vim.wo[0].winfixheight = true
-		vim.wo[0].wrap = true
-		vim.wo[0].linebreak = true
-		vim.wo[0].winhighlight = "Normal:NormalFloat" -- Use float background for subtle distinction
-		-- Size after options are set so width is accurate
-		local win_width = vim.api.nvim_win_get_width(0)
-		vim.api.nvim_win_set_height(0, calc_visual_height(lines, win_width))
-		-- Return to previous window (Diffview)
-		vim.cmd("wincmd p")
+		commit_info_win = vim.api.nvim_open_win(commit_info_bufnr, false, get_commit_info_float_config(lines))
+		configure_commit_info_window(commit_info_win)
+	end
+
+	if vim.api.nvim_win_is_valid(previous_win) then
+		vim.api.nvim_set_current_win(previous_win)
 	end
 end
 
 -- Close the commit info window if open
 local function close_commit_info_window()
-	if commit_info_bufnr and vim.api.nvim_buf_is_valid(commit_info_bufnr) then
-		for _, win in ipairs(vim.api.nvim_list_wins()) do
-			if vim.api.nvim_win_get_buf(win) == commit_info_bufnr then
-				vim.api.nvim_win_close(win, true)
-				break
-			end
-		end
+	if commit_info_win and vim.api.nvim_win_is_valid(commit_info_win) then
+		vim.api.nvim_win_close(commit_info_win, true)
 	end
+	commit_info_win = nil
 end
 
 -- Check if in a git repository
@@ -961,6 +979,7 @@ local M = {
 	jump_to_first_diff = jump_to_first_diff,
 	show_single_commit_info = show_single_commit_info,
 	close_commit_info_window = close_commit_info_window,
+	reposition_commit_info_window = reposition_commit_info_window,
 	find_repo_root = find_repo_root,
 	path_is_under = path_is_under,
 	get_terminal_cwd = get_terminal_cwd,

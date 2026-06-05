@@ -200,7 +200,41 @@ vim.api.nvim_create_autocmd("FileType", {
 vim.api.nvim_create_autocmd("VimResized", {
   group = augroup("resize_splits"),
   callback = function()
-    vim.cmd("tabdo wincmd =")
+    local current_tab = vim.api.nvim_get_current_tabpage()
+
+    for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
+      local has_diffview_layout = false
+
+      for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
+        local buf = vim.api.nvim_win_get_buf(win)
+        local name = vim.api.nvim_buf_get_name(buf)
+        local ft = vim.bo[buf].filetype
+
+        if
+          name == "Commit Info"
+          or name:match("^diffview://")
+          or ft == "DiffviewFiles"
+          or ft == "DiffviewFileHistory"
+        then
+          has_diffview_layout = true
+        end
+      end
+
+      if not has_diffview_layout then
+        vim.api.nvim_set_current_tabpage(tab)
+        vim.cmd("wincmd =")
+      end
+    end
+
+    if vim.api.nvim_tabpage_is_valid(current_tab) then
+      vim.api.nvim_set_current_tabpage(current_tab)
+    end
+
+    local ok, workflow = pcall(require, "git.workflow")
+    if ok then
+      workflow.reposition_commit_info_window()
+      vim.defer_fn(workflow.reposition_commit_info_window, 50)
+    end
   end,
 })
 

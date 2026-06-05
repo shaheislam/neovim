@@ -1,48 +1,44 @@
-# Agent Instructions
+# Neovim Agent Guide
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+Global rules for `~/neovim`. Read any deeper `AGENTS.md` in the directory you are editing.
 
-## Quick Reference
+## Scope
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd dolt push          # Push bead state to remote
-```
+- This is the personal Neovim config repo, separate from `~/dotfiles`.
+- It is symlinked to `~/.config/nvim` and should remain commit-worthy across devices.
+- LSPs are Nix-managed; never add Mason or `mason-lspconfig`.
+- Preserve transparent UI behavior unless the task explicitly changes the theme model.
+
+## Subdirectory Guidance
+
+- `lua/AGENTS.md` covers Lua module style and runtime conventions.
+- `lua/config/AGENTS.md` covers core config, keymaps, autocmds, and agent bridges.
+- `lua/plugins/AGENTS.md` covers lazy.nvim plugin specs.
+- `lua/plugins/git/AGENTS.md` covers Git plugin integrations.
+- `lua/git/AGENTS.md` covers custom Git workflow modules.
+- `lua/parley/AGENTS.md` covers Parley review tooling.
+- `tests/AGENTS.md` covers headless Neovim tests.
 
 ## Workflow Contract
 
-- Read `.claude/context/workflows.md` before changing how AI tooling is used in this repo.
-- Read `.claude/context/ai-cheatsheet.md` for the fast operator view.
-- Read `.claude/context/ai-recipes.md` for the expected handoff patterns between learning, investigation, execution, and review.
+- Read `.claude/context/workflows.md` before changing AI-tooling workflows.
 - Treat `.plan.md` as the control plane for the current task.
-- Use `opencode.nvim` as the primary Neovim bridge into OpenCode, `pi.nvim` for lightweight Pi asks/selection edits, and `sidekick.nvim` for learning-oriented Copilot NES / CLI assist.
-- Treat git diff, diagnostics, and quickfix as the required review plane before handoff.
+- Use `opencode.nvim` as the primary Neovim bridge into OpenCode.
+- Treat diagnostics, quickfix, and git diff as the review plane before handoff.
 
-## Landing the Plane (Session Completion)
+## Beads
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+- This project uses `bd` for issue tracking; run `bd onboard` for full context.
+- Use `bd ready`, `bd show <id>`, `bd update <id> --status in_progress`, and `bd close <id>` for task lifecycle.
 
-**MANDATORY WORKFLOW:**
+## Validation
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd dolt push
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+- Run `nvim --headless +qa` for startup validation.
+- Run `nvim --headless "+checkhealth nvim_mini" +qa` for project health.
+- Run `nvim --headless -l tests/parley_review_spec.lua` when review tooling changes.
 
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+## Session Completion
+
+- If code changed, run relevant validation before finishing.
+- Push bead state with `bd dolt push` when issue state changed.
+- Work is not complete until commits and `git push` succeed when the task reaches session-completion scope.

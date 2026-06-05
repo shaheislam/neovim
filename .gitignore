@@ -12,3 +12,5 @@ target/
 
 # Override global gitignore — these are intentional project files
 !CLAUDE.md
+!AGENTS.md
+!**/AGENTS.md

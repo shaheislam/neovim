@@ -11,6 +11,8 @@ lazy-lock.json merge=lockfile
 
 # Union merge for docs modified across worktrees
 CLAUDE.md merge=union-doc
+AGENTS.md merge=union-doc
+**/AGENTS.md merge=union-doc
 TODO.md   merge=union-doc
 
 # -----------------------------------------------------------------------------

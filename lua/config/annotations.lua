@@ -5,6 +5,8 @@ local icon = "󰅺"
 local max_ghost_length = 80
 local post_instruction =
 	"after resolving each annotation, edit the item from annotation file and prepend the annotation with 'RESOLVED: '"
+local root_cache = {}
+local annotation_cache = {}
 
 local function notify(message, level)
 	vim.notify(message, level or vim.log.levels.INFO, { title = "Annotate" })
@@ -30,6 +32,23 @@ local function current_buffer_path(bufnr)
 	return vim.fn.fnamemodify(path, ":p"), false
 end
 
+local function should_skip_buffer(bufnr)
+	if not vim.api.nvim_buf_is_valid(bufnr) or not vim.api.nvim_buf_is_loaded(bufnr) then
+		return true
+	end
+
+	if vim.b[bufnr].nvim_mini_large_file then
+		return true
+	end
+
+	local buftype = vim.api.nvim_get_option_value("buftype", { buf = bufnr })
+	if buftype ~= "" then
+		return true
+	end
+
+	return current_buffer_path(bufnr) == nil
+end
+
 local function repo_root(path)
 	path = path or current_buffer_path() or vim.fn.getcwd()
 
@@ -37,14 +56,23 @@ local function repo_root(path)
 	if vim.fn.isdirectory(start) ~= 1 then
 		start = vim.fn.fnamemodify(start, ":h")
 	end
+
+	local cached = root_cache[start]
+	if cached ~= nil then
+		return cached or nil
+	end
+
 	local git_dir = vim.fs.find(".git", { path = start, upward = true })[1]
 	if git_dir then
-		return vim.fn.fnamemodify(git_dir, ":h")
+		local root = vim.fn.fnamemodify(git_dir, ":h")
+		root_cache[start] = root
+		return root
 	end
 
 	local root = vim.fn.system({ "git", "-C", start, "rev-parse", "--show-toplevel" })
 	if vim.v.shell_error == 0 then
-		return vim.trim(root)
+		root_cache[start] = vim.trim(root)
+		return root_cache[start]
 	end
 	return nil
 end
@@ -99,14 +127,24 @@ end
 local function read_annotations(root)
 	local path = annotations_path(root)
 	if vim.fn.filereadable(path) == 0 then
+		annotation_cache[root] = nil
 		return {}
+	end
+
+	local stat = vim.uv.fs_stat(path)
+	local mtime = stat and stat.mtime and string.format("%s:%s", stat.mtime.sec, stat.mtime.nsec) or "0:0"
+	local size = stat and stat.size or 0
+	local cached = annotation_cache[root]
+	if cached and cached.mtime == mtime and cached.size == size then
+		return vim.deepcopy(cached.items)
 	end
 
 	local ok, decoded = pcall(vim.json.decode, table.concat(vim.fn.readfile(path), "\n"))
 	if not ok or type(decoded) ~= "table" then
 		return {}
 	end
-	return decoded
+	annotation_cache[root] = { mtime = mtime, size = size, items = decoded }
+	return vim.deepcopy(decoded)
 end
 
 local function write_annotations(root, annotations)
@@ -115,6 +153,7 @@ local function write_annotations(root, annotations)
 		vim.fn.mkdir(dir, "p")
 	end
 	vim.fn.writefile(vim.split(vim.json.encode(annotations), "\n"), annotations_path(root))
+	annotation_cache[root] = nil
 end
 
 local function line_matches(item, file, line)
@@ -131,7 +170,7 @@ end
 
 function M.refresh_buffer(bufnr)
 	bufnr = bufnr or vim.api.nvim_get_current_buf()
-	if not vim.api.nvim_buf_is_valid(bufnr) then
+	if should_skip_buffer(bufnr) then
 		return
 	end
 

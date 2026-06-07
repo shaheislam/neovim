@@ -497,31 +497,6 @@ return {
           },
         },
 
-        -- Rust (basic setup, enhanced by rustaceanvim which is lazy-loaded)
-        rust_analyzer = {
-          cmd = get_lsp_cmd("rust-analyzer"),
-          capabilities = capabilities,
-          settings = {
-            ["rust-analyzer"] = {
-              cargo = {
-                allFeatures = true,
-              },
-              lens = {
-                enable = true,
-                references = {
-                  adt = { enable = true },
-                  enumVariant = { enable = true },
-                  method = { enable = true },
-                  trait = { enable = true },
-                },
-                implementations = { enable = true },
-                run = { enable = true },
-                debug = { enable = true },
-              },
-            },
-          },
-        },
-
         -- Python (basedpyright preferred, pyright fallback)
         basedpyright = {
           cmd = function()
@@ -728,7 +703,8 @@ return {
         },
 
         -- Lua (emmylua_ls - Rust, 10x faster than lua-language-server)
-        -- Config via .emmyrc.json in project root for Neovim runtime support
+        -- Keep Neovim API awareness narrow: indexing every runtimepath lua dir
+        -- also indexes plugin trees and can drive high language-server memory.
         -- https://github.com/EmmyLuaLs/emmylua-analyzer-rust
         emmylua_ls = {
           cmd = get_lsp_cmd("emmylua_ls"),
@@ -744,7 +720,7 @@ return {
                 globals = { "vim" },
               },
               workspace = {
-                library = vim.api.nvim_get_runtime_file("lua", true),
+                library = { vim.env.VIMRUNTIME .. "/lua" },
                 checkThirdParty = false,
               },
               telemetry = {
@@ -1011,10 +987,15 @@ return {
       -- Detects kind: and apiVersion: to route to correct schema source:
       -- - Core K8s (v1, apps, batch, etc.) → yannh/kubernetes-json-schema
       -- - CRDs (Argo, Cert-Manager, Prometheus, Istio) → datreeio/CRDs-catalog
-      vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "TextChanged" }, {
+      vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile" }, {
         group = vim.api.nvim_create_augroup("yaml_k8s_modeline", { clear = true }),
-        callback = function()
-          local bufnr = vim.api.nvim_get_current_buf()
+        callback = function(event)
+          local bufnr = event.buf
+
+          if vim.b[bufnr].yaml_k8s_modeline_checked then
+            return
+          end
+          vim.b[bufnr].yaml_k8s_modeline_checked = true
 
           -- Check if buffer is YAML (by filetype or by checking content)
           local ft = vim.bo[bufnr].filetype
@@ -1054,9 +1035,15 @@ return {
             vim.bo[bufnr].filetype = "yaml"
           end
 
-          -- Restart yamlls to pick up the modeline
+          -- Restart only yamlls once so it picks up the inserted modeline.
           vim.defer_fn(function()
-            vim.cmd("LspRestart yamlls")
+            if not vim.api.nvim_buf_is_valid(bufnr) then
+              return
+            end
+
+            vim.api.nvim_buf_call(bufnr, function()
+              vim.cmd("silent! LspRestart yamlls")
+            end)
           end, 100)
         end,
       })

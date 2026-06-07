@@ -14,6 +14,32 @@ local defaults = {
   debounce_ms = 100,
 }
 
+local ignored_path_patterns = {
+  "^%.git/",
+  "^node_modules/",
+  "/node_modules/",
+  "^%.direnv/",
+  "/%.direnv/",
+  "^%.devenv/",
+  "/%.devenv/",
+  "^%.venv/",
+  "/%.venv/",
+  "^venv/",
+  "/venv/",
+  "^target/",
+  "/target/",
+  "^dist/",
+  "/dist/",
+  "^build/",
+  "/build/",
+  "^vendor/",
+  "/vendor/",
+  "^%.next/",
+  "/%.next/",
+  "^coverage/",
+  "/coverage/",
+}
+
 ---@type HotreloadConfig
 local config = vim.deepcopy(defaults)
 
@@ -83,9 +109,12 @@ local function watch_directory(dir)
       return
     end
 
-    -- Skip .git directory internals (handled separately for diffview)
-    if filename and filename:match("^%.git/") then
-      return
+    if filename then
+      for _, pattern in ipairs(ignored_path_patterns) do
+        if filename:match(pattern) then
+          return
+        end
+      end
     end
 
     -- Schedule reload on main thread

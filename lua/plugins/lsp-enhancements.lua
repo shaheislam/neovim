@@ -9,6 +9,10 @@ return {
     event = "BufReadPost",
     opts = {
       provider_selector = function(bufnr, filetype, buftype)
+        if buftype ~= "" or vim.b[bufnr].nvim_mini_large_file then
+          return ""
+        end
+
         return { "treesitter", "indent" }
       end,
       fold_virt_text_handler = function(virtText, lnum, endLnum, width, truncate)
@@ -54,6 +58,10 @@ return {
         desc = "Save view with mkview for real files",
         group = view_group,
         callback = function(args)
+          if vim.b[args.buf].nvim_mini_large_file then
+            return
+          end
+
           if vim.b[args.buf].view_activated then
             vim.cmd.mkview { mods = { emsg_silent = true } }
           end
@@ -64,6 +72,10 @@ return {
         desc = "Try to load file view if available and enable view saving for real files",
         group = view_group,
         callback = function(args)
+          if vim.b[args.buf].nvim_mini_large_file then
+            return
+          end
+
           if not vim.b[args.buf].view_activated then
             local filetype = vim.api.nvim_get_option_value("filetype", { buf = args.buf })
             local buftype = vim.api.nvim_get_option_value("buftype", { buf = args.buf })

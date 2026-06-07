@@ -27,6 +27,37 @@ local function augroup(name)
   return vim.api.nvim_create_augroup("nvim_mini_" .. name, { clear = true })
 end
 
+-- Mark very large files so LSP/UI integrations can skip expensive adornments.
+vim.api.nvim_create_autocmd({ "BufReadPre", "BufNewFile" }, {
+  group = augroup("large_file_guard"),
+  callback = function(event)
+    local name = vim.api.nvim_buf_get_name(event.buf)
+    local stat = name ~= "" and vim.uv.fs_stat(name) or nil
+    local is_large = stat and stat.size > (vim.g.nvim_mini_large_file_bytes or 2 * 1024 * 1024)
+
+    if not is_large then
+      return
+    end
+
+    vim.b[event.buf].nvim_mini_large_file = true
+    vim.b[event.buf].autoformat = false
+    vim.diagnostic.enable(false, { bufnr = event.buf })
+
+    vim.api.nvim_create_autocmd("BufReadPost", {
+      group = augroup("large_file_guard_post_" .. event.buf),
+      buffer = event.buf,
+      once = true,
+      callback = function()
+        vim.opt_local.foldmethod = "manual"
+        vim.opt_local.foldenable = false
+        vim.cmd("silent! syntax off")
+      end,
+      desc = "Disable expensive features for large files",
+    })
+  end,
+  desc = "Mark large files for performance guards",
+})
+
 -- ============================================================================
 -- Automatic Cleanup
 -- ============================================================================

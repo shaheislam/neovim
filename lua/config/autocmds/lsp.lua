@@ -25,6 +25,11 @@ local function is_diff_buf(bufnr)
   return ft == "DiffviewFiles" or ft == "DiffviewFileHistory"
 end
 
+local function is_large_buf(bufnr)
+  bufnr = bufnr or 0
+  return vim.b[bufnr].nvim_mini_large_file == true
+end
+
 function M.setup()
   -- ============================================================================
   -- Import Organization
@@ -64,7 +69,7 @@ function M.setup()
   vim.api.nvim_create_autocmd("CursorHold", {
     group = augroup("document_highlight"),
     callback = function()
-      if is_diff_buf() then return end
+      if is_diff_buf() or is_large_buf() then return end
       local clients = vim.lsp.get_clients({ bufnr = 0 })
       for _, client in pairs(clients) do
         if client.server_capabilities.documentHighlightProvider then
@@ -82,7 +87,7 @@ function M.setup()
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
     group = augroup("document_highlight_clear"),
     callback = function()
-      if is_diff_buf() then return end
+      if is_diff_buf() or is_large_buf() then return end
       clear_ref_timer:stop()
       clear_ref_timer:start(100, 0, vim.schedule_wrap(function()
         pcall(vim.lsp.buf.clear_references)
@@ -110,7 +115,7 @@ function M.setup()
   vim.api.nvim_create_autocmd("CursorHold", {
     group = augroup("diagnostic_hover"),
     callback = function()
-      if is_diff_buf() then return end
+      if is_diff_buf() or is_large_buf() then return end
       if diagnostic_float_open then return end
 
       -- Check if diagnostics are enabled globally
@@ -182,7 +187,7 @@ function M.setup()
     group = augroup("inlay_hints"),
     callback = function(args)
       -- Skip diff buffers (inlay hints disabled in diff_buf_read for scroll perf)
-      if is_diff_buf(args.buf) then return end
+      if is_diff_buf(args.buf) or is_large_buf(args.buf) then return end
       local client = vim.lsp.get_client_by_id(args.data.client_id)
       if client and client.server_capabilities.inlayHintProvider then
         -- Enable inlay hints by default
@@ -206,7 +211,7 @@ function M.setup()
             group = augroup("inlay_hints_normal"),
             buffer = args.buf,
             callback = function()
-              if is_diff_buf(args.buf) then return end
+              if is_diff_buf(args.buf) or is_large_buf(args.buf) then return end
               if vim.lsp.inlay_hint then
                 vim.lsp.inlay_hint.enable(true, { bufnr = args.buf })
               end

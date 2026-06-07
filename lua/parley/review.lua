@@ -14,6 +14,7 @@ local M = {}
 local namespace = vim.api.nvim_create_namespace("parley_review")
 local marker_prefix = "㊷["
 local augroup = vim.api.nvim_create_augroup("nvim_mini_parley_review", { clear = true })
+local refresh_timers = {}
 
 ---@param entry ParleyReviewEntry
 ---@return string
@@ -192,7 +193,11 @@ end
 ---@param bufnr integer
 ---@return boolean
 local function is_markdown_buffer(bufnr)
-  return vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == "markdown"
+  return vim.api.nvim_buf_is_valid(bufnr)
+    and vim.api.nvim_buf_is_loaded(bufnr)
+    and vim.bo[bufnr].filetype == "markdown"
+    and vim.bo[bufnr].buftype == ""
+    and not vim.b[bufnr].nvim_mini_large_file
 end
 
 ---@param bufnr integer
@@ -202,6 +207,26 @@ local function refresh_buffer(bufnr)
   end
 
   M.refresh(bufnr)
+end
+
+---@param bufnr integer
+local function debounce_refresh(bufnr)
+  if not is_markdown_buffer(bufnr) then
+    return
+  end
+
+  local timer = refresh_timers[bufnr]
+  if not timer then
+    timer = vim.uv.new_timer()
+    refresh_timers[bufnr] = timer
+  end
+
+  timer:stop()
+  timer:start(250, 0, vim.schedule_wrap(function()
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      refresh_buffer(bufnr)
+    end
+  end))
 end
 
 ---@param bufnr integer
@@ -235,10 +260,29 @@ function M.setup()
     end,
   })
 
-  vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost", "TextChanged", "InsertLeave" }, {
+  vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost", "InsertLeave" }, {
     group = augroup,
     callback = function(event)
       refresh_buffer(event.buf)
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("TextChanged", {
+    group = augroup,
+    callback = function(event)
+      debounce_refresh(event.buf)
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = augroup,
+    callback = function(event)
+      local timer = refresh_timers[event.buf]
+      if timer then
+        timer:stop()
+        timer:close()
+        refresh_timers[event.buf] = nil
+      end
     end,
   })
 end

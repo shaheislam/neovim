@@ -20,8 +20,8 @@ return {
       markdown = {
         enabled = true,
         clear_in_insert_mode = true,
-        download_remote_images = true, -- Enable to display remote images (disable if CRC errors occur)
-        only_render_image_at_cursor = false, -- Render all images immediately (not just at cursor)
+        download_remote_images = false,
+        only_render_image_at_cursor = true,
         filetypes = { "markdown" },
       },
     },

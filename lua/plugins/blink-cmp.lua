@@ -39,14 +39,14 @@ return {
         nerd_font_variant = "mono",
       },
 
-		-- Sources
-		sources = {
-			default = { "lsp", "path", "snippets", "buffer", "git" },
-			per_filetype = {
-				markdown = { "obsidian", "obsidian_new", "obsidian_tags", "lsp", "path", "snippets", "buffer", "git" },
-			},
-			providers = {
-				git = {
+      -- Sources
+      sources = {
+        default = { "lsp", "path", "snippets", "buffer", "git" },
+        per_filetype = {
+          markdown = { "lsp", "path", "snippets", "buffer", "git" },
+        },
+        providers = {
+          git = {
             module = "blink-cmp-git",
             name = "Git",
             enabled = function()

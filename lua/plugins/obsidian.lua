@@ -38,11 +38,6 @@ return {
       name = "fzf-lua",
     },
 
-    completion = {
-      blink = true,
-      min_chars = 2,
-    },
-
     ui = {
       enable = false, -- Use render-markdown.nvim instead
     },

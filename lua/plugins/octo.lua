@@ -21,12 +21,7 @@ return {
       { "<leader>gon", "<cmd>Octo notification list<cr>", desc = "Notifications (inbox)" },
 
       -- ══════════════════════════════════════════════════════════════
-      -- ISSUES
-      -- ══════════════════════════════════════════════════════════════
-      { "<leader>goc", "<cmd>Octo issue create<cr>", desc = "Create issue" },
-
-      -- ══════════════════════════════════════════════════════════════
-      -- PULL REQUESTS
+      -- PULL REQUESTS & ISSUES
       -- ══════════════════════════════════════════════════════════════
       {
         "<leader>gop",
@@ -37,9 +32,8 @@ return {
             vim.cmd("Octo pr list")
           end
         end,
-        desc = "PRs & Issues hub (M-t entity | M-s state | M-m scope | M-u author | M-l label | M-f search | M-g global | CR open | ^d diffview | ^x checkout | ^b browser)",
+        desc = "PRs & Issues hub (M-t entity | M-s state | M-m scope | M-u author | M-l label | M-f search | M-g global | CR open | ^o create | ^d diffview | ^x checkout | ^b browser)",
       },
-      { "<leader>goC", "<cmd>Octo pr create<cr>", desc = "Create PR" },
 
       -- ══════════════════════════════════════════════════════════════
       -- CODE REVIEW
@@ -1563,8 +1557,8 @@ return {
           local global_label = global and " │ Global" or ""
           local search_label = gh_search_query and (" │ Search: " .. gh_search_query) or ""
           local act_hints = (entity == "pr")
-              and "⏎:Open ^s:HSplit ^v:VSplit ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍 ^y:Copy"
-            or "⏎:Open ^s:HSplit ^v:VSplit ^b:Browser ^n:Comment ^r:👍 ^y:Copy"
+              and "⏎:Open ^o:Create ^s:HSplit ^v:VSplit ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍 ^y:Copy"
+            or "⏎:Open ^o:Create ^s:HSplit ^v:VSplit ^b:Browser ^n:Comment ^r:👍 ^y:Copy"
           local header = string.format(
             "%s · State:%s%s%s%s%s%s\n%s\nM-t:PRs⇄Issues │ M-s:State │ M-m:Scope │ M-u:Author │ M-l:Label │ M-g:Global │ M-f:Search │ M-r:Refresh",
             entity_label,
@@ -1604,6 +1598,11 @@ return {
                   "MISE_QUIET=1 gh " .. view_cmd .. " view " .. it.number .. " --repo " .. repo_of(it) .. " --web"
                 )
               end
+            end,
+            -- Create a new issue/PR for the active entity. Closes the picker
+            -- (create opens its own multi-step input flow, unlike ^n/^r/^y).
+            ["ctrl-o"] = function()
+              vim.cmd("Octo " .. view_cmd .. " create")
             end,
             ["alt-t"] = toggle_entity,
             ["alt-s"] = cycle_state,

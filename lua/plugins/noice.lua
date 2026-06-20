@@ -326,6 +326,15 @@ return {
           linebreak = true, -- Break at word boundaries
         },
       },
+      -- input() prompts (rendered by noice as cmdline_input, inheriting
+      -- cmdline_popup). The prompt is drawn as the border title, but width is
+      -- "auto" (sized to input content), so an empty input box truncates long
+      -- prompt titles. Force a wider minimum so prompt titles fit.
+      cmdline_input = {
+        size = {
+          min_width = 70, -- fit input() prompt titles (e.g. octo label/author/search)
+        },
+      },
       messages = {
         view = "notify",  -- Use notify instead of split buffer
       },

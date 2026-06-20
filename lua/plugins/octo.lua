@@ -1033,7 +1033,7 @@ return {
           local type_names = { all = "All", pull_request = "PRs", issue = "Issues", discussion = "Discussions" }
           local state_names = { all = "All", open = "Open", closed = "Closed", merged = "Merged" }
           local header = string.format(
-            "Type: %s │ State: %s │ M-a:All M-p:PRs M-i:Issues M-d:Disc │ M-s:AllState M-o:Open M-c:Closed M-m:Merged │ C-/:Preview",
+            "Type: %s │ State: %s\nM-a:All M-p:PRs M-i:Issues M-d:Disc\nM-s:AllState M-o:Open M-c:Closed M-m:Merged │ C-/:Preview",
             type_names[current_type],
             state_names[current_state]
           )
@@ -1461,7 +1461,7 @@ return {
               and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍 ^y:Copy"
             or "⏎:Open ^b:Browser ^n:Comment ^r:👍 ^y:Copy"
           local header = string.format(
-            "%s · State:%s%s%s%s\n%s │ M-t:PRs⇄Issues │ M-s:State │ M-m:Scope │ M-u:Author │ M-l:Label",
+            "%s · State:%s%s%s%s\n%s\nM-t:PRs⇄Issues │ M-s:State │ M-m:Scope │ M-u:Author │ M-l:Label",
             entity_label,
             state_label,
             author_label,

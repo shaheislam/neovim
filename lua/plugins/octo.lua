@@ -23,8 +23,6 @@ return {
       -- ══════════════════════════════════════════════════════════════
       -- ISSUES
       -- ══════════════════════════════════════════════════════════════
-      { "<leader>goi", "<cmd>Octo issue list<cr>", desc = "List issues" },
-      { "<leader>goI", "<cmd>Octo issue search<cr>", desc = "Search issues" },
       { "<leader>goc", "<cmd>Octo issue create<cr>", desc = "Create issue" },
 
       -- ══════════════════════════════════════════════════════════════
@@ -39,11 +37,9 @@ return {
             vim.cmd("Octo pr list")
           end
         end,
-        desc = "PRs/Issues (fuzzy: ⏎ open ╱ M-t switch ╱ M-s state ╱ ^d diffview ╱ ^b browser ╱ M-u author)",
+        desc = "PRs & Issues hub (M-t entity | M-s state | M-m scope | M-u author | M-l label | M-f search | M-g global | CR open | ^d diffview | ^x checkout | ^b browser)",
       },
-      { "<leader>goP", "<cmd>Octo pr search<cr>", desc = "Search PRs" },
       { "<leader>goC", "<cmd>Octo pr create<cr>", desc = "Create PR" },
-      { "<leader>gox", "<cmd>Octo pr checkout<cr>", desc = "Checkout PR" },
 
       -- ══════════════════════════════════════════════════════════════
       -- CODE REVIEW

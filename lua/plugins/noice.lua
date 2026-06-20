@@ -266,9 +266,13 @@ return {
     vim.api.nvim_create_autocmd("VimResized", {
       group = vim.api.nvim_create_augroup("NoiceRelayoutOnResize", { clear = true }),
       callback = function()
-        for _, view in pairs(require("noice.view")._views or {}) do
+        -- _views holds wrapper tables { view = <NoiceView>, opts = init_opts }
+        -- (see noice view/init.lua), so reach through entry.view to the real
+        -- view object before relayout — otherwise _nui is nil and this no-ops.
+        for _, entry in pairs(require("noice.view")._views or {}) do
+          local view = entry.view or entry
           pcall(function()
-            if view._nui and view.is_mounted and view:is_mounted() then
+            if view and view._nui and view.is_mounted and view:is_mounted() and view._visible then
               view:update_layout()
             end
           end)

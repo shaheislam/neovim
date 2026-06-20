@@ -27,7 +27,17 @@ return {
       -- ══════════════════════════════════════════════════════════════
       -- PULL REQUESTS
       -- ══════════════════════════════════════════════════════════════
-      { "<leader>gop", "<cmd>Octo pr list<cr>", desc = "List PRs" },
+      {
+        "<leader>gop",
+        function()
+          if _G.octo_pr_picker then
+            _G.octo_pr_picker()
+          else
+            vim.cmd("Octo pr list")
+          end
+        end,
+        desc = "PRs/Issues (fuzzy: ⏎ open ╱ M-p/M-i switch ╱ ^d diffview ╱ ^b browser ╱ M-u author)",
+      },
       { "<leader>goP", "<cmd>Octo pr search<cr>", desc = "Search PRs" },
       { "<leader>goC", "<cmd>Octo pr create<cr>", desc = "Create PR" },
       { "<leader>gox", "<cmd>Octo pr checkout<cr>", desc = "Checkout PR" },
@@ -386,17 +396,13 @@ return {
         return nil
       end
 
-      ---Open current Octo PR in DiffView
+      ---Open a PR in DiffView from explicit PR metadata (no Octo buffer required)
+      ---@param pr_info table {base, head, repo, number, state, headSha}
       ---@param opts? {notify: boolean}
-      local function open_pr_in_diffview(opts)
+      local function open_pr_from_info(pr_info, opts)
         opts = opts or { notify = true }
 
-        local pr_info = get_octo_pr_info()
-
         if not pr_info then
-          if opts.notify then
-            vim.notify("No Octo PR buffer found. Open a PR with :Octo pr list first.", vim.log.levels.WARN)
-          end
           return false
         end
 
@@ -712,9 +718,24 @@ return {
         return true
       end
 
+      ---Open current Octo PR in DiffView (resolves PR info from current buffer)
+      ---@param opts? {notify: boolean}
+      local function open_pr_in_diffview(opts)
+        opts = opts or { notify = true }
+        local pr_info = get_octo_pr_info()
+        if not pr_info then
+          if opts.notify then
+            vim.notify("No Octo PR buffer found. Open a PR with :Octo pr list first.", vim.log.levels.WARN)
+          end
+          return false
+        end
+        return open_pr_from_info(pr_info, opts)
+      end
+
       -- Expose for use in keymaps (used by the keys array above)
       _G.octo_diffview = {
         open_pr_in_diffview = open_pr_in_diffview,
+        open_pr_from_info = open_pr_from_info,
         get_octo_pr_info = get_octo_pr_info,
       }
 
@@ -1101,6 +1122,242 @@ return {
         end
         original_do_add_issue_comment(self, comment_metadata)
       end
+
+      -- ══════════════════════════════════════════════════════════════
+      -- Custom fzf-lua GitHub picker — fuzzy-search PRs *and* Issues:
+      --   Enter   → open in Octo buffer (edit)
+      --   ctrl-d  → open PR in Diffview            (PRs only)
+      --   ctrl-b  → open in browser
+      --   ctrl-x  → checkout PR branch             (PRs only)
+      --   alt-p / alt-i → switch entity PRs ╱ Issues
+      --   alt-o/c/m/a   → filter Open/Closed/Merged/All (persisted per entity)
+      --   alt-u         → filter by author (blank = clear, @me = you)
+      -- NOTE: alt-* (not ctrl-i) is used for switches — ctrl-i == Tab in terminals.
+      -- ══════════════════════════════════════════════════════════════
+
+      -- Persisted filters across picker invocations
+      local gh_entity = "pr" -- "pr" | "issue"
+      local pr_state_filter = "open" -- "open", "closed", "merged", "all"
+      local issue_state_filter = "open" -- "open", "closed", "all"
+      local gh_author_filter = nil -- login string, "@me", or nil (no filter)
+
+      -- Map a `gh pr list` JSON entry to the pr_info shape the diffview core consumes
+      local function pr_info_from(pr, repo)
+        return {
+          repo = repo,
+          number = pr.number,
+          base = pr.baseRefName,
+          head = pr.headRefName,
+          state = pr.state,
+          headSha = pr.headRefOid,
+        }
+      end
+
+      local gh_picker
+      gh_picker = function()
+        -- Resolve current repo (owner/name)
+        local repo =
+          vim.trim(vim.fn.system("MISE_QUIET=1 gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null"))
+        if vim.v.shell_error ~= 0 or repo == "" then
+          vim.notify("Not in a GitHub repo (gh repo view failed)", vim.log.levels.ERROR)
+          return
+        end
+
+        local entity = gh_entity
+        local cur_state = (entity == "pr") and pr_state_filter or issue_state_filter
+        local author_arg = gh_author_filter and (" --author " .. vim.fn.shellescape(gh_author_filter)) or ""
+
+        -- Fetch list as JSON for the current entity + state + author filter
+        local cmd
+        if entity == "pr" then
+          cmd = string.format(
+            "MISE_QUIET=1 gh pr list --state %s --limit 200 --json number,title,headRefName,baseRefName,state,headRefOid,author,isDraft,reviewDecision,updatedAt%s",
+            cur_state,
+            author_arg
+          )
+        else
+          cmd = string.format(
+            "MISE_QUIET=1 gh issue list --state %s --limit 200 --json number,title,state,author,updatedAt%s",
+            cur_state,
+            author_arg
+          )
+        end
+        local raw = vim.fn.system(cmd)
+        if vim.v.shell_error ~= 0 then
+          vim.notify("gh " .. entity .. " list failed: " .. raw, vim.log.levels.ERROR)
+          return
+        end
+        local ok, items = pcall(vim.json.decode, raw)
+        if not ok or type(items) ~= "table" then
+          vim.notify("Failed to parse gh " .. entity .. " list output", vim.log.levels.ERROR)
+          return
+        end
+
+        -- Build display lines + number→item lookup
+        local item_by_num = {}
+        local display_items = {}
+        for _, it in ipairs(items) do
+          item_by_num[it.number] = it
+
+          -- Plain (uncolored) number first for robust field/preview extraction
+          local num_text = "#" .. it.number
+
+          -- ANSI-colored state label
+          local state_key = it.state and it.state:lower() or "open"
+          local label, hl
+          if it.isDraft then
+            label, hl = "[DRAFT]", "Comment"
+          elseif state_key == "open" then
+            label, hl = "[OPEN]", "OctoGreen"
+          elseif state_key == "merged" then
+            label, hl = "[MERGED]", "OctoPurple"
+          else
+            label, hl = "[CLOSED]", "OctoRed"
+          end
+          local state_text = fzf.utils.ansi_from_hl(hl, label)
+
+          local author = it.author and it.author.login or "?"
+          local author_text = fzf.utils.ansi_from_hl("Comment", "@" .. author)
+
+          local parts = { num_text, state_text, it.title or "", author_text }
+          if entity == "pr" then
+            local branch_text = fzf.utils.ansi_from_hl("Number", it.headRefName or "")
+            table.insert(parts, branch_text)
+          end
+          table.insert(display_items, table.concat(parts, " "))
+        end
+
+        local entity_label = (entity == "pr") and "PRs" or "Issues"
+        if #display_items == 0 then
+          display_items = { "-- No " .. cur_state .. " " .. entity_label .. " found --" }
+        end
+
+        -- Resolve the selected item from a (possibly ansi-stripped) fzf line
+        local function item_from_selection(selected)
+          if not selected or #selected == 0 then
+            return nil
+          end
+          local line = fzf.utils.strip_ansi_coloring(selected[1])
+          local num = line:match("#(%d+)")
+          if not num then
+            return nil
+          end
+          return item_by_num[tonumber(num)]
+        end
+
+        -- Entity switch: persist + re-invoke picker
+        local function set_entity(e)
+          return function()
+            gh_entity = e
+            vim.schedule(gh_picker)
+          end
+        end
+
+        -- State filter switch: persist (per entity) + re-invoke picker
+        local function set_state(state)
+          return function()
+            if gh_entity == "pr" then
+              pr_state_filter = state
+            else
+              -- Issues have no "merged" state — fall back to "all"
+              issue_state_filter = (state == "merged") and "all" or state
+            end
+            vim.schedule(gh_picker)
+          end
+        end
+
+        -- Author filter: prompt, persist, re-invoke (blank clears)
+        local function prompt_author()
+          vim.schedule(function()
+            vim.ui.input({ prompt = "Filter by author (blank = clear, @me = you): " }, function(input)
+              if input == nil then
+                return
+              end -- cancelled → keep current
+              input = vim.trim(input)
+              gh_author_filter = (input ~= "") and input or nil
+              gh_picker()
+            end)
+          end)
+        end
+
+        local state_names = { open = "Open", closed = "Closed", merged = "Merged", all = "All" }
+        local state_label = state_names[cur_state] or cur_state
+        local author_label = gh_author_filter and (" │ Author: " .. gh_author_filter) or ""
+        local act_hints = (entity == "pr") and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout"
+          or "⏎:Open ^b:Browser"
+        local header = string.format(
+          "%s · State:%s%s\n%s │ M-p:PRs M-i:Issues │ M-o:Open M-c:Closed M-m:Merged M-a:All │ M-u:Author",
+          entity_label,
+          state_label,
+          author_label,
+          act_hints
+        )
+
+        -- Entity-aware actions (PR-only actions added conditionally below)
+        local view_cmd = (entity == "pr") and "pr" or "issue"
+        local actions = {
+          ["default"] = function(selected)
+            local it = item_from_selection(selected)
+            if it then
+              vim.cmd("Octo " .. view_cmd .. " edit " .. it.number)
+            end
+          end,
+          ["ctrl-b"] = function(selected)
+            local it = item_from_selection(selected)
+            if it then
+              vim.fn.system("MISE_QUIET=1 gh " .. view_cmd .. " view " .. it.number .. " --web")
+            end
+          end,
+          ["alt-p"] = set_entity("pr"),
+          ["alt-i"] = set_entity("issue"),
+          ["alt-o"] = set_state("open"),
+          ["alt-c"] = set_state("closed"),
+          ["alt-m"] = set_state("merged"),
+          ["alt-a"] = set_state("all"),
+          ["alt-u"] = prompt_author,
+        }
+        if entity == "pr" then
+          actions["ctrl-d"] = function(selected)
+            local it = item_from_selection(selected)
+            if it then
+              if _G.octo_diffview and _G.octo_diffview.open_pr_from_info then
+                _G.octo_diffview.open_pr_from_info(pr_info_from(it, repo))
+              else
+                vim.notify("Octo diffview core not available", vim.log.levels.WARN)
+              end
+            end
+          end
+          actions["ctrl-x"] = function(selected)
+            local it = item_from_selection(selected)
+            if it then
+              vim.cmd("Octo pr checkout " .. it.number)
+            end
+          end
+        end
+
+        fzf.fzf_exec(display_items, {
+          prompt = entity_label .. "> ",
+          fzf_opts = {
+            ["--no-multi"] = "",
+            ["--header"] = header,
+            ["--info"] = "default",
+          },
+          winopts = {
+            title = string.format(" %s (%s) ", entity_label, state_label),
+            title_pos = "center",
+          },
+          -- Strip the leading '#' from field {1} so `gh <entity> view <n>` resolves
+          preview = "MISE_QUIET=1 GH_FORCE_TTY=80% gh "
+            .. view_cmd
+            .. " view $(echo {1} | tr -d '#') --color=always 2>/dev/null",
+          actions = actions,
+          silent = true,
+        })
+      end
+
+      -- Back-compat alias: the <leader>gop keymap calls _G.octo_pr_picker
+      _G.octo_pr_picker = gh_picker
+      _G.octo_gh_picker = gh_picker
 
       -- KEY FIX: Patch octo.picker directly (not package.loaded)
       -- This overwrites the already-assigned function reference

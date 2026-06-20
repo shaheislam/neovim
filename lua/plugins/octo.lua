@@ -1134,7 +1134,7 @@ return {
       --             PRs: open→merged→closed→all   Issues: open→closed→all
       --   alt-u   → filter by author (blank = clear, @me = you)
       --   alt-m   → cycle scope (review-requested/assigned/created; review-requested = PRs only)
-      --   alt-l   → filter by label (blank = clear)
+      --   alt-l   → filter by label(s), comma-separated (AND; blank = clear)
       --   alt-g   → toggle repo ⇄ global (your work across all repos, via gh search)
       --   alt-f   → server-side search (GitHub query; bypasses the 200-item ceiling)
       --   alt-r   → force-refresh (clear cache for current filters, re-fetch)
@@ -1149,7 +1149,7 @@ return {
       local issue_state_filter = "open" -- "open", "closed", "all"
       local gh_author_filter = nil -- login string, "@me", or nil (no filter)
       local gh_scope = "none" -- "none" | "review-requested" | "assigned" | "created"
-      local gh_label_filter = nil -- label name string, or nil (no filter)
+      local gh_label_filter = nil -- list of label names, or nil (no filter)
       local gh_repo_scope = "repo" -- "repo" (current repo) | "global" (all my repos)
       local gh_search_query = nil -- free-text GitHub search query, or nil
       local gh_repo = nil -- owner/name, resolved once per top-level invocation
@@ -1168,7 +1168,7 @@ return {
           cur_state,
           gh_scope,
           gh_author_filter or "",
-          gh_label_filter or "",
+          gh_label_filter and table.concat(gh_label_filter, ",") or "",
           gh_repo_scope,
           gh_search_query or "",
           gh_repo or "",
@@ -1509,14 +1509,26 @@ return {
           -- Label filter: prompt, persist, re-invoke (blank clears)
           local function prompt_label()
             vim.schedule(function()
-              vim.ui.input({ prompt = "Filter by label (blank = clear): " }, function(input)
-                if input == nil then
-                  return
+              local current = gh_label_filter and table.concat(gh_label_filter, ", ") or ""
+              vim.ui.input(
+                { prompt = "Filter by label(s), comma-separated (blank = clear): ", default = current },
+                function(input)
+                  if input == nil then
+                    return
+                  end
+                  -- Split on commas; trim each; drop empties. AND semantics (gh
+                  -- `--label` repeated). nil when nothing remains.
+                  local labels = {}
+                  for _, label in ipairs(vim.split(input, ",", { trimempty = true })) do
+                    local trimmed = vim.trim(label)
+                    if trimmed ~= "" then
+                      table.insert(labels, trimmed)
+                    end
+                  end
+                  gh_label_filter = (#labels > 0) and labels or nil
+                  gh_picker()
                 end
-                input = vim.trim(input)
-                gh_label_filter = (input ~= "") and input or nil
-                gh_picker()
-              end)
+              )
             end)
           end
 
@@ -1551,7 +1563,7 @@ return {
           local state_label = state_names[cur_state] or cur_state
           local author_label = gh_author_filter and (" │ Author: " .. gh_author_filter) or ""
           local scope_label = (gh_scope ~= "none") and (" │ Scope: " .. gh_scope) or ""
-          local label_label = gh_label_filter and (" │ Label: " .. gh_label_filter) or ""
+          local label_label = gh_label_filter and (" │ Label: " .. table.concat(gh_label_filter, ", ")) or ""
           local global_label = global and " │ Global" or ""
           local search_label = gh_search_query and (" │ Search: " .. gh_search_query) or ""
           local act_hints = (entity == "pr")
@@ -1770,8 +1782,10 @@ return {
             table.insert(args, "--merged")
           end
           if gh_label_filter then
-            table.insert(args, "--label")
-            table.insert(args, gh_label_filter)
+            for _, label in ipairs(gh_label_filter) do
+              table.insert(args, "--label")
+              table.insert(args, label)
+            end
           end
           if gh_search_query then
             table.insert(args, gh_search_query)
@@ -1787,8 +1801,10 @@ return {
               table.insert(args, gh_author_filter)
             end
             if gh_label_filter then
-              table.insert(args, "--label")
-              table.insert(args, gh_label_filter)
+              for _, label in ipairs(gh_label_filter) do
+                table.insert(args, "--label")
+                table.insert(args, label)
+              end
             end
           else
             table.insert(args, "--state")
@@ -1812,7 +1828,9 @@ return {
               table.insert(q, "author:" .. gh_author_filter)
             end
             if gh_label_filter then
-              table.insert(q, 'label:"' .. gh_label_filter .. '"')
+              for _, label in ipairs(gh_label_filter) do
+                table.insert(q, 'label:"' .. label .. '"')
+              end
             end
             if gh_search_query then
               table.insert(q, gh_search_query)

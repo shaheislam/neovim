@@ -1126,10 +1126,16 @@ return {
       --   ctrl-x  → checkout PR branch             (PRs only)
       --   ctrl-n  → quick comment (single-line prompt → gh comment)
       --   ctrl-r  → quick 👍 reaction
+      --   ctrl-y  → copy item URL to clipboard
       --   alt-t   → toggle entity PRs ⇄ Issues
       --   alt-s   → cycle state filter (persisted per entity)
       --             PRs: open→merged→closed→all   Issues: open→closed→all
       --   alt-u   → filter by author (blank = clear, @me = you)
+      --   alt-m   → cycle scope (review-requested/assigned/created; review-requested = PRs only)
+      --   alt-l   → filter by label (blank = clear)
+      --   ctrl-y  -> copy item URL to clipboard
+      --   alt-m   -> cycle scope (review-requested/assigned/created; review-requested = PRs only)
+      --   alt-l   -> filter by label (blank = clear)
       -- Preview is octo's own fzf-lua previewer (Octo-style buffer, focusable).
       -- NOTE: alt-* (not ctrl-i) is used for switches — ctrl-i == Tab in terminals.
       -- ══════════════════════════════════════════════════════════════
@@ -1139,6 +1145,8 @@ return {
       local pr_state_filter = "open" -- "open", "closed", "merged", "all"
       local issue_state_filter = "open" -- "open", "closed", "all"
       local gh_author_filter = nil -- login string, "@me", or nil (no filter)
+      local gh_scope = "none" -- "none" | "review-requested" | "assigned" | "created"
+      local gh_label_filter = nil -- label name string, or nil (no filter)
       local gh_repo = nil -- owner/name, resolved once per top-level invocation
 
       -- Map a `gh pr list` JSON entry to the pr_info shape the diffview core consumes
@@ -1151,6 +1159,105 @@ return {
           state = pr.state,
           headSha = pr.headRefOid,
         }
+      end
+
+      -- CI status glyph from a PR's statusCheckRollup list → (glyph, highlight)
+      local function ci_glyph(rollup)
+        if type(rollup) ~= "table" or #rollup == 0 then
+          return nil
+        end
+        local failed, pending = false, false
+        for _, c in ipairs(rollup) do
+          local s = c.conclusion
+          if s == nil or s == "" then
+            s = c.state or c.status or ""
+          end
+          s = tostring(s):upper()
+          if
+            s == "FAILURE"
+            or s == "ERROR"
+            or s == "TIMED_OUT"
+            or s == "CANCELLED"
+            or s == "ACTION_REQUIRED"
+            or s == "STARTUP_FAILURE"
+          then
+            failed = true
+          elseif
+            s == "PENDING"
+            or s == "IN_PROGRESS"
+            or s == "QUEUED"
+            or s == "WAITING"
+            or s == "EXPECTED"
+            or s == ""
+          then
+            pending = true
+          end
+        end
+        if failed then
+          return "✗", "OctoRed"
+        elseif pending then
+          return "●", "DiagnosticWarn"
+        end
+        return "✓", "OctoGreen"
+      end
+
+      -- Compact relative age from an ISO-8601 timestamp (e.g. "3h", "2d", "1w")
+      local function relative_time(iso)
+        if type(iso) ~= "string" then
+          return nil
+        end
+        local y, mo, d, h, mi, s = iso:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+        if not y then
+          return nil
+        end
+        local t = os.time({
+          year = tonumber(y),
+          month = tonumber(mo),
+          day = tonumber(d),
+          hour = tonumber(h),
+          min = tonumber(mi),
+          sec = tonumber(s),
+        })
+        -- iso is UTC; correct for local timezone offset so "now" compares correctly
+        local offset = os.difftime(os.time(os.date("*t")), os.time(os.date("!*t")))
+        local diff = os.time() - (t - offset)
+        if diff < 0 then
+          diff = 0
+        end
+        if diff < 3600 then
+          return math.max(1, math.floor(diff / 60)) .. "m"
+        elseif diff < 86400 then
+          return math.floor(diff / 3600) .. "h"
+        elseif diff < 604800 then
+          return math.floor(diff / 86400) .. "d"
+        end
+        return math.floor(diff / 604800) .. "w"
+      end
+
+      -- Render up to 3 labels as truecolor ANSI chips ("+N" overflow). Raw SGR
+      -- escapes are stripped by strip_ansi_coloring, so preview_map keys stay stable.
+      local function render_labels(labels)
+        if type(labels) ~= "table" or #labels == 0 then
+          return nil
+        end
+        local out = {}
+        for i, lb in ipairs(labels) do
+          if i > 3 then
+            table.insert(out, "+" .. (#labels - 3))
+            break
+          end
+          local name = lb.name or ""
+          local r, g, b = (lb.color or ""):match("(%x%x)(%x%x)(%x%x)")
+          if r then
+            table.insert(
+              out,
+              string.format("\27[38;2;%d;%d;%dm%s\27[0m", tonumber(r, 16), tonumber(g, 16), tonumber(b, 16), name)
+            )
+          else
+            table.insert(out, name)
+          end
+        end
+        return table.concat(out, ",")
       end
 
       local gh_picker
@@ -1167,8 +1274,8 @@ return {
         local cur_state = (entity == "pr") and pr_state_filter or issue_state_filter
         -- Build `gh <entity> list` argv (async via vim.system; no shell quoting).
         local json_fields = (entity == "pr")
-            and "number,title,headRefName,baseRefName,state,headRefOid,author,isDraft,reviewDecision,updatedAt"
-          or "number,title,state,author,updatedAt"
+            and "number,title,headRefName,baseRefName,state,headRefOid,author,isDraft,reviewDecision,statusCheckRollup,mergeStateStatus,labels,url,updatedAt"
+          or "number,title,state,author,labels,url,updatedAt"
         local list_cmd = (entity == "pr") and "pr" or "issue"
 
         -- render(items): sort, build display lines, wire actions, open fzf.
@@ -1211,6 +1318,15 @@ return {
 
             local parts = { num_text, state_text }
             if entity == "pr" then
+              -- CI status: ✓ passing / ● running / ✗ failing
+              local cg, chl = ci_glyph(it.statusCheckRollup)
+              if cg then
+                table.insert(parts, (fzf.utils.ansi_from_hl(chl, cg)))
+              end
+              -- Merge conflict marker
+              if it.mergeStateStatus == "DIRTY" then
+                table.insert(parts, (fzf.utils.ansi_from_hl("OctoRed", "⚠")))
+              end
               -- Review decision indicator: approved ✓ / changes ✗ / pending •
               local rd = it.reviewDecision
               local rlabel, rhl
@@ -1231,6 +1347,15 @@ return {
             table.insert(parts, author_text)
             if entity == "pr" then
               table.insert(parts, (fzf.utils.ansi_from_hl("Number", it.headRefName or "")))
+            end
+            -- Labels (truecolor) + relative age, for both entities
+            local lbls = render_labels(it.labels)
+            if lbls then
+              table.insert(parts, lbls)
+            end
+            local age = relative_time(it.updatedAt)
+            if age then
+              table.insert(parts, (fzf.utils.ansi_from_hl("Comment", "· " .. age)))
             end
             local line = table.concat(parts, " ")
             table.insert(display_items, line)
@@ -1295,17 +1420,53 @@ return {
             end)
           end
 
+          -- Scope cycle: filter to your review queue / assigned / created work.
+          -- review-requested is PR-only; issues skip straight to assigned.
+          local function cycle_scope()
+            local nx
+            if gh_entity == "pr" then
+              nx = {
+                none = "review-requested",
+                ["review-requested"] = "assigned",
+                assigned = "created",
+                created = "none",
+              }
+            else
+              nx = { none = "assigned", assigned = "created", created = "none" }
+            end
+            gh_scope = nx[gh_scope] or "none"
+            vim.schedule(gh_picker)
+          end
+
+          -- Label filter: prompt, persist, re-invoke (blank clears)
+          local function prompt_label()
+            vim.schedule(function()
+              vim.ui.input({ prompt = "Filter by label (blank = clear): " }, function(input)
+                if input == nil then
+                  return
+                end
+                input = vim.trim(input)
+                gh_label_filter = (input ~= "") and input or nil
+                gh_picker()
+              end)
+            end)
+          end
+
           local state_names = { open = "Open", closed = "Closed", merged = "Merged", all = "All" }
           local state_label = state_names[cur_state] or cur_state
           local author_label = gh_author_filter and (" │ Author: " .. gh_author_filter) or ""
+          local scope_label = (gh_scope ~= "none") and (" │ Scope: " .. gh_scope) or ""
+          local label_label = gh_label_filter and (" │ Label: " .. gh_label_filter) or ""
           local act_hints = (entity == "pr")
-              and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍"
-            or "⏎:Open ^b:Browser ^n:Comment ^r:👍"
+              and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍 ^y:Copy"
+            or "⏎:Open ^b:Browser ^n:Comment ^r:👍 ^y:Copy"
           local header = string.format(
-            "%s · State:%s%s\n%s │ M-t:PRs⇄Issues │ M-s:cycle state │ M-u:Author",
+            "%s · State:%s%s%s%s\n%s │ M-t:PRs⇄Issues │ M-s:State │ M-m:Scope │ M-u:Author │ M-l:Label",
             entity_label,
             state_label,
             author_label,
+            scope_label,
+            label_label,
             act_hints
           )
 
@@ -1327,6 +1488,8 @@ return {
             ["alt-t"] = toggle_entity,
             ["alt-s"] = cycle_state,
             ["alt-u"] = prompt_author,
+            ["alt-m"] = cycle_scope,
+            ["alt-l"] = prompt_label,
             -- Quick comment: prompt (single-line) then post via gh. Works for
             -- both PRs and issues (`gh pr comment` / `gh issue comment`).
             ["ctrl-n"] = function(selected)
@@ -1375,6 +1538,14 @@ return {
                   end)
                 end
               )
+            end,
+            -- Copy the selected item URL to the system clipboard
+            ["ctrl-y"] = function(selected)
+              local it = item_from_selection(selected)
+              if it and it.url then
+                vim.fn.setreg("+", it.url)
+                vim.notify("Copied " .. it.url)
+              end
             end,
           }
           if entity == "pr" then
@@ -1429,12 +1600,52 @@ return {
           fzf.fzf_exec(display_items, exec_opts)
         end
 
-        -- Build the argv for the current entity + state + author filter.
-        local args =
-          { "gh", list_cmd, "list", "--state", cur_state, "--limit", "200", "--json", json_fields }
-        if gh_author_filter then
-          table.insert(args, "--author")
-          table.insert(args, gh_author_filter)
+        -- Build the argv. With no scope filter we use plain --state/--author/--label
+        -- flags; any scope switches to a --search query so GitHub search
+        -- qualifiers govern the result set.
+        local args = { "gh", list_cmd, "list", "--limit", "200", "--json", json_fields }
+        local scope = gh_scope
+        -- review-requested only applies to PRs; degrade to assigned for issues.
+        if scope == "review-requested" and entity ~= "pr" then
+          scope = "assigned"
+        end
+        if scope == "none" then
+          table.insert(args, "--state")
+          table.insert(args, cur_state)
+          if gh_author_filter then
+            table.insert(args, "--author")
+            table.insert(args, gh_author_filter)
+          end
+          if gh_label_filter then
+            table.insert(args, "--label")
+            table.insert(args, gh_label_filter)
+          end
+        else
+          table.insert(args, "--state")
+          table.insert(args, "all")
+          local q = {}
+          if scope == "review-requested" then
+            table.insert(q, "review-requested:@me")
+          elseif scope == "assigned" then
+            table.insert(q, "assignee:@me")
+          elseif scope == "created" then
+            table.insert(q, "author:@me")
+          end
+          if cur_state == "open" then
+            table.insert(q, "is:open")
+          elseif cur_state == "closed" then
+            table.insert(q, "is:closed")
+          elseif cur_state == "merged" then
+            table.insert(q, "is:merged")
+          end
+          if gh_author_filter then
+            table.insert(q, "author:" .. gh_author_filter)
+          end
+          if gh_label_filter then
+            table.insert(q, 'label:"' .. gh_label_filter .. '"')
+          end
+          table.insert(args, "--search")
+          table.insert(args, table.concat(q, " "))
         end
 
         -- Fetch asynchronously so the UI never blocks on slow networks; each

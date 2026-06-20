@@ -1121,9 +1121,11 @@ return {
       -- ══════════════════════════════════════════════════════════════
       -- Custom fzf-lua GitHub picker — fuzzy-search PRs *and* Issues:
       --   Enter   → open in Octo buffer (edit)
-      --   ctrl-d  → open PR in Diffview            (PRs only)
+      --   ctrl-s  → open in horizontal split
+      --   ctrl-v  → open in vertical split
+      --   ctrl-d  → open PR in Diffview            (PRs only, repo mode)
       --   ctrl-b  → open in browser
-      --   ctrl-x  → checkout PR branch             (PRs only)
+      --   ctrl-x  → checkout PR branch             (PRs only, repo mode)
       --   ctrl-n  → quick comment (single-line prompt → gh comment)
       --   ctrl-r  → quick 👍 reaction
       --   ctrl-y  → copy item URL to clipboard
@@ -1133,9 +1135,10 @@ return {
       --   alt-u   → filter by author (blank = clear, @me = you)
       --   alt-m   → cycle scope (review-requested/assigned/created; review-requested = PRs only)
       --   alt-l   → filter by label (blank = clear)
-      --   ctrl-y  -> copy item URL to clipboard
-      --   alt-m   -> cycle scope (review-requested/assigned/created; review-requested = PRs only)
-      --   alt-l   -> filter by label (blank = clear)
+      --   alt-g   → toggle repo ⇄ global (your work across all repos, via gh search)
+      --   alt-f   → server-side search (GitHub query; bypasses the 200-item ceiling)
+      --   alt-r   → force-refresh (clear cache for current filters, re-fetch)
+      -- ctrl-n/ctrl-r/ctrl-y keep the picker open (act on several items in a row).
       -- Preview is octo's own fzf-lua previewer (Octo-style buffer, focusable).
       -- NOTE: alt-* (not ctrl-i) is used for switches — ctrl-i == Tab in terminals.
       -- ══════════════════════════════════════════════════════════════
@@ -1147,7 +1150,30 @@ return {
       local gh_author_filter = nil -- login string, "@me", or nil (no filter)
       local gh_scope = "none" -- "none" | "review-requested" | "assigned" | "created"
       local gh_label_filter = nil -- label name string, or nil (no filter)
+      local gh_repo_scope = "repo" -- "repo" (current repo) | "global" (all my repos)
+      local gh_search_query = nil -- free-text GitHub search query, or nil
       local gh_repo = nil -- owner/name, resolved once per top-level invocation
+
+      -- Short-TTL cache of `gh` results, keyed by the full filter tuple, so
+      -- re-invoking the picker with unchanged filters renders instantly.
+      local gh_list_cache = {}
+      local gh_cache_ttl = 30000 -- ms (vim.uv.now); ~30s
+      -- Key over EVERY variable that influences the fetched result set. \31 (unit
+      -- separator) keeps component boundaries unambiguous.
+      local function gh_cache_key()
+        local entity = gh_entity
+        local cur_state = (entity == "pr") and pr_state_filter or issue_state_filter
+        return table.concat({
+          entity,
+          cur_state,
+          gh_scope,
+          gh_author_filter or "",
+          gh_label_filter or "",
+          gh_repo_scope,
+          gh_search_query or "",
+          gh_repo or "",
+        }, "\31")
+      end
 
       -- Map a `gh pr list` JSON entry to the pr_info shape the diffview core consumes
       local function pr_info_from(pr, repo)
@@ -1271,12 +1297,24 @@ return {
         end
 
         local entity = gh_entity
+        local global = (gh_repo_scope == "global")
         local cur_state = (entity == "pr") and pr_state_filter or issue_state_filter
-        -- Build `gh <entity> list` argv (async via vim.system; no shell quoting).
-        local json_fields = (entity == "pr")
-            and "number,title,headRefName,baseRefName,state,headRefOid,author,isDraft,reviewDecision,statusCheckRollup,mergeStateStatus,labels,url,updatedAt"
-          or "number,title,state,author,labels,url,updatedAt"
+        -- Field set differs: `gh search` exposes `repository` but not the PR-rich
+        -- columns (headRefName/reviewDecision/statusCheckRollup/mergeStateStatus).
+        local json_fields
+        if global then
+          json_fields = (entity == "pr")
+              and "number,title,state,author,isDraft,labels,url,updatedAt,repository"
+            or "number,title,state,author,labels,url,updatedAt,repository"
+        else
+          json_fields = (entity == "pr")
+              and "number,title,headRefName,baseRefName,state,headRefOid,author,isDraft,reviewDecision,statusCheckRollup,mergeStateStatus,labels,url,updatedAt"
+            or "number,title,state,author,labels,url,updatedAt"
+        end
         local list_cmd = (entity == "pr") and "pr" or "issue"
+
+        -- Cache key for this exact filter combination (see gh_cache_key).
+        local cache_key = gh_cache_key()
 
         -- render(items): sort, build display lines, wire actions, open fzf.
         local function render(items)
@@ -1318,7 +1356,8 @@ return {
 
             local parts = { num_text, state_text }
             if entity == "pr" then
-              -- CI status: ✓ passing / ● running / ✗ failing
+              -- CI status: ✓ passing / ● running / ✗ failing (repo mode only;
+              -- gh search does not expose statusCheckRollup)
               local cg, chl = ci_glyph(it.statusCheckRollup)
               if cg then
                 table.insert(parts, (fzf.utils.ansi_from_hl(chl, cg)))
@@ -1327,25 +1366,33 @@ return {
               if it.mergeStateStatus == "DIRTY" then
                 table.insert(parts, (fzf.utils.ansi_from_hl("OctoRed", "⚠")))
               end
-              -- Review decision indicator: approved ✓ / changes ✗ / pending •
-              local rd = it.reviewDecision
-              local rlabel, rhl
-              if rd == "APPROVED" then
-                rlabel, rhl = "✓", "OctoGreen"
-              elseif rd == "CHANGES_REQUESTED" then
-                rlabel, rhl = "✗", "OctoRed"
-              elseif rd == "REVIEW_REQUIRED" then
-                rlabel, rhl = "•", "OctoPurple"
-              else
-                rlabel, rhl = "·", "Comment"
+              -- Review decision (repo mode only; absent under gh search)
+              if not global then
+                local rd = it.reviewDecision
+                local rlabel, rhl
+                if rd == "APPROVED" then
+                  rlabel, rhl = "✓", "OctoGreen"
+                elseif rd == "CHANGES_REQUESTED" then
+                  rlabel, rhl = "✗", "OctoRed"
+                elseif rd == "REVIEW_REQUIRED" then
+                  rlabel, rhl = "•", "OctoPurple"
+                else
+                  rlabel, rhl = "·", "Comment"
+                end
+                -- Parenthesize: ansi_from_hl returns multiple values; table.insert
+                -- expands a multi-return last arg, so truncate it to one.
+                table.insert(parts, (fzf.utils.ansi_from_hl(rhl, rlabel)))
               end
-              -- Parenthesize: ansi_from_hl returns multiple values; table.insert
-              -- expands a multi-return last arg, so truncate it to one.
-              table.insert(parts, (fzf.utils.ansi_from_hl(rhl, rlabel)))
             end
             table.insert(parts, it.title or "")
             table.insert(parts, author_text)
-            if entity == "pr" then
+            -- In global mode show the owning repo instead of the head branch.
+            if global then
+              local rname = it.repository and it.repository.nameWithOwner or ""
+              if rname ~= "" then
+                table.insert(parts, (fzf.utils.ansi_from_hl("Directory", rname)))
+              end
+            elseif entity == "pr" then
               table.insert(parts, (fzf.utils.ansi_from_hl("Number", it.headRefName or "")))
             end
             -- Labels (truecolor) + relative age, for both entities
@@ -1359,10 +1406,12 @@ return {
             end
             local line = table.concat(parts, " ")
             table.insert(display_items, line)
-            -- octo's previewer looks the entry up by the ANSI-stripped line.
+            -- octo's previewer looks the entry up by the ANSI-stripped line. In
+            -- global mode each item carries its own repo.
+            local item_repo = global and (it.repository and it.repository.nameWithOwner) or repo
             preview_map[fzf.utils.strip_ansi_coloring(line)] = {
               value = it.number,
-              repo = repo,
+              repo = item_repo,
               kind = (entity == "pr") and "pull_request" or "issue",
               ordinal = it.number .. " " .. (it.title or ""),
             }
@@ -1370,6 +1419,7 @@ return {
 
           local entity_label = (entity == "pr") and "PRs" or "Issues"
           local match_count = #items
+          local view_cmd = (entity == "pr") and "pr" or "issue"
           if #display_items == 0 then
             display_items = { "-- No " .. cur_state .. " " .. entity_label .. " found --" }
           end
@@ -1385,6 +1435,24 @@ return {
               return nil
             end
             return item_by_num[tonumber(num)]
+          end
+
+          -- Resolve an item's repo (per-item in global mode, else the cwd repo)
+          local function repo_of(it)
+            return global and (it.repository and it.repository.nameWithOwner) or repo
+          end
+
+          -- Open an item's Octo buffer, optionally in a split. In global mode the
+          -- item may live in another repo, so open by URL (octo parses any repo).
+          local function open_item(it, splitcmd)
+            if splitcmd then
+              vim.cmd(splitcmd)
+            end
+            if global and it.url then
+              vim.cmd("Octo " .. it.url)
+            else
+              vim.cmd("Octo " .. view_cmd .. " edit " .. it.number)
+            end
           end
 
           -- Entity toggle: PRs ⇄ Issues (persist + re-invoke picker)
@@ -1452,37 +1520,81 @@ return {
             end)
           end
 
+          -- Toggle current-repo ⇄ global "my work across all repos" (gh search)
+          local function cycle_repo_scope()
+            gh_repo_scope = (gh_repo_scope == "repo") and "global" or "repo"
+            vim.schedule(gh_picker)
+          end
+
+          -- Server-side search: send a GitHub query so matching happens server
+          -- side across all items (blank clears, returning to the listing).
+          local function prompt_search()
+            vim.schedule(function()
+              vim.ui.input({ prompt = "Server search (GitHub query, blank = clear): " }, function(input)
+                if input == nil then
+                  return
+                end
+                input = vim.trim(input)
+                gh_search_query = (input ~= "") and input or nil
+                gh_picker()
+              end)
+            end)
+          end
+
+          -- Force-refresh: drop this combo's cache entry and re-fetch from gh.
+          local function force_refresh()
+            gh_list_cache[cache_key] = nil
+            vim.schedule(gh_picker)
+          end
+
           local state_names = { open = "Open", closed = "Closed", merged = "Merged", all = "All" }
           local state_label = state_names[cur_state] or cur_state
           local author_label = gh_author_filter and (" │ Author: " .. gh_author_filter) or ""
           local scope_label = (gh_scope ~= "none") and (" │ Scope: " .. gh_scope) or ""
           local label_label = gh_label_filter and (" │ Label: " .. gh_label_filter) or ""
+          local global_label = global and " │ Global" or ""
+          local search_label = gh_search_query and (" │ Search: " .. gh_search_query) or ""
           local act_hints = (entity == "pr")
-              and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍 ^y:Copy"
-            or "⏎:Open ^b:Browser ^n:Comment ^r:👍 ^y:Copy"
+              and "⏎:Open ^s:HSplit ^v:VSplit ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍 ^y:Copy"
+            or "⏎:Open ^s:HSplit ^v:VSplit ^b:Browser ^n:Comment ^r:👍 ^y:Copy"
           local header = string.format(
-            "%s · State:%s%s%s%s\n%s\nM-t:PRs⇄Issues │ M-s:State │ M-m:Scope │ M-u:Author │ M-l:Label",
+            "%s · State:%s%s%s%s%s%s\n%s\nM-t:PRs⇄Issues │ M-s:State │ M-m:Scope │ M-u:Author │ M-l:Label │ M-g:Global │ M-f:Search │ M-r:Refresh",
             entity_label,
             state_label,
             author_label,
             scope_label,
             label_label,
+            global_label,
+            search_label,
             act_hints
           )
 
           -- Entity-aware actions (PR-only actions added conditionally below)
-          local view_cmd = (entity == "pr") and "pr" or "issue"
           local actions = {
             ["default"] = function(selected)
               local it = item_from_selection(selected)
               if it then
-                vim.cmd("Octo " .. view_cmd .. " edit " .. it.number)
+                open_item(it)
+              end
+            end,
+            ["ctrl-s"] = function(selected)
+              local it = item_from_selection(selected)
+              if it then
+                open_item(it, "split")
+              end
+            end,
+            ["ctrl-v"] = function(selected)
+              local it = item_from_selection(selected)
+              if it then
+                open_item(it, "vsplit")
               end
             end,
             ["ctrl-b"] = function(selected)
               local it = item_from_selection(selected)
               if it then
-                vim.fn.system("MISE_QUIET=1 gh " .. view_cmd .. " view " .. it.number .. " --web")
+                vim.fn.system(
+                  "MISE_QUIET=1 gh " .. view_cmd .. " view " .. it.number .. " --repo " .. repo_of(it) .. " --web"
+                )
               end
             end,
             ["alt-t"] = toggle_entity,
@@ -1490,69 +1602,83 @@ return {
             ["alt-u"] = prompt_author,
             ["alt-m"] = cycle_scope,
             ["alt-l"] = prompt_label,
+            ["alt-g"] = cycle_repo_scope,
+            ["alt-f"] = prompt_search,
+            ["alt-r"] = force_refresh,
             -- Quick comment: prompt (single-line) then post via gh. Works for
-            -- both PRs and issues (`gh pr comment` / `gh issue comment`).
-            ["ctrl-n"] = function(selected)
-              local it = item_from_selection(selected)
-              if not it then
-                return
-              end
-              vim.schedule(function()
-                vim.ui.input({ prompt = "Comment on #" .. it.number .. ": " }, function(input)
-                  if input == nil or vim.trim(input) == "" then
-                    return
-                  end
-                  vim.system(
-                    { "gh", view_cmd, "comment", tostring(it.number), "--body", input },
-                    { text = true, env = { MISE_QUIET = "1" } },
-                    function(obj)
-                      vim.schedule(function()
-                        if obj.code == 0 then
-                          vim.notify("Commented on #" .. it.number)
-                        else
-                          vim.notify("Comment failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
-                        end
-                      end)
-                    end
-                  )
-                end)
-              end)
-            end,
-            -- Quick 👍 reaction via the REST reactions endpoint (PRs are issues
-            -- for this endpoint, so the same path works for both entities).
-            ["ctrl-r"] = function(selected)
-              local it = item_from_selection(selected)
-              if not it then
-                return
-              end
-              vim.system(
-                { "gh", "api", "repos/" .. repo .. "/issues/" .. it.number .. "/reactions", "-f", "content=+1" },
-                { text = true, env = { MISE_QUIET = "1" } },
-                function(obj)
-                  vim.schedule(function()
-                    if obj.code == 0 then
-                      vim.notify("👍 reacted to #" .. it.number)
-                    else
-                      vim.notify("Reaction failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
-                    end
-                  end)
+            -- both PRs and issues; keeps the picker open (reload) for repeats.
+            ["ctrl-n"] = {
+              reload = true,
+              fn = function(selected)
+                local it = item_from_selection(selected)
+                if not it then
+                  return
                 end
-              )
-            end,
-            -- Copy the selected item URL to the system clipboard
-            ["ctrl-y"] = function(selected)
-              local it = item_from_selection(selected)
-              if it and it.url then
-                vim.fn.setreg("+", it.url)
-                vim.notify("Copied " .. it.url)
-              end
-            end,
+                vim.schedule(function()
+                  vim.ui.input({ prompt = "Comment on #" .. it.number .. ": " }, function(input)
+                    if input == nil or vim.trim(input) == "" then
+                      return
+                    end
+                    vim.system(
+                      { "gh", view_cmd, "comment", tostring(it.number), "--repo", repo_of(it), "--body", input },
+                      { text = true, env = { MISE_QUIET = "1" } },
+                      function(obj)
+                        vim.schedule(function()
+                          if obj.code == 0 then
+                            vim.notify("Commented on #" .. it.number)
+                          else
+                            vim.notify("Comment failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
+                          end
+                        end)
+                      end
+                    )
+                  end)
+                end)
+              end,
+            },
+            -- Quick 👍 reaction via the REST reactions endpoint (PRs are issues
+            -- for this endpoint); keeps the picker open (reload) for repeats.
+            ["ctrl-r"] = {
+              reload = true,
+              fn = function(selected)
+                local it = item_from_selection(selected)
+                if not it then
+                  return
+                end
+                vim.system(
+                  { "gh", "api", "repos/" .. repo_of(it) .. "/issues/" .. it.number .. "/reactions", "-f", "content=+1" },
+                  { text = true, env = { MISE_QUIET = "1" } },
+                  function(obj)
+                    vim.schedule(function()
+                      if obj.code == 0 then
+                        vim.notify("👍 reacted to #" .. it.number)
+                      else
+                        vim.notify("Reaction failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
+                      end
+                    end)
+                  end
+                )
+              end,
+            },
+            -- Copy the selected item URL to the clipboard; keeps picker open.
+            ["ctrl-y"] = {
+              reload = true,
+              fn = function(selected)
+                local it = item_from_selection(selected)
+                if it and it.url then
+                  vim.fn.setreg("+", it.url)
+                  vim.notify("Copied " .. it.url)
+                end
+              end,
+            },
           }
           if entity == "pr" then
             actions["ctrl-d"] = function(selected)
               local it = item_from_selection(selected)
               if it then
-                if _G.octo_diffview and _G.octo_diffview.open_pr_from_info then
+                if global then
+                  vim.notify("Diffview is only available in repo mode", vim.log.levels.WARN)
+                elseif _G.octo_diffview and _G.octo_diffview.open_pr_from_info then
                   _G.octo_diffview.open_pr_from_info(pr_info_from(it, repo))
                 else
                   vim.notify("Octo diffview core not available", vim.log.levels.WARN)
@@ -1562,11 +1688,16 @@ return {
             actions["ctrl-x"] = function(selected)
               local it = item_from_selection(selected)
               if it then
-                vim.cmd("Octo pr checkout " .. it.number)
+                if global then
+                  vim.notify("Checkout is only available in repo mode", vim.log.levels.WARN)
+                else
+                  vim.cmd("Octo pr checkout " .. it.number)
+                end
               end
             end
           end
 
+          local title_mode = global and " · global" or (gh_search_query and " · search" or "")
           local exec_opts = {
             prompt = entity_label .. "> ",
             fzf_opts = {
@@ -1575,7 +1706,7 @@ return {
               ["--info"] = "default",
             },
             winopts = {
-              title = string.format(" %s (%s) · %d ", entity_label, state_label, match_count),
+              title = string.format(" %s (%s)%s · %d ", entity_label, state_label, title_mode, match_count),
               title_pos = "center",
             },
             actions = actions,
@@ -1600,52 +1731,95 @@ return {
           fzf.fzf_exec(display_items, exec_opts)
         end
 
-        -- Build the argv. With no scope filter we use plain --state/--author/--label
-        -- flags; any scope switches to a --search query so GitHub search
-        -- qualifiers govern the result set.
-        local args = { "gh", list_cmd, "list", "--limit", "200", "--json", json_fields }
+        -- Cache hit: a fresh entry for this filter combo renders directly,
+        -- skipping the gh round-trip. alt-r clears it to force a refetch.
+        local cached = gh_list_cache[cache_key]
+        if cached and (vim.uv.now() - cached.time) < gh_cache_ttl then
+          render(cached.items)
+          return
+        end
+
+        -- Build the argv. Global mode fans out across repos via `gh search`;
+        -- repo mode uses `gh <entity> list`, switching to --search when a scope
+        -- or free-text query is active so GitHub qualifiers govern the results.
         local scope = gh_scope
         -- review-requested only applies to PRs; degrade to assigned for issues.
         if scope == "review-requested" and entity ~= "pr" then
           scope = "assigned"
         end
-        if scope == "none" then
-          table.insert(args, "--state")
-          table.insert(args, cur_state)
-          if gh_author_filter then
-            table.insert(args, "--author")
-            table.insert(args, gh_author_filter)
+        local args
+        if global then
+          local sub = (entity == "pr") and "prs" or "issues"
+          args = { "gh", "search", sub, "--limit", "200", "--json", json_fields }
+          if scope == "review-requested" then
+            table.insert(args, "--review-requested=@me")
+          elseif scope == "assigned" then
+            table.insert(args, "--assignee=@me")
+          elseif scope == "created" then
+            table.insert(args, "--author=@me")
+          else
+            table.insert(args, "--involves=@me")
+          end
+          if cur_state == "open" then
+            table.insert(args, "--state")
+            table.insert(args, "open")
+          elseif cur_state == "closed" then
+            table.insert(args, "--state")
+            table.insert(args, "closed")
+          elseif cur_state == "merged" and entity == "pr" then
+            table.insert(args, "--merged")
           end
           if gh_label_filter then
             table.insert(args, "--label")
             table.insert(args, gh_label_filter)
           end
+          if gh_search_query then
+            table.insert(args, gh_search_query)
+          end
         else
-          table.insert(args, "--state")
-          table.insert(args, "all")
-          local q = {}
-          if scope == "review-requested" then
-            table.insert(q, "review-requested:@me")
-          elseif scope == "assigned" then
-            table.insert(q, "assignee:@me")
-          elseif scope == "created" then
-            table.insert(q, "author:@me")
+          args = { "gh", list_cmd, "list", "--limit", "200", "--json", json_fields }
+          local use_search = (scope ~= "none") or (gh_search_query ~= nil)
+          if not use_search then
+            table.insert(args, "--state")
+            table.insert(args, cur_state)
+            if gh_author_filter then
+              table.insert(args, "--author")
+              table.insert(args, gh_author_filter)
+            end
+            if gh_label_filter then
+              table.insert(args, "--label")
+              table.insert(args, gh_label_filter)
+            end
+          else
+            table.insert(args, "--state")
+            table.insert(args, "all")
+            local q = {}
+            if scope == "review-requested" then
+              table.insert(q, "review-requested:@me")
+            elseif scope == "assigned" then
+              table.insert(q, "assignee:@me")
+            elseif scope == "created" then
+              table.insert(q, "author:@me")
+            end
+            if cur_state == "open" then
+              table.insert(q, "is:open")
+            elseif cur_state == "closed" then
+              table.insert(q, "is:closed")
+            elseif cur_state == "merged" then
+              table.insert(q, "is:merged")
+            end
+            if gh_author_filter then
+              table.insert(q, "author:" .. gh_author_filter)
+            end
+            if gh_label_filter then
+              table.insert(q, 'label:"' .. gh_label_filter .. '"')
+            end
+            if gh_search_query then
+              table.insert(q, gh_search_query)
+            end
+            table.insert(args, "--search")
+            table.insert(args, table.concat(q, " "))
           end
-          if cur_state == "open" then
-            table.insert(q, "is:open")
-          elseif cur_state == "closed" then
-            table.insert(q, "is:closed")
-          elseif cur_state == "merged" then
-            table.insert(q, "is:merged")
-          end
-          if gh_author_filter then
-            table.insert(q, "author:" .. gh_author_filter)
-          end
-          if gh_label_filter then
-            table.insert(q, 'label:"' .. gh_label_filter .. '"')
-          end
-          table.insert(args, "--search")
-          table.insert(args, table.concat(q, " "))
         end
 
         -- Fetch asynchronously so the UI never blocks on slow networks; each
@@ -1653,14 +1827,15 @@ return {
         vim.system(args, { text = true, env = { MISE_QUIET = "1" } }, function(obj)
           vim.schedule(function()
             if obj.code ~= 0 then
-              vim.notify("gh " .. entity .. " list failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
+              vim.notify("gh " .. entity .. " fetch failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
               return
             end
             local ok, items = pcall(vim.json.decode, obj.stdout or "")
             if not ok or type(items) ~= "table" then
-              vim.notify("Failed to parse gh " .. entity .. " list output", vim.log.levels.ERROR)
+              vim.notify("Failed to parse gh " .. entity .. " output", vim.log.levels.ERROR)
               return
             end
+            gh_list_cache[cache_key] = { time = vim.uv.now(), items = items }
             render(items)
           end)
         end)

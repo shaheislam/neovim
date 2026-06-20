@@ -258,6 +258,24 @@ return {
       end,
     })
 
+    -- Re-layout open noice floats on terminal/pane resize. noice ships no
+    -- VimResized handler, so editor-relative popups (cmdline, input(), search)
+    -- compute position/size once at mount and drift off-center when the pane is
+    -- zoomed. update_layout() recomputes against the new vim.o.columns and
+    -- repositions the existing window (input text + cursor preserved).
+    vim.api.nvim_create_autocmd("VimResized", {
+      group = vim.api.nvim_create_augroup("NoiceRelayoutOnResize", { clear = true }),
+      callback = function()
+        for _, view in pairs(require("noice.view")._views or {}) do
+          pcall(function()
+            if view._nui and view.is_mounted and view:is_mounted() then
+              view:update_layout()
+            end
+          end)
+        end
+      end,
+    })
+
     -- Auto-dismiss disabled: messages persist in split view
     -- vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
     --   callback = function()

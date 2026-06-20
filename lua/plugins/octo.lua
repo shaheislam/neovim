@@ -1162,223 +1162,238 @@ return {
 
         local entity = gh_entity
         local cur_state = (entity == "pr") and pr_state_filter or issue_state_filter
-        local author_arg = gh_author_filter and (" --author " .. vim.fn.shellescape(gh_author_filter)) or ""
+        -- Build `gh <entity> list` argv (async via vim.system; no shell quoting).
+        local json_fields = (entity == "pr")
+            and "number,title,headRefName,baseRefName,state,headRefOid,author,isDraft,reviewDecision,updatedAt"
+          or "number,title,state,author,updatedAt"
+        local list_cmd = (entity == "pr") and "pr" or "issue"
 
-        -- Fetch list as JSON for the current entity + state + author filter
-        local cmd
-        if entity == "pr" then
-          cmd = string.format(
-            "MISE_QUIET=1 gh pr list --state %s --limit 200 --json number,title,headRefName,baseRefName,state,headRefOid,author,isDraft,reviewDecision,updatedAt%s",
-            cur_state,
-            author_arg
-          )
-        else
-          cmd = string.format(
-            "MISE_QUIET=1 gh issue list --state %s --limit 200 --json number,title,state,author,updatedAt%s",
-            cur_state,
-            author_arg
-          )
-        end
-        local raw = vim.fn.system(cmd)
-        if vim.v.shell_error ~= 0 then
-          vim.notify("gh " .. entity .. " list failed: " .. raw, vim.log.levels.ERROR)
-          return
-        end
-        local ok, items = pcall(vim.json.decode, raw)
-        if not ok or type(items) ~= "table" then
-          vim.notify("Failed to parse gh " .. entity .. " list output", vim.log.levels.ERROR)
-          return
-        end
-
-        -- Most-recently-updated first (matches octo's UPDATED_AT native pickers).
-        -- updatedAt is ISO-8601, so lexicographic compare gives correct ordering.
-        table.sort(items, function(a, b)
-          return (a.updatedAt or "") > (b.updatedAt or "")
-        end)
-
-        -- Build display lines + number→item lookup
-        local item_by_num = {}
-        local display_items = {}
-        for _, it in ipairs(items) do
-          item_by_num[it.number] = it
-
-          -- Plain (uncolored) number first for robust field/preview extraction
-          local num_text = "#" .. it.number
-
-          -- ANSI-colored state label
-          local state_key = it.state and it.state:lower() or "open"
-          local label, hl
-          if it.isDraft then
-            label, hl = "[DRAFT]", "Comment"
-          elseif state_key == "open" then
-            label, hl = "[OPEN]", "OctoGreen"
-          elseif state_key == "merged" then
-            label, hl = "[MERGED]", "OctoPurple"
-          else
-            label, hl = "[CLOSED]", "OctoRed"
-          end
-          local state_text = fzf.utils.ansi_from_hl(hl, label)
-
-          local author = it.author and it.author.login or "?"
-          local author_text = fzf.utils.ansi_from_hl("Comment", "@" .. author)
-
-          local parts = { num_text, state_text }
-          if entity == "pr" then
-            -- Review decision indicator: approved ✓ / changes ✗ / pending •
-            local rd = it.reviewDecision
-            local rlabel, rhl
-            if rd == "APPROVED" then
-              rlabel, rhl = "✓", "OctoGreen"
-            elseif rd == "CHANGES_REQUESTED" then
-              rlabel, rhl = "✗", "OctoRed"
-            elseif rd == "REVIEW_REQUIRED" then
-              rlabel, rhl = "•", "OctoPurple"
-            else
-              rlabel, rhl = "·", "Comment"
-            end
-            table.insert(parts, fzf.utils.ansi_from_hl(rhl, rlabel))
-          end
-          table.insert(parts, it.title or "")
-          table.insert(parts, author_text)
-          if entity == "pr" then
-            table.insert(parts, fzf.utils.ansi_from_hl("Number", it.headRefName or ""))
-          end
-          table.insert(display_items, table.concat(parts, " "))
-        end
-
-        local entity_label = (entity == "pr") and "PRs" or "Issues"
-        if #display_items == 0 then
-          display_items = { "-- No " .. cur_state .. " " .. entity_label .. " found --" }
-        end
-
-        -- Resolve the selected item from a (possibly ansi-stripped) fzf line
-        local function item_from_selection(selected)
-          if not selected or #selected == 0 then
-            return nil
-          end
-          local line = fzf.utils.strip_ansi_coloring(selected[1])
-          local num = line:match("#(%d+)")
-          if not num then
-            return nil
-          end
-          return item_by_num[tonumber(num)]
-        end
-
-        -- Entity toggle: PRs ⇄ Issues (persist + re-invoke picker)
-        local function toggle_entity()
-          gh_entity = (gh_entity == "pr") and "issue" or "pr"
-          vim.schedule(gh_picker)
-        end
-
-        -- State cycle: advance the filter for the current entity (persist + re-invoke).
-        -- PRs: open→merged→closed→all→open   Issues: open→closed→all→open
-        local function cycle_state()
-          if gh_entity == "pr" then
-            local next_state = { open = "merged", merged = "closed", closed = "all", all = "open" }
-            pr_state_filter = next_state[pr_state_filter] or "open"
-          else
-            local next_state = { open = "closed", closed = "all", all = "open" }
-            issue_state_filter = next_state[issue_state_filter] or "open"
-          end
-          vim.schedule(gh_picker)
-        end
-
-        -- Author filter: prompt, persist, re-invoke (blank clears)
-        local function prompt_author()
-          vim.schedule(function()
-            vim.ui.input({ prompt = "Filter by author (blank = clear, @me = you): " }, function(input)
-              if input == nil then
-                return
-              end -- cancelled → keep current
-              input = vim.trim(input)
-              gh_author_filter = (input ~= "") and input or nil
-              gh_picker()
-            end)
+        -- render(items): sort, build display lines, wire actions, open fzf.
+        local function render(items)
+          -- Most-recently-updated first (matches octo's UPDATED_AT native pickers).
+          -- updatedAt is ISO-8601, so lexicographic compare gives correct ordering.
+          table.sort(items, function(a, b)
+            return (a.updatedAt or "") > (b.updatedAt or "")
           end)
-        end
 
-        local state_names = { open = "Open", closed = "Closed", merged = "Merged", all = "All" }
-        local state_label = state_names[cur_state] or cur_state
-        local author_label = gh_author_filter and (" │ Author: " .. gh_author_filter) or ""
-        local act_hints = (entity == "pr") and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout"
-          or "⏎:Open ^b:Browser"
-        local header = string.format(
-          "%s · State:%s%s\n%s │ M-t:PRs⇄Issues │ M-s:cycle state │ M-u:Author",
-          entity_label,
-          state_label,
-          author_label,
-          act_hints
-        )
+          -- Build display lines + number→item lookup
+          local item_by_num = {}
+          local display_items = {}
+          for _, it in ipairs(items) do
+            item_by_num[it.number] = it
 
-        -- Entity-aware actions (PR-only actions added conditionally below)
-        local view_cmd = (entity == "pr") and "pr" or "issue"
-        local actions = {
-          ["default"] = function(selected)
-            local it = item_from_selection(selected)
-            if it then
-              vim.cmd("Octo " .. view_cmd .. " edit " .. it.number)
+            -- Plain (uncolored) number first for robust field/preview extraction
+            local num_text = "#" .. it.number
+
+            -- ANSI-colored state label
+            local state_key = it.state and it.state:lower() or "open"
+            local label, hl
+            if it.isDraft then
+              label, hl = "[DRAFT]", "Comment"
+            elseif state_key == "open" then
+              label, hl = "[OPEN]", "OctoGreen"
+            elseif state_key == "merged" then
+              label, hl = "[MERGED]", "OctoPurple"
+            else
+              label, hl = "[CLOSED]", "OctoRed"
             end
-          end,
-          ["ctrl-b"] = function(selected)
-            local it = item_from_selection(selected)
-            if it then
-              vim.fn.system("MISE_QUIET=1 gh " .. view_cmd .. " view " .. it.number .. " --web")
-            end
-          end,
-          ["alt-t"] = toggle_entity,
-          ["alt-s"] = cycle_state,
-          ["alt-u"] = prompt_author,
-        }
-        if entity == "pr" then
-          actions["ctrl-d"] = function(selected)
-            local it = item_from_selection(selected)
-            if it then
-              if _G.octo_diffview and _G.octo_diffview.open_pr_from_info then
-                _G.octo_diffview.open_pr_from_info(pr_info_from(it, repo))
+            local state_text = fzf.utils.ansi_from_hl(hl, label)
+
+            local author = it.author and it.author.login or "?"
+            local author_text = fzf.utils.ansi_from_hl("Comment", "@" .. author)
+
+            local parts = { num_text, state_text }
+            if entity == "pr" then
+              -- Review decision indicator: approved ✓ / changes ✗ / pending •
+              local rd = it.reviewDecision
+              local rlabel, rhl
+              if rd == "APPROVED" then
+                rlabel, rhl = "✓", "OctoGreen"
+              elseif rd == "CHANGES_REQUESTED" then
+                rlabel, rhl = "✗", "OctoRed"
+              elseif rd == "REVIEW_REQUIRED" then
+                rlabel, rhl = "•", "OctoPurple"
               else
-                vim.notify("Octo diffview core not available", vim.log.levels.WARN)
+                rlabel, rhl = "·", "Comment"
+              end
+              table.insert(parts, fzf.utils.ansi_from_hl(rhl, rlabel))
+            end
+            table.insert(parts, it.title or "")
+            table.insert(parts, author_text)
+            if entity == "pr" then
+              table.insert(parts, fzf.utils.ansi_from_hl("Number", it.headRefName or ""))
+            end
+            table.insert(display_items, table.concat(parts, " "))
+          end
+
+          local entity_label = (entity == "pr") and "PRs" or "Issues"
+          local match_count = #items
+          if #display_items == 0 then
+            display_items = { "-- No " .. cur_state .. " " .. entity_label .. " found --" }
+          end
+
+          -- Resolve the selected item from a (possibly ansi-stripped) fzf line
+          local function item_from_selection(selected)
+            if not selected or #selected == 0 then
+              return nil
+            end
+            local line = fzf.utils.strip_ansi_coloring(selected[1])
+            local num = line:match("#(%d+)")
+            if not num then
+              return nil
+            end
+            return item_by_num[tonumber(num)]
+          end
+
+          -- Entity toggle: PRs ⇄ Issues (persist + re-invoke picker)
+          local function toggle_entity()
+            gh_entity = (gh_entity == "pr") and "issue" or "pr"
+            vim.schedule(gh_picker)
+          end
+
+          -- State cycle: advance the filter for the current entity (persist + re-invoke).
+          -- PRs: open→merged→closed→all→open   Issues: open→closed→all→open
+          local function cycle_state()
+            if gh_entity == "pr" then
+              local next_state = { open = "merged", merged = "closed", closed = "all", all = "open" }
+              pr_state_filter = next_state[pr_state_filter] or "open"
+            else
+              local next_state = { open = "closed", closed = "all", all = "open" }
+              issue_state_filter = next_state[issue_state_filter] or "open"
+            end
+            vim.schedule(gh_picker)
+          end
+
+          -- Author filter: prompt, persist, re-invoke (blank clears)
+          local function prompt_author()
+            vim.schedule(function()
+              vim.ui.input({ prompt = "Filter by author (blank = clear, @me = you): " }, function(input)
+                if input == nil then
+                  return
+                end -- cancelled → keep current
+                input = vim.trim(input)
+                gh_author_filter = (input ~= "") and input or nil
+                gh_picker()
+              end)
+            end)
+          end
+
+          local state_names = { open = "Open", closed = "Closed", merged = "Merged", all = "All" }
+          local state_label = state_names[cur_state] or cur_state
+          local author_label = gh_author_filter and (" │ Author: " .. gh_author_filter) or ""
+          local act_hints = (entity == "pr") and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout"
+            or "⏎:Open ^b:Browser"
+          local header = string.format(
+            "%s · State:%s%s\n%s │ M-t:PRs⇄Issues │ M-s:cycle state │ M-u:Author",
+            entity_label,
+            state_label,
+            author_label,
+            act_hints
+          )
+
+          -- Entity-aware actions (PR-only actions added conditionally below)
+          local view_cmd = (entity == "pr") and "pr" or "issue"
+          local actions = {
+            ["default"] = function(selected)
+              local it = item_from_selection(selected)
+              if it then
+                vim.cmd("Octo " .. view_cmd .. " edit " .. it.number)
+              end
+            end,
+            ["ctrl-b"] = function(selected)
+              local it = item_from_selection(selected)
+              if it then
+                vim.fn.system("MISE_QUIET=1 gh " .. view_cmd .. " view " .. it.number .. " --web")
+              end
+            end,
+            ["alt-t"] = toggle_entity,
+            ["alt-s"] = cycle_state,
+            ["alt-u"] = prompt_author,
+          }
+          if entity == "pr" then
+            actions["ctrl-d"] = function(selected)
+              local it = item_from_selection(selected)
+              if it then
+                if _G.octo_diffview and _G.octo_diffview.open_pr_from_info then
+                  _G.octo_diffview.open_pr_from_info(pr_info_from(it, repo))
+                else
+                  vim.notify("Octo diffview core not available", vim.log.levels.WARN)
+                end
+              end
+            end
+            actions["ctrl-x"] = function(selected)
+              local it = item_from_selection(selected)
+              if it then
+                vim.cmd("Octo pr checkout " .. it.number)
               end
             end
           end
-          actions["ctrl-x"] = function(selected)
-            local it = item_from_selection(selected)
-            if it then
-              vim.cmd("Octo pr checkout " .. it.number)
-            end
-          end
+
+          fzf.fzf_exec(display_items, {
+            prompt = entity_label .. "> ",
+            fzf_opts = {
+              ["--no-multi"] = "",
+              ["--header"] = header,
+              ["--info"] = "default",
+            },
+            winopts = {
+              title = string.format(" %s (%s) · %d ", entity_label, state_label, match_count),
+              title_pos = "center",
+            },
+            -- Strip the leading '#' from field {1} so `gh <entity> view <n>` resolves
+            preview = "MISE_QUIET=1 GH_FORCE_TTY=80% gh "
+              .. view_cmd
+              .. " view $(echo {1} | tr -d '#') --color=always 2>/dev/null",
+            actions = actions,
+            silent = true,
+          })
         end
 
-        fzf.fzf_exec(display_items, {
-          prompt = entity_label .. "> ",
-          fzf_opts = {
-            ["--no-multi"] = "",
-            ["--header"] = header,
-            ["--info"] = "default",
-          },
-          winopts = {
-            title = string.format(" %s (%s) ", entity_label, state_label),
-            title_pos = "center",
-          },
-          -- Strip the leading '#' from field {1} so `gh <entity> view <n>` resolves
-          preview = "MISE_QUIET=1 GH_FORCE_TTY=80% gh "
-            .. view_cmd
-            .. " view $(echo {1} | tr -d '#') --color=always 2>/dev/null",
-          actions = actions,
-          silent = true,
-        })
+        -- Build the argv for the current entity + state + author filter.
+        local args =
+          { "gh", list_cmd, "list", "--state", cur_state, "--limit", "200", "--json", json_fields }
+        if gh_author_filter then
+          table.insert(args, "--author")
+          table.insert(args, gh_author_filter)
+        end
+
+        -- Fetch asynchronously so the UI never blocks on slow networks; each
+        -- filter switch re-invokes gh_picker, keeping cycling responsive.
+        vim.system(args, { text = true, env = { MISE_QUIET = "1" } }, function(obj)
+          vim.schedule(function()
+            if obj.code ~= 0 then
+              vim.notify("gh " .. entity .. " list failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
+              return
+            end
+            local ok, items = pcall(vim.json.decode, obj.stdout or "")
+            if not ok or type(items) ~= "table" then
+              vim.notify("Failed to parse gh " .. entity .. " list output", vim.log.levels.ERROR)
+              return
+            end
+            render(items)
+          end)
+        end)
       end
 
       -- The <leader>gop keymap calls _G.octo_pr_picker. The public entry
       -- resolves the repo fresh (cwd may have changed), then hands off to the
       -- inner gh_picker, which reuses gh_repo across filter switches.
       _G.octo_pr_picker = function()
-        local r = vim.trim(vim.fn.system("MISE_QUIET=1 gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null"))
-        if vim.v.shell_error ~= 0 or r == "" then
-          vim.notify("Not in a GitHub repo (gh repo view failed)", vim.log.levels.ERROR)
-          return
-        end
-        gh_repo = r
-        gh_picker()
+        vim.system(
+          { "gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner" },
+          { text = true, env = { MISE_QUIET = "1" } },
+          function(obj)
+            vim.schedule(function()
+              local r = vim.trim(obj.stdout or "")
+              if obj.code ~= 0 or r == "" then
+                vim.notify("Not in a GitHub repo (gh repo view failed)", vim.log.levels.ERROR)
+                return
+              end
+              gh_repo = r
+              gh_picker()
+            end)
+          end
+        )
       end
 
       -- KEY FIX: Patch octo.picker directly (not package.loaded)

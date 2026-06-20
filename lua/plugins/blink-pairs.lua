@@ -4,10 +4,13 @@
 return {
   {
     'saghen/blink.pairs',
+    dependencies = 'saghen/blink.lib',
     version = '*',
 
-    -- Build from source (requires Rust)
-    build = 'cargo build --release',
+    -- Build from source (requires Rust) and install where blink.lib can load it.
+    build = function()
+      require('blink.pairs').build():pwait(60000)
+    end,
 
     --- @module 'blink.pairs'
     --- @type blink.pairs.Config

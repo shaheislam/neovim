@@ -1216,12 +1216,14 @@ return {
               else
                 rlabel, rhl = "·", "Comment"
               end
-              table.insert(parts, fzf.utils.ansi_from_hl(rhl, rlabel))
+              -- Parenthesize: ansi_from_hl returns multiple values; table.insert
+              -- expands a multi-return last arg, so truncate it to one.
+              table.insert(parts, (fzf.utils.ansi_from_hl(rhl, rlabel)))
             end
             table.insert(parts, it.title or "")
             table.insert(parts, author_text)
             if entity == "pr" then
-              table.insert(parts, fzf.utils.ansi_from_hl("Number", it.headRefName or ""))
+              table.insert(parts, (fzf.utils.ansi_from_hl("Number", it.headRefName or "")))
             end
             table.insert(display_items, table.concat(parts, " "))
           end

@@ -39,7 +39,7 @@ return {
             vim.cmd("Octo pr list")
           end
         end,
-        desc = "PRs/Issues (fuzzy: ⏎ open ╱ M-p/M-i switch ╱ ^d diffview ╱ ^b browser ╱ M-u author)",
+        desc = "PRs/Issues (fuzzy: ⏎ open ╱ M-t switch ╱ M-s state ╱ ^d diffview ╱ ^b browser ╱ M-u author)",
       },
       { "<leader>goP", "<cmd>Octo pr search<cr>", desc = "Search PRs" },
       { "<leader>goC", "<cmd>Octo pr create<cr>", desc = "Create PR" },
@@ -1124,9 +1124,10 @@ return {
       --   ctrl-d  → open PR in Diffview            (PRs only)
       --   ctrl-b  → open in browser
       --   ctrl-x  → checkout PR branch             (PRs only)
-      --   alt-p / alt-i → switch entity PRs ╱ Issues
-      --   alt-o/c/m/a   → filter Open/Closed/Merged/All (persisted per entity)
-      --   alt-u         → filter by author (blank = clear, @me = you)
+      --   alt-t   → toggle entity PRs ⇄ Issues
+      --   alt-s   → cycle state filter (persisted per entity)
+      --             PRs: open→merged→closed→all   Issues: open→closed→all
+      --   alt-u   → filter by author (blank = clear, @me = you)
       -- NOTE: alt-* (not ctrl-i) is used for switches — ctrl-i == Tab in terminals.
       -- ══════════════════════════════════════════════════════════════
 
@@ -1135,6 +1136,7 @@ return {
       local pr_state_filter = "open" -- "open", "closed", "merged", "all"
       local issue_state_filter = "open" -- "open", "closed", "all"
       local gh_author_filter = nil -- login string, "@me", or nil (no filter)
+      local gh_repo = nil -- owner/name, resolved once per top-level invocation
 
       -- Map a `gh pr list` JSON entry to the pr_info shape the diffview core consumes
       local function pr_info_from(pr, repo)
@@ -1150,10 +1152,10 @@ return {
 
       local gh_picker
       gh_picker = function()
-        -- Resolve current repo (owner/name)
-        local repo =
-          vim.trim(vim.fn.system("MISE_QUIET=1 gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null"))
-        if vim.v.shell_error ~= 0 or repo == "" then
+        -- Repo is resolved once by the public entry point (_G.octo_pr_picker)
+        -- and reused across filter switches, which re-invoke this inner picker.
+        local repo = gh_repo
+        if not repo or repo == "" then
           vim.notify("Not in a GitHub repo (gh repo view failed)", vim.log.levels.ERROR)
           return
         end
@@ -1188,6 +1190,12 @@ return {
           return
         end
 
+        -- Most-recently-updated first (matches octo's UPDATED_AT native pickers).
+        -- updatedAt is ISO-8601, so lexicographic compare gives correct ordering.
+        table.sort(items, function(a, b)
+          return (a.updatedAt or "") > (b.updatedAt or "")
+        end)
+
         -- Build display lines + number→item lookup
         local item_by_num = {}
         local display_items = {}
@@ -1214,10 +1222,26 @@ return {
           local author = it.author and it.author.login or "?"
           local author_text = fzf.utils.ansi_from_hl("Comment", "@" .. author)
 
-          local parts = { num_text, state_text, it.title or "", author_text }
+          local parts = { num_text, state_text }
           if entity == "pr" then
-            local branch_text = fzf.utils.ansi_from_hl("Number", it.headRefName or "")
-            table.insert(parts, branch_text)
+            -- Review decision indicator: approved ✓ / changes ✗ / pending •
+            local rd = it.reviewDecision
+            local rlabel, rhl
+            if rd == "APPROVED" then
+              rlabel, rhl = "✓", "OctoGreen"
+            elseif rd == "CHANGES_REQUESTED" then
+              rlabel, rhl = "✗", "OctoRed"
+            elseif rd == "REVIEW_REQUIRED" then
+              rlabel, rhl = "•", "OctoPurple"
+            else
+              rlabel, rhl = "·", "Comment"
+            end
+            table.insert(parts, fzf.utils.ansi_from_hl(rhl, rlabel))
+          end
+          table.insert(parts, it.title or "")
+          table.insert(parts, author_text)
+          if entity == "pr" then
+            table.insert(parts, fzf.utils.ansi_from_hl("Number", it.headRefName or ""))
           end
           table.insert(display_items, table.concat(parts, " "))
         end
@@ -1240,25 +1264,23 @@ return {
           return item_by_num[tonumber(num)]
         end
 
-        -- Entity switch: persist + re-invoke picker
-        local function set_entity(e)
-          return function()
-            gh_entity = e
-            vim.schedule(gh_picker)
-          end
+        -- Entity toggle: PRs ⇄ Issues (persist + re-invoke picker)
+        local function toggle_entity()
+          gh_entity = (gh_entity == "pr") and "issue" or "pr"
+          vim.schedule(gh_picker)
         end
 
-        -- State filter switch: persist (per entity) + re-invoke picker
-        local function set_state(state)
-          return function()
-            if gh_entity == "pr" then
-              pr_state_filter = state
-            else
-              -- Issues have no "merged" state — fall back to "all"
-              issue_state_filter = (state == "merged") and "all" or state
-            end
-            vim.schedule(gh_picker)
+        -- State cycle: advance the filter for the current entity (persist + re-invoke).
+        -- PRs: open→merged→closed→all→open   Issues: open→closed→all→open
+        local function cycle_state()
+          if gh_entity == "pr" then
+            local next_state = { open = "merged", merged = "closed", closed = "all", all = "open" }
+            pr_state_filter = next_state[pr_state_filter] or "open"
+          else
+            local next_state = { open = "closed", closed = "all", all = "open" }
+            issue_state_filter = next_state[issue_state_filter] or "open"
           end
+          vim.schedule(gh_picker)
         end
 
         -- Author filter: prompt, persist, re-invoke (blank clears)
@@ -1281,7 +1303,7 @@ return {
         local act_hints = (entity == "pr") and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout"
           or "⏎:Open ^b:Browser"
         local header = string.format(
-          "%s · State:%s%s\n%s │ M-p:PRs M-i:Issues │ M-o:Open M-c:Closed M-m:Merged M-a:All │ M-u:Author",
+          "%s · State:%s%s\n%s │ M-t:PRs⇄Issues │ M-s:cycle state │ M-u:Author",
           entity_label,
           state_label,
           author_label,
@@ -1303,12 +1325,8 @@ return {
               vim.fn.system("MISE_QUIET=1 gh " .. view_cmd .. " view " .. it.number .. " --web")
             end
           end,
-          ["alt-p"] = set_entity("pr"),
-          ["alt-i"] = set_entity("issue"),
-          ["alt-o"] = set_state("open"),
-          ["alt-c"] = set_state("closed"),
-          ["alt-m"] = set_state("merged"),
-          ["alt-a"] = set_state("all"),
+          ["alt-t"] = toggle_entity,
+          ["alt-s"] = cycle_state,
           ["alt-u"] = prompt_author,
         }
         if entity == "pr" then
@@ -1350,8 +1368,18 @@ return {
         })
       end
 
-      -- The <leader>gop keymap calls _G.octo_pr_picker
-      _G.octo_pr_picker = gh_picker
+      -- The <leader>gop keymap calls _G.octo_pr_picker. The public entry
+      -- resolves the repo fresh (cwd may have changed), then hands off to the
+      -- inner gh_picker, which reuses gh_repo across filter switches.
+      _G.octo_pr_picker = function()
+        local r = vim.trim(vim.fn.system("MISE_QUIET=1 gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null"))
+        if vim.v.shell_error ~= 0 or r == "" then
+          vim.notify("Not in a GitHub repo (gh repo view failed)", vim.log.levels.ERROR)
+          return
+        end
+        gh_repo = r
+        gh_picker()
+      end
 
       -- KEY FIX: Patch octo.picker directly (not package.loaded)
       -- This overwrites the already-assigned function reference

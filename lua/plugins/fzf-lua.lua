@@ -715,36 +715,6 @@ return {
 				return files
 			end
 
-			-- Helper function to aggregate history from multiple files
-			local function aggregate_history_from_files(files)
-				local all_history = {}
-				local seen = {}
-
-				-- Read all files and collect unique entries
-				for _, file_path in ipairs(files) do
-					if vim.fn.filereadable(file_path) == 1 then
-						for line in io.lines(file_path) do
-							if line and #line > 2 and not seen[line] then
-								seen[line] = true
-								table.insert(all_history, line)
-							end
-						end
-					end
-				end
-
-				-- Sort by most recently used (this is a simple approach, could be enhanced)
-				-- In practice, newer entries tend to be at the end of files
-				local reversed = {}
-				for i = #all_history, 1, -1 do
-					table.insert(reversed, all_history[i])
-				end
-
-				return reversed
-			end
-
-			-- Store the last used opts for scope switching
-			local last_history_opts = {}
-
 			-- Function to search through picker history dynamically with fzf and scope support
 			local function search_history_action(initial_scope)
 				return function(_, opts)
@@ -1011,9 +981,6 @@ return {
 							.. scope
 							.. " | C-d: local | C-s: service/git | C-g: global | C-e: delete | C-c: clear"
 					end
-
-					-- Store opts for scope switching
-					last_history_opts = opts
 
 					-- Helper function to launch history with a specific scope
 					local function launch_history_with_scope(scope, cwd)

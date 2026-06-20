@@ -10,7 +10,10 @@ return {
       "nvim-tree/nvim-web-devicons",
     },
     cmd = "Octo",
-    event = "VeryLazy", -- Load for completion support
+    -- octo buffers only exist after :Octo (cmd trigger); completion in octo
+    -- buffers is provided by blink-cmp-git, not by loading octo eagerly.
+    -- ft handles session-restored octo buffers.
+    ft = "octo",
     keys = {
       -- ══════════════════════════════════════════════════════════════
       -- NOTIFICATIONS (Inbox)
@@ -406,6 +409,26 @@ return {
           return false
         end
 
+        -- Register cleanup for temp-branch DiffView sessions. Shared by both
+        -- the fetch and apply-diff paths for merged/closed PRs below.
+        local function register_diffview_cleanup(original_branch, temp_branch, had_stash)
+          _G.octo_diffview.cleanup = function()
+            vim.cmd("DiffviewClose")
+            vim.fn.system("MISE_QUIET=1 git checkout " .. original_branch .. " 2>/dev/null")
+            vim.fn.system("MISE_QUIET=1 git branch -D " .. temp_branch .. " 2>/dev/null")
+            if had_stash then
+              vim.fn.system("MISE_QUIET=1 git stash pop 2>/dev/null")
+            end
+            vim.notify("Cleaned up and restored to " .. original_branch, vim.log.levels.INFO)
+          end
+
+          vim.api.nvim_create_user_command("OctoDiffCleanup", function()
+            if _G.octo_diffview.cleanup then
+              _G.octo_diffview.cleanup()
+            end
+          end, { desc = "Clean up after Octo DiffView" })
+        end
+
         -- Check if we're in the correct repo
         local local_repo = get_local_repo_name()
         if local_repo and pr_info.repo and local_repo:lower() ~= pr_info.repo:lower() then
@@ -520,21 +543,7 @@ return {
               vim.cmd(diff_cmd)
 
               -- Store cleanup info for later (user can run :OctoDiffCleanup)
-              _G.octo_diffview.cleanup = function()
-                vim.cmd("DiffviewClose")
-                vim.fn.system("MISE_QUIET=1 git checkout " .. original_branch .. " 2>/dev/null")
-                vim.fn.system("MISE_QUIET=1 git branch -D " .. temp_branch .. " 2>/dev/null")
-                if had_stash then
-                  vim.fn.system("MISE_QUIET=1 git stash pop 2>/dev/null")
-                end
-                vim.notify("Cleaned up and restored to " .. original_branch, vim.log.levels.INFO)
-              end
-
-              vim.api.nvim_create_user_command("OctoDiffCleanup", function()
-                if _G.octo_diffview.cleanup then
-                  _G.octo_diffview.cleanup()
-                end
-              end, { desc = "Clean up after Octo DiffView" })
+              register_diffview_cleanup(original_branch, temp_branch, had_stash)
 
               return true
             end
@@ -596,21 +605,7 @@ return {
                     vim.cmd(diff_cmd)
 
                     -- Store cleanup
-                    _G.octo_diffview.cleanup = function()
-                      vim.cmd("DiffviewClose")
-                      vim.fn.system("MISE_QUIET=1 git checkout " .. original_branch .. " 2>/dev/null")
-                      vim.fn.system("MISE_QUIET=1 git branch -D " .. temp_branch .. " 2>/dev/null")
-                      if had_stash then
-                        vim.fn.system("MISE_QUIET=1 git stash pop 2>/dev/null")
-                      end
-                      vim.notify("Cleaned up and restored to " .. original_branch, vim.log.levels.INFO)
-                    end
-
-                    vim.api.nvim_create_user_command("OctoDiffCleanup", function()
-                      if _G.octo_diffview.cleanup then
-                        _G.octo_diffview.cleanup()
-                      end
-                    end, { desc = "Clean up after Octo DiffView" })
+                    register_diffview_cleanup(original_branch, temp_branch, had_stash)
 
                     return true
                   end
@@ -1355,9 +1350,8 @@ return {
         })
       end
 
-      -- Back-compat alias: the <leader>gop keymap calls _G.octo_pr_picker
+      -- The <leader>gop keymap calls _G.octo_pr_picker
       _G.octo_pr_picker = gh_picker
-      _G.octo_gh_picker = gh_picker
 
       -- KEY FIX: Patch octo.picker directly (not package.loaded)
       -- This overwrites the already-assigned function reference

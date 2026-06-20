@@ -1124,10 +1124,13 @@ return {
       --   ctrl-d  → open PR in Diffview            (PRs only)
       --   ctrl-b  → open in browser
       --   ctrl-x  → checkout PR branch             (PRs only)
+      --   ctrl-n  → quick comment (single-line prompt → gh comment)
+      --   ctrl-r  → quick 👍 reaction
       --   alt-t   → toggle entity PRs ⇄ Issues
       --   alt-s   → cycle state filter (persisted per entity)
       --             PRs: open→merged→closed→all   Issues: open→closed→all
       --   alt-u   → filter by author (blank = clear, @me = you)
+      -- Preview is octo's own fzf-lua previewer (Octo-style buffer, focusable).
       -- NOTE: alt-* (not ctrl-i) is used for switches — ctrl-i == Tab in terminals.
       -- ══════════════════════════════════════════════════════════════
 
@@ -1176,9 +1179,13 @@ return {
             return (a.updatedAt or "") > (b.updatedAt or "")
           end)
 
-          -- Build display lines + number→item lookup
+          -- Build display lines + number→item lookup.
+          -- preview_map feeds octo's own fzf-lua previewer (renders an Octo-style
+          -- buffer). octo indexes it by the ANSI-stripped fzf line, so the key
+          -- must be exactly strip_ansi_coloring(display_line).
           local item_by_num = {}
           local display_items = {}
+          local preview_map = {}
           for _, it in ipairs(items) do
             item_by_num[it.number] = it
 
@@ -1225,7 +1232,15 @@ return {
             if entity == "pr" then
               table.insert(parts, (fzf.utils.ansi_from_hl("Number", it.headRefName or "")))
             end
-            table.insert(display_items, table.concat(parts, " "))
+            local line = table.concat(parts, " ")
+            table.insert(display_items, line)
+            -- octo's previewer looks the entry up by the ANSI-stripped line.
+            preview_map[fzf.utils.strip_ansi_coloring(line)] = {
+              value = it.number,
+              repo = repo,
+              kind = (entity == "pr") and "pull_request" or "issue",
+              ordinal = it.number .. " " .. (it.title or ""),
+            }
           end
 
           local entity_label = (entity == "pr") and "PRs" or "Issues"
@@ -1283,8 +1298,9 @@ return {
           local state_names = { open = "Open", closed = "Closed", merged = "Merged", all = "All" }
           local state_label = state_names[cur_state] or cur_state
           local author_label = gh_author_filter and (" │ Author: " .. gh_author_filter) or ""
-          local act_hints = (entity == "pr") and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout"
-            or "⏎:Open ^b:Browser"
+          local act_hints = (entity == "pr")
+              and "⏎:Open ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍"
+            or "⏎:Open ^b:Browser ^n:Comment ^r:👍"
           local header = string.format(
             "%s · State:%s%s\n%s │ M-t:PRs⇄Issues │ M-s:cycle state │ M-u:Author",
             entity_label,
@@ -1311,6 +1327,55 @@ return {
             ["alt-t"] = toggle_entity,
             ["alt-s"] = cycle_state,
             ["alt-u"] = prompt_author,
+            -- Quick comment: prompt (single-line) then post via gh. Works for
+            -- both PRs and issues (`gh pr comment` / `gh issue comment`).
+            ["ctrl-n"] = function(selected)
+              local it = item_from_selection(selected)
+              if not it then
+                return
+              end
+              vim.schedule(function()
+                vim.ui.input({ prompt = "Comment on #" .. it.number .. ": " }, function(input)
+                  if input == nil or vim.trim(input) == "" then
+                    return
+                  end
+                  vim.system(
+                    { "gh", view_cmd, "comment", tostring(it.number), "--body", input },
+                    { text = true, env = { MISE_QUIET = "1" } },
+                    function(obj)
+                      vim.schedule(function()
+                        if obj.code == 0 then
+                          vim.notify("Commented on #" .. it.number)
+                        else
+                          vim.notify("Comment failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
+                        end
+                      end)
+                    end
+                  )
+                end)
+              end)
+            end,
+            -- Quick 👍 reaction via the REST reactions endpoint (PRs are issues
+            -- for this endpoint, so the same path works for both entities).
+            ["ctrl-r"] = function(selected)
+              local it = item_from_selection(selected)
+              if not it then
+                return
+              end
+              vim.system(
+                { "gh", "api", "repos/" .. repo .. "/issues/" .. it.number .. "/reactions", "-f", "content=+1" },
+                { text = true, env = { MISE_QUIET = "1" } },
+                function(obj)
+                  vim.schedule(function()
+                    if obj.code == 0 then
+                      vim.notify("👍 reacted to #" .. it.number)
+                    else
+                      vim.notify("Reaction failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
+                    end
+                  end)
+                end
+              )
+            end,
           }
           if entity == "pr" then
             actions["ctrl-d"] = function(selected)
@@ -1331,7 +1396,7 @@ return {
             end
           end
 
-          fzf.fzf_exec(display_items, {
+          local exec_opts = {
             prompt = entity_label .. "> ",
             fzf_opts = {
               ["--no-multi"] = "",
@@ -1342,13 +1407,26 @@ return {
               title = string.format(" %s (%s) · %d ", entity_label, state_label, match_count),
               title_pos = "center",
             },
-            -- Strip the leading '#' from field {1} so `gh <entity> view <n>` resolves
-            preview = "MISE_QUIET=1 GH_FORCE_TTY=80% gh "
-              .. view_cmd
-              .. " view $(echo {1} | tr -d '#') --color=always 2>/dev/null",
             actions = actions,
             silent = true,
-          })
+          }
+
+          -- Prefer octo's own fzf-lua previewer: it re-fetches via GraphQL and
+          -- renders an Octo-style buffer (title/details/body/reactions). Indexed
+          -- by the ANSI-stripped line via preview_map. Skip it for the empty-state
+          -- placeholder (no map entry → it would index nil). Fall back to a shell
+          -- `gh view` preview if octo's previewer module can't be loaded.
+          local ok_prev, octo_prev = pcall(require, "octo.pickers.fzf-lua.previewers")
+          if match_count > 0 and ok_prev then
+            exec_opts.previewer = octo_prev.issue(preview_map)
+          elseif match_count > 0 then
+            -- Strip the leading '#' from field {1} so `gh <entity> view <n>` resolves
+            exec_opts.preview = "MISE_QUIET=1 GH_FORCE_TTY=80% gh "
+              .. view_cmd
+              .. " view $(echo {1} | tr -d '#') --color=always 2>/dev/null"
+          end
+
+          fzf.fzf_exec(display_items, exec_opts)
         end
 
         -- Build the argv for the current entity + state + author filter.

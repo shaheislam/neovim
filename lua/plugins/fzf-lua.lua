@@ -2455,6 +2455,11 @@ return {
 			-- Apply configuration
 			fzf.setup(opts)
 
+			-- Route vim.ui.select through fzf-lua (gitlab.nvim reviewer/assignee
+			-- pickers, diffview base picker, gitsigns prompts). Reuses the existing
+			-- picker stack instead of adding dressing.nvim.
+			fzf.register_ui_select()
+
 			-- Register <leader>ff here so it can access the configured files picker actions
 			-- Frecency inherits default file actions via _actions, but scope switching needs
 			-- to be passed explicitly since create_scope_action is local to opts()

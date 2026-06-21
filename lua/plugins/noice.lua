@@ -280,6 +280,23 @@ return {
       end,
     })
 
+    -- Clamp the input() box to the current pane so a long prompt title
+    -- (cmdline_input.min_width = 70) never overflows a narrow split. noice
+    -- rebuilds the cmdline_input view when its options change (get_view keys on
+    -- deep_equal), so updating min_width before the box is shown takes effect.
+    vim.api.nvim_create_autocmd("CmdlineEnter", {
+      group = vim.api.nvim_create_augroup("NoiceClampInputWidth", { clear = true }),
+      callback = function()
+        local ok, cfg = pcall(require, "noice.config")
+        if not ok or not (cfg.options and cfg.options.views and cfg.options.views.cmdline_input) then
+          return
+        end
+        local ci = cfg.options.views.cmdline_input
+        ci.size = ci.size or {}
+        ci.size.min_width = math.min(70, math.max(20, vim.o.columns - 4))
+      end,
+    })
+
     -- Auto-dismiss disabled: messages persist in split view
     -- vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
     --   callback = function()

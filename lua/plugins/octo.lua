@@ -2027,21 +2027,55 @@ return {
 
         -- Fetch asynchronously so the UI never blocks on slow networks; each
         -- filter switch re-invokes gh_picker, keeping cycling responsive.
-        vim.system(args, { text = true, env = { MISE_QUIET = "1" } }, function(obj)
-          vim.schedule(function()
-            if obj.code ~= 0 then
-              vim.notify("gh " .. entity .. " fetch failed: " .. (obj.stderr or ""), vim.log.levels.ERROR)
-              return
-            end
-            local ok, items = pcall(vim.json.decode, obj.stdout or "")
-            if not ok or type(items) ~= "table" then
-              vim.notify("Failed to parse gh " .. entity .. " output", vim.log.levels.ERROR)
-              return
-            end
-            gh_list_cache[cache_key] = { time = vim.uv.now(), items = items }
-            render(items)
+        -- A transient GitHub gateway error (HTTP 502/503/504) is retried once
+        -- after a short backoff; on hard failure we fall back to any cached
+        -- items for this filter combo (even stale) so the picker stays usable.
+        local function on_fetch_fail(stderr)
+          stderr = stderr or ""
+          local stale = gh_list_cache[cache_key]
+          if stale then
+            vim.notify(
+              "GitHub unreachable; showing cached " .. entity .. " results.\n" .. stderr,
+              vim.log.levels.WARN
+            )
+            render(stale.items)
+          elseif stderr:match("HTTP 50[234]") then
+            vim.notify(
+              "GitHub is having a moment (5xx) fetching " .. entity .. "s; try again shortly.\n" .. stderr,
+              vim.log.levels.ERROR
+            )
+          else
+            vim.notify("gh " .. entity .. " fetch failed: " .. stderr, vim.log.levels.ERROR)
+          end
+        end
+
+        local function do_fetch(attempt)
+          vim.system(args, { text = true, env = { MISE_QUIET = "1" } }, function(obj)
+            vim.schedule(function()
+              if obj.code ~= 0 then
+                local stderr = obj.stderr or ""
+                -- Retry once on a transient gateway error before giving up.
+                if attempt == 1 and stderr:match("HTTP 50[234]") then
+                  vim.defer_fn(function()
+                    do_fetch(2)
+                  end, 750)
+                  return
+                end
+                on_fetch_fail(stderr)
+                return
+              end
+              local ok, items = pcall(vim.json.decode, obj.stdout or "")
+              if not ok or type(items) ~= "table" then
+                vim.notify("Failed to parse gh " .. entity .. " output", vim.log.levels.ERROR)
+                return
+              end
+              gh_list_cache[cache_key] = { time = vim.uv.now(), items = items }
+              render(items)
+            end)
           end)
-        end)
+        end
+
+        do_fetch(1)
       end
 
       -- The <leader>gop keymap calls _G.octo_pr_picker. The public entry

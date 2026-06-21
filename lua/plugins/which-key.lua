@@ -78,6 +78,7 @@ return {
 				{ "<leader>k", group = "kubectl", icon = "󱃾 " },
 				{ "<leader>t", group = "trim", icon = "󰁨 " },
 				{ "<leader>go", group = "octo", icon = " " },
+				{ "<leader>gL", group = "gitlab", icon = " " },
 				{ "<leader>R", group = "rust", icon = " " },
 				-- Obsidian subcommands
 				{ "<leader>od", desc = "Today's note" },

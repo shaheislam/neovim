@@ -12,5 +12,6 @@ add(require("plugins.git.gitsigns"))
 add(require("plugins.git.diffview"))
 add(require("plugins.git.flog"))
 add(require("plugins.git.fugitive"))
+add(require("plugins.git.gitlab"))
 
 return specs

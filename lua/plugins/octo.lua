@@ -1397,8 +1397,12 @@ return {
               if not c then
                 return
               end
-              local job_id = c.link and c.link:match("/actions/runs/%d+/job/(%d+)")
-              if not job_id then
+              -- Accept both /job/ and /jobs/ link shapes; fall back to the
+              -- run id when the link carries no job segment at all.
+              local job_id = c.link and c.link:match("/actions/runs/%d+/jobs?/(%d+)")
+              local run_id = c.link and c.link:match("/actions/runs/(%d+)")
+              if not job_id and not run_id then
+                -- Genuinely external CI (CircleCI/Jenkins/etc.) — no gh logs.
                 vim.notify("No TUI logs for this check (external CI); opening in browser", vim.log.levels.WARN)
                 if c.link and c.link ~= "" then
                   vim.ui.open(c.link)
@@ -1417,7 +1421,15 @@ return {
                 end
                 return
               end
-              local run_args = { "gh", "run", "view", "--job", job_id, "--log" }
+              local run_args = { "gh", "run", "view" }
+              if job_id then
+                table.insert(run_args, "--job")
+                table.insert(run_args, job_id)
+              else
+                -- Whole-run logs (all jobs) when the link has no job id.
+                table.insert(run_args, run_id)
+              end
+              table.insert(run_args, "--log")
               if opts.repo then
                 table.insert(run_args, "--repo")
                 table.insert(run_args, opts.repo)

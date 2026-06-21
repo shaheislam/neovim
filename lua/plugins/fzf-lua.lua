@@ -2666,6 +2666,10 @@ return {
 					local selected_refs = {} -- Persists across picker switches
 					local git_cwd = nil -- Worktree context (nil = current directory)
 					local preview_hidden = false -- Persists preview toggle state
+					local file_preview_commit = [[bash -c 'git show --no-patch --format=fuller --color=always "$1"; printf "\nChanged files:\n"; git diff-tree --no-commit-id --name-status -r "$1"' -- {1}]]
+					local file_preview_branch = [[bash -c 'ref="$1"; [ "$ref" = "*" ] && ref="$2"; git log -1 --format=fuller --color=always "$ref"; printf "\nChanged files vs HEAD:\n"; git diff --name-status HEAD..."$ref"' -- {1} {2}]]
+					local file_preview_stash = [[bash -c 'git stash show --no-patch --format=fuller "$1"; printf "\nChanged files:\n"; git stash show --name-status "$1"' -- {1}]]
+					local file_preview_worktree = [[bash -c 'git -C "$1" log -1 --format=fuller --color=always; printf "\nWorktree status:\n"; git -C "$1" status --short' -- {1}]]
 
 					-- Dynamic header showing current selection and worktree context
 					local function get_header()
@@ -2788,6 +2792,7 @@ return {
 							fzf.git_commits({
 								cwd = git_cwd, -- Run git from worktree context
 								prompt = "Diffview Commits> ",
+								preview = file_preview_commit,
 								header = get_header(),
 								winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
 								actions = vim.tbl_extend("force", switch_actions, {
@@ -2821,6 +2826,7 @@ return {
 							fzf.git_branches({
 								cwd = git_cwd, -- Run git from worktree context
 								prompt = "Diffview Branches> ",
+								preview = file_preview_branch,
 								_headers = false,
 								fzf_opts = {
 									["--header"] = get_header(),
@@ -2854,6 +2860,7 @@ return {
 							local worktrees = vim.fn.systemlist("git worktree list")
 							fzf.fzf_exec(worktrees, {
 								prompt = "Diffview Worktrees> ",
+								preview = file_preview_worktree,
 								fzf_opts = {
 									["--header"] = get_header(),
 								},
@@ -2883,6 +2890,7 @@ return {
 							fzf.git_stash({
 								cwd = git_cwd,
 								prompt = "Diffview Stashes> ",
+								preview = file_preview_stash,
 								header = get_header(),
 								winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
 								actions = vim.tbl_extend("force", switch_actions, {

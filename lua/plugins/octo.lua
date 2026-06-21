@@ -900,29 +900,30 @@ return {
           })
         end
 
-        -- Phase 2: Fetch PR states via GraphQL
+        -- Phase 2: Fetch PR states via GraphQL (non-critical enrichment).
+        -- Runs with a hard deadline so a hung/slow GraphQL request can never
+        -- block the picker: on success, error, OR timeout we still advance to
+        -- the next phase (state badges are simply omitted when unavailable).
         local function fetch_pr_states(done_cb)
           if #pr_list == 0 then
             return done_cb()
           end
 
           local query = build_pr_state_query(pr_list)
-          local Job = require("plenary.job")
 
-          Job:new({
-            command = "gh",
-            args = { "api", "graphql", "-f", "query=" .. query },
-            on_exit = function(j, return_val)
-              if return_val == 0 then
-                local result = table.concat(j:result(), "\n")
-                local ok, response = pcall(vim.json.decode, result)
+          vim.system(
+            { "gh", "api", "graphql", "-f", "query=" .. query },
+            { text = true, timeout = 4000, env = { MISE_QUIET = "1" } },
+            function(obj)
+              if obj.code == 0 then
+                local ok, response = pcall(vim.json.decode, obj.stdout or "")
                 if ok then
                   pr_states = parse_pr_states(response, pr_list)
                 end
               end
               vim.schedule(done_cb)
-            end,
-          }):start()
+            end
+          )
         end
 
         -- Phase 3: Display picker with filters

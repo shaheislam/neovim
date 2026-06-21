@@ -196,8 +196,8 @@ return {
 
 				-- Yank operations
 				{ "<leader>y", group = "yank", icon = "󰆏 " },
-				{ "<leader>yl", desc = "GitHub permalink" },
-				{ "<leader>yL", desc = "GitHub permalink (markdown)" },
+				{ "<leader>yl", desc = "Git permalink" },
+				{ "<leader>yL", desc = "Git permalink (markdown)" },
 				{ "<leader>yr", desc = "Yank with relative path", mode = "v" },
 				{ "<leader>ya", desc = "Yank with absolute path", mode = "v" },
 

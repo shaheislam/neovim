@@ -108,23 +108,50 @@ local function git_cmd(args)
   return vim.trim(result)
 end
 
--- Parse git remote URL into GitHub owner/repo
-local function get_github_repo()
+-- Parse git remote URL into a supported code forge.
+local function get_git_forge()
   local cwd = vim.fn.getcwd()
   if _git_cache[cwd] then return _git_cache[cwd] end
 
   local url = git_cmd({ "git", "-C", cwd, "remote", "get-url", "origin" })
   if not url then return nil end
 
-  -- SSH: git@github.com:owner/repo.git (also handles aliases like github.com-personal)
-  local owner, repo = url:match("git@github%.com[^:]*:([^/]+)/(.+)$")
-  if not owner then
-    -- HTTPS: https://github.com/owner/repo.git
-    owner, repo = url:match("github%.com/([^/]+)/(.+)$")
+  local host, path = url:match("^git@([^:]+):(.+)$")
+  if not host then
+    local without_scheme = url:match("^https?://(.+)$")
+    if without_scheme then
+      without_scheme = without_scheme:gsub("^[^/@]+@", "")
+      host, path = without_scheme:match("^([^/]+)/(.+)$")
+    else
+      local ssh_url = url:match("^ssh://(.+)$")
+      if ssh_url then
+        local user_host
+        user_host, path = ssh_url:match("^([^/]+)/(.+)$")
+        if user_host then
+          host = user_host:gsub("^.+@", "")
+        end
+      end
+    end
   end
-  if not owner then return nil end
-  repo = repo:gsub("%.git$", "")
-  local result = owner .. "/" .. repo
+
+  if not host or not path then return nil end
+
+  path = path:gsub("%.git$", ""):gsub("/$", "")
+
+  local forge_type = "github"
+  local web_host = host
+  if host:find("github%.com") then
+    forge_type = "github"
+    web_host = "github.com"
+  elseif host:find("gitlab%.com") then
+    forge_type = "gitlab"
+    web_host = "gitlab.com"
+  elseif host:find("bitbucket%.org") then
+    forge_type = "bitbucket"
+    web_host = "bitbucket.org"
+  end
+
+  local result = { type = forge_type, host = web_host, path = path }
   _git_cache[cwd] = result
   return result
 end
@@ -192,12 +219,12 @@ end
 keymap("v", "<leader>yr", function() yank_with_path(true) end, { desc = "Yank with relative path" })
 keymap("v", "<leader>ya", function() yank_with_path(false) end, { desc = "Yank with absolute path" })
 
--- Build a GitHub permalink for current file + lines
-local function github_permalink(opts)
+-- Build a git forge permalink for current file + lines.
+local function git_permalink(opts)
   opts = opts or {}
-  local repo = get_github_repo()
-  if not repo then
-    vim.notify("Not a GitHub repository", vim.log.levels.WARN)
+  local forge = get_git_forge()
+  if not forge then
+    vim.notify("Could not determine git remote", vim.log.levels.WARN)
     return
   end
 
@@ -213,11 +240,24 @@ local function github_permalink(opts)
     return
   end
 
-  local url = string.format("https://github.com/%s/blob/%s/%s", repo, sha, rel_path)
+  local url
+  if forge.type == "gitlab" then
+    url = string.format("https://%s/%s/-/blob/%s/%s", forge.host, forge.path, sha, rel_path)
+  elseif forge.type == "bitbucket" then
+    url = string.format("https://%s/%s/src/%s/%s", forge.host, forge.path, sha, rel_path)
+  else
+    url = string.format("https://%s/%s/blob/%s/%s", forge.host, forge.path, sha, rel_path)
+  end
 
   -- Add line anchor
   if opts.start_line then
-    if opts.end_line and opts.end_line ~= opts.start_line then
+    if forge.type == "bitbucket" and opts.end_line and opts.end_line ~= opts.start_line then
+      url = url .. string.format("#lines-%d:%d", opts.start_line, opts.end_line)
+    elseif forge.type == "bitbucket" then
+      url = url .. string.format("#lines-%d", opts.start_line)
+    elseif forge.type == "gitlab" and opts.end_line and opts.end_line ~= opts.start_line then
+      url = url .. string.format("#L%d-%d", opts.start_line, opts.end_line)
+    elseif opts.end_line and opts.end_line ~= opts.start_line then
       url = url .. string.format("#L%d-L%d", opts.start_line, opts.end_line)
     else
       url = url .. string.format("#L%d", opts.start_line)
@@ -227,46 +267,46 @@ local function github_permalink(opts)
   return url
 end
 
--- Copy GitHub permalink for current line (normal mode)
+-- Copy git forge permalink for current line (normal mode)
 keymap("n", "<leader>yl", function()
-  local url = github_permalink({ start_line = vim.fn.line(".") })
+  local url = git_permalink({ start_line = vim.fn.line(".") })
   if url then
     vim.fn.setreg("+", url)
   end
-end, { desc = "Copy GitHub permalink" })
+end, { desc = "Copy Git permalink" })
 
--- Copy GitHub permalink for selection (visual mode)
+-- Copy git forge permalink for selection (visual mode)
 keymap("v", "<leader>yl", function()
   -- Exit visual to set marks
   vim.cmd("normal! \27")
   local start_line = vim.fn.line("'<")
   local end_line = vim.fn.line("'>")
-  local url = github_permalink({ start_line = start_line, end_line = end_line })
+  local url = git_permalink({ start_line = start_line, end_line = end_line })
   if url then
     vim.fn.setreg("+", url)
   end
-end, { desc = "Copy GitHub permalink (selection)" })
+end, { desc = "Copy Git permalink (selection)" })
 
--- Copy GitHub permalink as markdown link (normal mode)
+-- Copy git forge permalink as markdown link (normal mode)
 keymap("n", "<leader>yL", function()
   local line = vim.fn.line(".")
-  local url = github_permalink({ start_line = line })
+  local url = git_permalink({ start_line = line })
   if url then
     local rel_path = get_git_relative_path()
     local md = string.format("[`%s:%d`](%s)", rel_path, line, url)
     vim.fn.setreg("+", md)
   end
-end, { desc = "Copy GitHub permalink (markdown)" })
+end, { desc = "Copy Git permalink (markdown)" })
 
--- Copy GitHub permalink as markdown link (visual mode)
+-- Copy git forge permalink as markdown link (visual mode)
 keymap("v", "<leader>yL", function()
   vim.cmd("normal! \27")
   local start_line = vim.fn.line("'<")
   local end_line = vim.fn.line("'>")
-  local url = github_permalink({ start_line = start_line, end_line = end_line })
+  local url = git_permalink({ start_line = start_line, end_line = end_line })
   if url then
     local rel_path = get_git_relative_path()
     local md = string.format("[`%s:%s`](%s)", rel_path, format_line_range(start_line, end_line), url)
     vim.fn.setreg("+", md)
   end
-end, { desc = "Copy GitHub permalink (markdown, selection)" })
+end, { desc = "Copy Git permalink (markdown, selection)" })

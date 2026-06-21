@@ -80,6 +80,7 @@ return {
 				{ "<leader>go", group = "octo", icon = " " },
 				{ "<leader>gL", group = "gitlab", icon = " " },
 				{ "<leader>R", group = "rust", icon = " " },
+				{ "<leader>J", group = "json", icon = " " },
 				-- Obsidian subcommands
 				{ "<leader>od", desc = "Today's note" },
 				{ "<leader>oy", desc = "Yesterday's note" },

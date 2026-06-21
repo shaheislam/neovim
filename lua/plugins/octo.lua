@@ -1055,7 +1055,17 @@ return {
             prompt = picker_utils.get_prompt(opts.prompt_title or ("Notifications")),
             previewer = previewers.notifications(formatted_notifications, cached_notification_infos),
             fzf_opts = fzf_opts,
-            -- keymap inherits from global fzf-lua config (keymap.builtin["<C-/>"] = "toggle-preview")
+            -- Free ctrl-d (mark done) and ctrl-b (browser) from the global
+            -- preview binds (see fzf-lua.lua keymap.fzf); relocate preview
+            -- paging to shift-up/down. (keymap.builtin["<C-/>"] still toggles.)
+            keymap = {
+              fzf = {
+                ["ctrl-d"] = false,
+                ["ctrl-b"] = false,
+                ["shift-up"] = "preview-page-up",
+                ["shift-down"] = "preview-page-down",
+              },
+            },
             winopts = {
               title = string.format(" Notifications (%s/%s) ", type_names[current_type], state_names[current_state]),
               title_pos = "center",
@@ -1857,6 +1867,7 @@ return {
           if entity == "pr" then
             header = header .. " │ M-k:Checks"
           end
+          header = header .. " │ S-Up/Dn:Scroll"
 
           -- Entity-aware actions (PR-only actions added conditionally below)
           local actions = {
@@ -1881,8 +1892,16 @@ return {
             ["ctrl-b"] = function(selected)
               local it = item_from_selection(selected)
               if it then
-                vim.fn.system(
-                  "MISE_QUIET=1 gh " .. view_cmd .. " view " .. it.number .. " --repo " .. repo_of(it) .. " --web"
+                vim.system(
+                  { "gh", view_cmd, "view", tostring(it.number), "--repo", repo_of(it), "--web" },
+                  { text = true, env = { MISE_QUIET = "1" } },
+                  function(o)
+                    if o.code ~= 0 then
+                      vim.schedule(function()
+                        vim.notify("Failed to open in browser: " .. (o.stderr or ""), vim.log.levels.ERROR)
+                      end)
+                    end
+                  end
                 )
               end
             end,
@@ -2010,6 +2029,17 @@ return {
             winopts = {
               title = string.format(" %s (%s)%s · %d ", entity_label, state_label, title_mode, match_count),
               title_pos = "center",
+            },
+            -- Free ctrl-d/ctrl-b from the global preview binds (see fzf-lua.lua
+            -- keymap.fzf) so the Diffview/Browser actions fire; relocate preview
+            -- paging to shift-up/down.
+            keymap = {
+              fzf = {
+                ["ctrl-d"] = false,
+                ["ctrl-b"] = false,
+                ["shift-up"] = "preview-page-up",
+                ["shift-down"] = "preview-page-down",
+              },
             },
             actions = actions,
             silent = true,

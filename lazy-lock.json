@@ -30,7 +30,7 @@
   "markdown-preview.nvim": { "branch": "master", "commit": "a923f5fc5ba36a3b17e289dc35dc17f66d0548ee" },
   "marks.nvim": { "branch": "master", "commit": "f353e8c08c50f39e99a9ed474172df7eddd89b72" },
   "matugen.nvim": { "branch": "main", "commit": "835a2f4c7b32e5e0fa57f3595a04a638ff74d8bc" },
-  "mini.nvim": { "branch": "main", "commit": "64e77a77173a23daa218ebfa2f7d59456b30326b" },
+  "mini.nvim": { "branch": "main", "commit": "1345d191bb3da9c7b0e977f4387c5761f9bff68d" },
   "neotest": { "branch": "master", "commit": "ad991822b7076b1d940b33a9d6d0d30416d5df81" },
   "neotest-go": { "branch": "main", "commit": "59b50505053f9c45a9febb79e11a56206c3e3901" },
   "neotest-jest": { "branch": "main", "commit": "0e7979d51301dfae5ef839d771bd28cf593fde3f" },
@@ -82,6 +82,6 @@
   "volt": { "branch": "main", "commit": "620de1321f275ec9d80028c68d1b88b409c0c8b1" },
   "which-key.nvim": { "branch": "main", "commit": "3aab2147e74890957785941f0c1ad87d0a44c15a" },
   "wrapped.nvim": { "branch": "master", "commit": "d475a9380a8d642d2844b47db292fb63c5f0fae3" },
-  "yazi.nvim": { "branch": "main", "commit": "0b74938cb3c723d5c5213ed4eb29510d413ef4e9" },
+  "yazi.nvim": { "branch": "main", "commit": "b5ad60398b3f58e108d81a6bdbbc1b49d1bffa1f" },
   "zoxide.vim": { "branch": "master", "commit": "520d1abeb71ba42989a842251f8ba5c46be89aab" }
 }

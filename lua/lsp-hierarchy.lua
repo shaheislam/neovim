@@ -150,6 +150,14 @@ local function make_node(item, from_ranges, depth)
   }
 end
 
+local function mark_unresolved_children(children)
+  for _, child in ipairs(children or {}) do
+    if not child._cycle then
+      child._resolved = false
+    end
+  end
+end
+
 -- ── Tree rendering ───────────────────────────────────────────────────
 
 local function render_tree(nodes, lines, line_map, extmarks, last_flags)
@@ -165,6 +173,14 @@ local function render_tree(nodes, lines, line_map, extmarks, last_flags)
     local col = 0
     local parts = {}
 
+    local function emit(text, hl)
+      if hl and #text > 0 then
+        table.insert(line_extmarks, { col, col + #text, hl })
+      end
+      col = col + #text
+      table.insert(parts, text)
+    end
+
     -- Build guide prefix for ancestor levels
     local prefix = ""
     for d = 1, depth - 1 do
@@ -179,21 +195,13 @@ local function render_tree(nodes, lines, line_map, extmarks, last_flags)
     end
 
     local guide_str = prefix .. connector
-    if #guide_str > 0 then
-      table.insert(line_extmarks, { col, col + #guide_str, "LspHierarchyGuide" })
-      col = col + #guide_str
-    end
-    table.insert(parts, guide_str)
+    emit(guide_str, "LspHierarchyGuide")
 
     if node._loading then
-      local text = "⟳ loading..."
-      table.insert(line_extmarks, { col, col + #text, "Comment" })
-      table.insert(parts, text)
+      emit("⟳ loading...", "Comment")
 
     elseif node._error then
-      local text = "✗ " .. (node._error_msg or "error resolving calls")
-      table.insert(line_extmarks, { col, col + #text, "DiagnosticError" })
-      table.insert(parts, text)
+      emit("✗ " .. (node._error_msg or "error resolving calls"), "DiagnosticError")
 
     else
       -- Toggle icon
@@ -213,46 +221,32 @@ local function render_tree(nodes, lines, line_map, extmarks, last_flags)
         toggle_icon = "· "
         toggle_hl = "LspHierarchyLeaf"
       end
-      table.insert(line_extmarks, { col, col + #toggle_icon, toggle_hl })
-      col = col + #toggle_icon
-      table.insert(parts, toggle_icon)
+      emit(toggle_icon, toggle_hl)
 
       -- Kind icon
       local kind_entry = KIND_ICONS[node.kind] or KIND_FALLBACK
       local kind_str = kind_entry[1]
-      table.insert(line_extmarks, { col, col + #kind_str, kind_entry[2] })
-      col = col + #kind_str
-      table.insert(parts, kind_str)
+      emit(kind_str, kind_entry[2])
 
       -- Function name (bold for normal, cycle-colored for cycles)
       local name = node.name
       local name_hl = node._cycle and "LspHierarchyCycle" or "LspHierarchyName"
-      table.insert(line_extmarks, { col, col + #name, name_hl })
-      col = col + #name
-      table.insert(parts, name)
+      emit(name, name_hl)
 
       -- Parentheses (dimmed for normal, cycle-colored for cycles)
       local parens = "()"
       local parens_hl = node._cycle and "LspHierarchyCycle" or "LspHierarchyParen"
-      table.insert(line_extmarks, { col, col + #parens, parens_hl })
-      col = col + #parens
-      table.insert(parts, parens)
+      emit(parens, parens_hl)
 
       -- Cycle label
       if node._cycle then
-        local cycle_label = " (cycle)"
-        table.insert(line_extmarks, { col, col + #cycle_label, "LspHierarchyCycle" })
-        col = col + #cycle_label
-        table.insert(parts, cycle_label)
+        emit(" (cycle)", "LspHierarchyCycle")
       end
 
       -- Child count on collapsed resolved nodes (lazy: reads already-cached
       -- children from prior LSP responses, never triggers new requests)
       if not node._cycle and node._resolved and not node.expanded and #node.children > 0 then
-        local count_str = " (" .. #node.children .. ")"
-        table.insert(line_extmarks, { col, col + #count_str, "LspHierarchyCount" })
-        col = col + #count_str
-        table.insert(parts, count_str)
+        emit(" (" .. #node.children .. ")", "LspHierarchyCount")
       end
 
       -- Location: split into bracket/path/colon/line/bracket segments
@@ -261,32 +255,15 @@ local function render_tree(nodes, lines, line_map, extmarks, last_flags)
         local nav_pos = get_nav_position(node)
         local lnum_str = nav_pos and tostring(nav_pos.line + 1) or nil
 
-        -- " ["
-        table.insert(line_extmarks, { col, col + 2, "LspHierarchyBracket" })
-        col = col + 2
-        table.insert(parts, " [")
-
-        -- path
-        table.insert(line_extmarks, { col, col + #path, "LspHierarchyPath" })
-        col = col + #path
-        table.insert(parts, path)
+        emit(" [", "LspHierarchyBracket")
+        emit(path, "LspHierarchyPath")
 
         if lnum_str then
-          -- ":"
-          table.insert(line_extmarks, { col, col + 1, "LspHierarchyBracket" })
-          col = col + 1
-          table.insert(parts, ":")
-
-          -- line number
-          table.insert(line_extmarks, { col, col + #lnum_str, "LspHierarchyLine" })
-          col = col + #lnum_str
-          table.insert(parts, lnum_str)
+          emit(":", "LspHierarchyBracket")
+          emit(lnum_str, "LspHierarchyLine")
         end
 
-        -- "]"
-        table.insert(line_extmarks, { col, col + 1, "LspHierarchyBracket" })
-        col = col + 1
-        table.insert(parts, "]")
+        emit("]", "LspHierarchyBracket")
       end
     end
 
@@ -401,12 +378,10 @@ local function resolve_to_depth(client, node, direction, bufnr, max_depth, callb
     node.children = children
     node._resolved = true
     node.expanded = true
+    mark_unresolved_children(children)
 
     local pending = 0
     for _, child in ipairs(children) do
-      if not child._cycle then
-        child._resolved = false
-      end
       if not child._cycle and node.depth + 1 < max_depth then
         pending = pending + 1
       end
@@ -669,11 +644,7 @@ function M.show(direction, opts)
                     } }
                   else
                     node.children = children or {}
-                    for _, child in ipairs(node.children) do
-                      if not child._cycle then
-                        child._resolved = false
-                      end
-                    end
+                    mark_unresolved_children(node.children)
                   end
                   node._resolved = true
                   refresh_buffer(buf, root_nodes, state)

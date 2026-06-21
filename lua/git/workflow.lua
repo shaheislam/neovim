@@ -1,5 +1,7 @@
 -- Shared Git workflow helpers for plugin specs
 
+local git_command = require("git.command")
+
 local function jump_to_first_diff()
 	vim.cmd("diffupdate")
 
@@ -484,13 +486,12 @@ local function get_checkpoint_info(sha)
 		return nil
 	end
 	-- Check if checkpoint branch exists
-	local check = vim.fn.system("MISE_QUIET=1 git show-ref --quiet refs/heads/checkpoints/v1 2>/dev/null; echo $?")
-	if vim.trim(check) ~= "0" then
+	if not git_command.succeeds({ "show-ref", "--quiet", "refs/heads/checkpoints/v1" }) then
 		return nil
 	end
 	local shard = sha:sub(1, 2) .. "/" .. sha:sub(3, 8)
-	local meta = vim.fn.system("MISE_QUIET=1 git show checkpoints/v1:" .. shard .. "/metadata.json 2>/dev/null")
-	if meta == "" or meta:match("^fatal") then
+	local ok_meta, meta = git_command.output({ "show", "checkpoints/v1:" .. shard .. "/metadata.json" })
+	if not ok_meta or meta == "" or meta:match("^fatal") then
 		return nil
 	end
 	local ok, data = pcall(vim.fn.json_decode, meta)
@@ -509,17 +510,17 @@ local function checkout_commit(which)
 		vim.notify("No " .. which:upper() .. " commit to checkout", vim.log.levels.WARN)
 		return
 	end
-	local result = vim.fn.system("MISE_QUIET=1 git checkout " .. sha .. " 2>&1")
-	if vim.v.shell_error == 0 then
+	local result = git_command.run({ "checkout", sha })
+	if result.ok then
 		vim.notify("Checked out to " .. sha:sub(1, 7), vim.log.levels.INFO)
 	else
-		vim.notify("Checkout failed: " .. result, vim.log.levels.ERROR)
+		vim.notify("Checkout failed: " .. result.output, vim.log.levels.ERROR)
 	end
 end
 
 local function get_remote_base_url()
-	local remote = vim.fn.system("MISE_QUIET=1 git remote get-url origin 2>/dev/null"):gsub("%s+$", "")
-	if vim.v.shell_error ~= 0 or remote == "" then
+	local ok_remote, remote = git_command.output({ "remote", "get-url", "origin" })
+	if not ok_remote or remote == "" then
 		return nil
 	end
 
@@ -721,8 +722,8 @@ end
 
 -- Check if in a git repository
 local function is_git_repo()
-	local result = vim.fn.system("MISE_QUIET=1 git rev-parse --is-inside-work-tree 2>/dev/null")
-	return result:match("true") ~= nil
+	local ok, result = git_command.output({ "rev-parse", "--is-inside-work-tree" })
+	return ok and result:match("true") ~= nil
 end
 
 -- Get the git dir path (works for both regular repos and worktrees).
@@ -824,13 +825,11 @@ end
 
 -- Get list of commits (file-scoped or repo-scoped)
 local function get_commit_list(file_path)
-	local cmd
+	local args = { "log", "--format=%H" }
 	if file_path then
-		cmd = string.format("MISE_QUIET=1 git log --format=%%H --follow -- %s", vim.fn.shellescape(file_path))
-	else
-		cmd = "MISE_QUIET=1 git log --format=%H"
+		vim.list_extend(args, { "--follow", "--", file_path })
 	end
-	local output = vim.fn.system(cmd)
+	local _, output = git_command.output(args)
 	local commits = {}
 	for sha in output:gmatch("%x+") do
 		if #sha == 40 then -- Full SHA length
@@ -873,13 +872,11 @@ local function show_single_commit_info(sha)
 		return
 	end
 
-	local parent_sha = vim.fn.system("MISE_QUIET=1 git rev-parse " .. sha .. "^ 2>/dev/null"):gsub("%s+", "")
-	local parent_msg =
-		vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
-	local parent_date =
-		vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. parent_sha .. " 2>/dev/null"):gsub("\n", "")
-	local current_msg = vim.fn.system("MISE_QUIET=1 git log -1 --format=%s " .. sha):gsub("\n", "")
-	local current_date = vim.fn.system("MISE_QUIET=1 git log -1 --format=%ci " .. sha):gsub("\n", "")
+	local _, parent_sha = git_command.output({ "rev-parse", sha .. "^" })
+	local _, parent_msg = git_command.output({ "log", "-1", "--format=%s", parent_sha })
+	local _, parent_date = git_command.output({ "log", "-1", "--format=%ci", parent_sha })
+	local _, current_msg = git_command.output({ "log", "-1", "--format=%s", sha })
+	local _, current_date = git_command.output({ "log", "-1", "--format=%ci", sha })
 
 	-- Store SHAs for checkout functionality
 	commit_cycle_state.to_sha = sha

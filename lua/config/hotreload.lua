@@ -4,6 +4,8 @@
 
 local M = {}
 
+local bufutil = require("config.bufutil")
+
 ---@class HotreloadConfig
 ---@field debounce_ms integer
 
@@ -43,26 +45,8 @@ local ignored_path_patterns = {
 ---@type HotreloadConfig
 local config = vim.deepcopy(defaults)
 
--- Helper: Check if buffer should be skipped
 local function should_skip_buffer(bufnr)
-  -- Skip if buffer is modified (don't lose local changes)
-  if vim.bo[bufnr].modified then
-    return true
-  end
-
-  -- Skip special buffer types
-  local buftype = vim.bo[bufnr].buftype
-  if buftype ~= "" then
-    return true
-  end
-
-  -- Skip special URI schemes (diffview://, oil://, etc.)
-  local bufname = vim.api.nvim_buf_get_name(bufnr)
-  if bufname:match("^%w+://") then
-    return true
-  end
-
-  return false
+  return bufutil.should_skip_normal_file_buffer(bufnr)
 end
 
 -- Reload visible buffers in current tab
@@ -125,6 +109,8 @@ local function watch_directory(dir)
 
   if ok then
     watchers[dir] = handle
+  elseif err then
+    vim.notify("Failed to watch " .. dir .. ": " .. tostring(err), vim.log.levels.WARN)
   end
 end
 

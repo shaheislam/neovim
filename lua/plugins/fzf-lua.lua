@@ -2,6 +2,8 @@
 -- Replaces telescope.nvim with feature parity for all custom workflows
 
 -- State management for scope toggle and directory history
+local git_command = require("git.command")
+
 local original_bufnr = nil
 local dir_history = {}
 local history_index = 0
@@ -168,6 +170,68 @@ local function build_header(picker_name)
 		table.insert(parts, util_keys[picker_name])
 	end
 	return #parts > 0 and table.concat(parts, "\n") or nil
+end
+
+local function history_header_opts(picker_name, header)
+	return function()
+		return {
+			["--history"] = get_history_path(picker_name),
+			["--header"] = header or build_header(picker_name),
+		}
+	end
+end
+
+local function relaunch_history_picker(picker_type, query, scope_cwd)
+	local fzf = require("fzf-lua")
+	scope_cwd = scope_cwd or vim.fn.getcwd()
+	local cwd_full = vim.fn.fnamemodify(scope_cwd, ":~")
+	local dispatch = {
+		files = function()
+			fzf.files({
+				query = query,
+				cwd = scope_cwd,
+				fzf_opts = { ["--header"] = build_header("files") },
+			})
+		end,
+		grep = function()
+			fzf.live_grep({
+				query = query,
+				cwd = scope_cwd,
+				winopts = { title = " " .. cwd_full .. " " },
+				fzf_opts = {
+					["--history"] = get_history_path("grep", scope_cwd),
+					["--header"] = build_header("grep"),
+				},
+			})
+		end,
+		buffers = function()
+			fzf.buffers({
+				query = query,
+				fzf_opts = { ["--header"] = build_header("buffers") },
+			})
+		end,
+		oldfiles = function()
+			fzf.oldfiles({
+				query = query,
+				cwd = scope_cwd,
+				fzf_opts = { ["--header"] = build_header("oldfiles") },
+			})
+		end,
+		git_files = function() fzf.git_files({ query = query }) end,
+		git_commits = function() fzf.git_commits({ query = query }) end,
+		git_bcommits = function() fzf.git_bcommits({ query = query }) end,
+		git_branches = function() fzf.git_branches({ query = query }) end,
+		git_stash = function() fzf.git_stash({ query = query }) end,
+		lsp_references = function() fzf.lsp_references({ query = query }) end,
+		lsp_definitions = function() fzf.lsp_definitions({ query = query }) end,
+		lsp_implementations = function() fzf.lsp_implementations({ query = query }) end,
+		lsp_doc_symbols = function() fzf.lsp_document_symbols({ query = query }) end,
+		lsp_workspace_symbols = function() fzf.lsp_workspace_symbols({ query = query }) end,
+		lsp_symbols = function() fzf.lsp_symbols({ query = query }) end,
+	}
+	(dispatch[picker_type] or function()
+		fzf.files({ query = query, cwd = scope_cwd })
+	end)()
 end
 
 local function selected_file_paths(selected, opts)
@@ -1015,64 +1079,9 @@ return {
 
 										-- Re-launch the original picker with the selected query
 										vim.schedule(function()
-											local cwd_full = vim.fn.fnamemodify(scope_cwd, ":~")
-											if picker_type == "files" then
-												require("fzf-lua").files({
-													query = query,
-													cwd = scope_cwd,
-													fzf_opts = { ["--header"] = build_header("files") },
-												})
-											elseif picker_type == "grep" then
-												require("fzf-lua").live_grep({
-													query = query,
-													cwd = scope_cwd,
-													winopts = {
-														title = " " .. cwd_full .. " ",
-													},
-													fzf_opts = {
-														["--history"] = get_history_path("grep", scope_cwd),
-														["--header"] = build_header("grep"),
-													},
-												})
-											elseif picker_type == "buffers" then
-												require("fzf-lua").buffers({
-													query = query,
-													fzf_opts = { ["--header"] = build_header("buffers") },
-												})
-											elseif picker_type == "oldfiles" then
-												require("fzf-lua").oldfiles({
-													query = query,
-													cwd = scope_cwd,
-													fzf_opts = { ["--header"] = build_header("oldfiles") },
-												})
-											elseif picker_type == "git_files" then
-												require("fzf-lua").git_files({ query = query })
-											elseif picker_type == "git_commits" then
-												require("fzf-lua").git_commits({ query = query })
-											elseif picker_type == "git_bcommits" then
-												require("fzf-lua").git_bcommits({ query = query })
-											elseif picker_type == "git_branches" then
-												require("fzf-lua").git_branches({ query = query })
-											elseif picker_type == "git_stash" then
-												require("fzf-lua").git_stash({ query = query })
-											elseif picker_type == "lsp_references" then
-												require("fzf-lua").lsp_references({ query = query })
-											elseif picker_type == "lsp_definitions" then
-												require("fzf-lua").lsp_definitions({ query = query })
-											elseif picker_type == "lsp_implementations" then
-												require("fzf-lua").lsp_implementations({ query = query })
-											elseif picker_type == "lsp_doc_symbols" then
-												require("fzf-lua").lsp_document_symbols({ query = query })
-											elseif picker_type == "lsp_workspace_symbols" then
-												require("fzf-lua").lsp_workspace_symbols({ query = query })
-											elseif picker_type == "lsp_symbols" then
-												require("fzf-lua").lsp_symbols({ query = query })
-											else
-												-- Fallback to files picker
-												require("fzf-lua").files({ query = query, cwd = scope_cwd })
-											end
-										end)
-									end,
+										relaunch_history_picker(picker_type, query, scope_cwd)
+									end)
+								end,
 									["ctrl-d"] = function()
 										vim.cmd("stopinsert")
 										vim.schedule(function()
@@ -1414,12 +1423,7 @@ return {
 					_headers = false, -- disable auto-header; build_header provides scope/util hints
 					fd_opts = "--color=never --type f --hidden --follow --exclude .git --exclude node_modules --exclude dist --exclude '*.lock' --exclude package-lock.json --exclude yarn.lock --exclude '*.log' --exclude '*.cache' --exclude '*.min.js' --exclude '*.min.css'",
 					-- PWD-based history for file picker (evaluated dynamically)
-					fzf_opts = function()
-						return {
-							["--history"] = get_history_path("files"),
-							["--header"] = build_header("files"),
-						}
-					end,
+					fzf_opts = history_header_opts("files"),
 					actions = {
 						["default"] = file_edit_with_cwd, -- Custom action to handle cwd properly
 						["ctrl-g"] = open_selected_paths_graph_split,
@@ -1509,12 +1513,7 @@ return {
 					input_prompt = "Grep For> ",
 					rg_opts = "--column --line-number --no-heading --color=always --smart-case --max-columns=4096 --hidden --glob '!.git/*' --glob '!node_modules/*' --glob '!dist/*' --glob '!*.lock' --glob '!*.log' --glob '!*.cache' --glob '!*.min.js' --glob '!*.min.css'",
 					-- PWD-based history for grep picker (evaluated dynamically)
-					fzf_opts = function()
-						return {
-							["--history"] = get_history_path("grep"),
-							["--header"] = build_header("grep"),
-						}
-					end,
+					fzf_opts = history_header_opts("grep"),
 					actions = {
 						["default"] = file_edit_with_cwd, -- Custom action to handle cwd properly
 						["alt-g"] = create_scope_action(function()
@@ -1613,12 +1612,7 @@ return {
 					sort_lastused = true,
 					show_all_buffers = true,
 					-- PWD-based history for buffers picker (evaluated dynamically)
-					fzf_opts = function()
-						return {
-							["--history"] = get_history_path("buffers"),
-							["--header"] = build_header("buffers"),
-						}
-					end,
+					fzf_opts = history_header_opts("buffers"),
 					actions = {
 						["default"] = actions.buf_edit_or_qf, -- Explicitly set default buffer open action
 						["alt-g"] = create_scope_action(function()
@@ -1703,12 +1697,7 @@ return {
 					cwd_only = false,
 					include_current_session = true,
 					-- PWD-based history for oldfiles picker (evaluated dynamically)
-					fzf_opts = function()
-						return {
-							["--history"] = get_history_path("oldfiles"),
-							["--header"] = build_header("oldfiles"),
-						}
-					end,
+					fzf_opts = history_header_opts("oldfiles"),
 					actions = {
 						["default"] = file_edit_with_cwd, -- Custom action to handle cwd properly
 						["alt-g"] = create_scope_action(function()
@@ -1734,12 +1723,7 @@ return {
 					files = {
 						prompt = "Git Files> ",
 						-- PWD-based history for git files (evaluated dynamically)
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("git_files"),
-								["--header"] = "C-y: copy path | C-f: copy full path | C-r: search history",
-							}
-						end,
+						fzf_opts = history_header_opts("git_files", "C-y: copy path | C-f: copy full path | C-r: search history"),
 						actions = {
 							["ctrl-r"] = search_history_action(), -- Search history
 							["ctrl-y"] = function(selected, opts)
@@ -1807,12 +1791,7 @@ return {
 						prompt = "Git Commits> ",
 						preview = "git show --color {1}",
 						-- PWD-based history for git commits (evaluated dynamically)
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("git_commits"),
-								["--header"] = "C-g: Diffview | C-y: copy SHA | C-r: search history",
-							}
-						end,
+						fzf_opts = history_header_opts("git_commits", "C-g: Diffview | C-y: copy SHA | C-r: search history"),
 						actions = {
 							["default"] = actions.git_checkout,
 							["ctrl-g"] = function(selected)
@@ -1835,12 +1814,7 @@ return {
 						prompt = "Git Buffer Commits> ",
 						preview = "git show --color {1}",
 						-- PWD-based history for git buffer commits (evaluated dynamically)
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("git_bcommits"),
-								["--header"] = "C-g: Diffview | C-y: copy SHA | C-r: search history",
-							}
-						end,
+						fzf_opts = history_header_opts("git_bcommits", "C-g: Diffview | C-y: copy SHA | C-r: search history"),
 						actions = {
 							["default"] = actions.git_buf_edit,
 							["ctrl-g"] = function(selected)
@@ -1863,12 +1837,7 @@ return {
 						prompt = "Git Branches> ",
 						preview = "git log --graph --pretty=oneline --abbrev-commit --color {1}",
 						-- PWD-based history for git branches (evaluated dynamically)
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("git_branches"),
-								["--header"] = "C-y: copy branch | C-r: search history",
-							}
-						end,
+						fzf_opts = history_header_opts("git_branches", "C-y: copy branch | C-r: search history"),
 						actions = {
 							["ctrl-r"] = search_history_action(), -- Search history
 							["ctrl-y"] = function(selected, opts)
@@ -1896,7 +1865,8 @@ return {
 								end
 
 								-- Check for uncommitted changes
-								local has_changes = vim.fn.system("bash -c 'git status --porcelain'"):match("%S")
+								local _, status = git_command.output({ "status", "--porcelain" })
+								local has_changes = status:match("%S")
 
 								if has_changes then
 									local choice = vim.fn.confirm(
@@ -1907,29 +1877,30 @@ return {
 
 									if choice == 1 then
 										-- Stash changes with descriptive message
+										local _, current_branch = git_command.output({ "branch", "--show-current" })
 										local stash_msg = string.format(
 											"WIP on %s before switching to %s",
-											vim.fn.system("bash -c 'git branch --show-current'"):gsub("\n", ""),
+											current_branch,
 											branch
 										)
-										vim.fn.system(string.format("bash -c \"git stash push -m '%s'\"", stash_msg))
+										git_command.run({ "stash", "push", "-m", stash_msg })
 										vim.notify("Changes stashed: " .. stash_msg, vim.log.levels.INFO)
 
 										-- Switch branch
-										local result = vim.fn.system(string.format("bash -c 'git checkout %s'", branch))
-										if vim.v.shell_error == 0 then
+										local result = git_command.run({ "checkout", branch })
+										if result.ok then
 											vim.notify("Switched to branch: " .. branch, vim.log.levels.INFO)
 										else
-											vim.notify("Failed to switch branch: " .. result, vim.log.levels.ERROR)
+											vim.notify("Failed to switch branch: " .. result.output, vim.log.levels.ERROR)
 										end
 									end
 								else
 									-- No changes, switch directly
-									local result = vim.fn.system(string.format("bash -c 'git checkout %s'", branch))
-									if vim.v.shell_error == 0 then
+									local result = git_command.run({ "checkout", branch })
+									if result.ok then
 										vim.notify("Switched to branch: " .. branch, vim.log.levels.INFO)
 									else
-										vim.notify("Failed to switch branch: " .. result, vim.log.levels.ERROR)
+										vim.notify("Failed to switch branch: " .. result.output, vim.log.levels.ERROR)
 									end
 								end
 							end,
@@ -1939,12 +1910,7 @@ return {
 						prompt = "Git Stash> ",
 						preview = "git stash show --color -p {1}",
 						-- PWD-based history for git stash (evaluated dynamically)
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("git_stash"),
-								["--header"] = "C-y: copy stash | C-x: drop | C-r: search history",
-							}
-						end,
+						fzf_opts = history_header_opts("git_stash", "C-y: copy stash | C-x: drop | C-r: search history"),
 						actions = {
 							["default"] = actions.git_stash_apply,
 							["ctrl-x"] = actions.git_stash_drop,
@@ -1968,12 +1934,7 @@ return {
 					symbols = {
 						symbol_style = 1,
 						-- PWD-based history for LSP symbols (evaluated dynamically)
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("lsp_symbols"),
-								["--header"] = "C-y: copy location | C-f: copy full path",
-							}
-						end,
+						fzf_opts = history_header_opts("lsp_symbols", "C-y: copy location | C-f: copy full path"),
 						actions = {
 							["ctrl-y"] = function(selected, opts)
 								if not selected or #selected == 0 then
@@ -2038,12 +1999,7 @@ return {
 					},
 					-- Add history for other LSP pickers that might be used (evaluated dynamically)
 					references = {
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("lsp_references"),
-								["--header"] = "C-y: copy location | C-f: copy full path",
-							}
-						end,
+						fzf_opts = history_header_opts("lsp_references", "C-y: copy location | C-f: copy full path"),
 						actions = {
 							["ctrl-y"] = function(selected, opts)
 								if not selected or #selected == 0 then
@@ -2107,12 +2063,7 @@ return {
 						},
 					},
 					definitions = {
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("lsp_definitions"),
-								["--header"] = "C-y: copy location | C-f: copy full path",
-							}
-						end,
+						fzf_opts = history_header_opts("lsp_definitions", "C-y: copy location | C-f: copy full path"),
 						actions = {
 							["ctrl-y"] = function(selected, opts)
 								if not selected or #selected == 0 then
@@ -2176,12 +2127,7 @@ return {
 						},
 					},
 					implementations = {
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("lsp_implementations"),
-								["--header"] = "C-y: copy location | C-f: copy full path",
-							}
-						end,
+						fzf_opts = history_header_opts("lsp_implementations", "C-y: copy location | C-f: copy full path"),
 						actions = {
 							["ctrl-y"] = function(selected, opts)
 								if not selected or #selected == 0 then
@@ -2245,12 +2191,7 @@ return {
 						},
 					},
 					document_symbols = {
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("lsp_doc_symbols"),
-								["--header"] = "C-y: copy location | C-f: copy full path",
-							}
-						end,
+						fzf_opts = history_header_opts("lsp_doc_symbols", "C-y: copy location | C-f: copy full path"),
 						actions = {
 							["ctrl-y"] = function(selected, opts)
 								if not selected or #selected == 0 then
@@ -2314,12 +2255,7 @@ return {
 						},
 					},
 					workspace_symbols = {
-						fzf_opts = function()
-							return {
-								["--history"] = get_history_path("lsp_workspace_symbols"),
-								["--header"] = "C-y: copy location | C-f: copy full path",
-							}
-						end,
+						fzf_opts = history_header_opts("lsp_workspace_symbols", "C-y: copy location | C-f: copy full path"),
 						actions = {
 							["ctrl-y"] = function(selected, opts)
 								if not selected or #selected == 0 then

@@ -8,6 +8,29 @@ local cache = {
 	messages = {},
 }
 
+---@class OpenCodeCommandResult
+---@field code integer
+---@field stdout string
+---@field stderr string
+
+---@class OpenCodeSession
+---@field id string
+---@field title? string
+---@field slug? string
+---@field directory? string
+---@field time? table
+
+---@class OpenCodeMessage
+---@field info table
+---@field parts OpenCodePart[]
+
+---@class OpenCodePart
+---@field id? string
+---@field type? string
+---@field text? string
+---@field tool? string
+---@field state? table
+
 local function opencode_db_path()
 	return vim.env.OPENCODE_DB_PATH or vim.fn.expand("~/.local/share/opencode/opencode.db")
 end
@@ -88,75 +111,87 @@ local function as_table(value)
 	return {}
 end
 
-local function run_sql(sql, callback)
-	local db = opencode_db_path()
-	if vim.fn.executable("sqlite3") ~= 1 then
-		callback(nil, "sqlite3 is required to read OpenCode history")
+---@param args string[]
+---@param callback fun(result?: OpenCodeCommandResult, err?: string)
+---@param opts? { executable?: string, start_error?: string }
+local function run_command(args, callback, opts)
+	opts = opts or {}
+	local executable = opts.executable or args[1]
+	if vim.fn.executable(executable) ~= 1 then
+		callback(nil, executable .. " is required")
 		return
 	end
+
+	if vim.system then
+		vim.system(args, { text = true }, function(result)
+			vim.schedule(function()
+				callback({
+					code = result.code or 0,
+					stdout = result.stdout or "",
+					stderr = result.stderr or "",
+				})
+			end)
+		end)
+		return
+	end
+
+	local stdout = {}
+	local stderr = {}
+	local job = vim.fn.jobstart(args, {
+		stdout_buffered = true,
+		stderr_buffered = true,
+		on_stdout = function(_, data)
+			vim.list_extend(stdout, data or {})
+		end,
+		on_stderr = function(_, data)
+			vim.list_extend(stderr, data or {})
+		end,
+		on_exit = function(_, code)
+			vim.schedule(function()
+				callback({
+					code = code or 0,
+					stdout = table.concat(stdout, "\n"),
+					stderr = table.concat(stderr, "\n"),
+				})
+			end)
+		end,
+	})
+
+	if job <= 0 then
+		callback(nil, opts.start_error or ("Failed to start " .. executable))
+	end
+end
+
+local function run_sql(sql, callback)
+	local db = opencode_db_path()
 	if vim.fn.filereadable(db) ~= 1 then
 		callback(nil, "OpenCode database not found: " .. db)
 		return
 	end
 
 	local args = { "sqlite3", "-json", db, sql }
-	if vim.system then
-		vim.system(args, { text = true }, function(result)
-			vim.schedule(function()
-				if result.code ~= 0 then
-					local message = vim.trim((result.stderr or "") .. (result.stdout or ""))
-					callback(nil, message ~= "" and message or "OpenCode database query failed")
-					return
-				end
+	run_command(args, function(result, err)
+		if not result then
+			callback(nil, err or "Failed to start sqlite3")
+			return
+		end
+		if result.code ~= 0 then
+			local message = vim.trim(result.stderr .. result.stdout)
+			callback(nil, message ~= "" and message or "OpenCode database query failed")
+			return
+		end
 
-				local raw = vim.trim(result.stdout or "")
-				if raw == "" then
-					raw = "[]"
-				end
-				local ok, rows = pcall(vim.json.decode, raw)
-				if not ok then
-					callback(nil, "Failed to decode OpenCode database response")
-					return
-				end
-				callback(rows)
-			end)
-		end)
-		return
-	end
-
-	local output = {}
-	local job = vim.fn.jobstart(args, {
-		stdout_buffered = true,
-		stderr_buffered = true,
-		on_stdout = function(_, data)
-			vim.list_extend(output, data or {})
-		end,
-		on_stderr = function(_, data)
-			vim.list_extend(output, data or {})
-		end,
-		on_exit = function(_, code)
-			vim.schedule(function()
-				local text = vim.trim(table.concat(output, "\n"))
-				if code ~= 0 then
-					callback(nil, text ~= "" and text or "OpenCode database query failed")
-					return
-				end
-				if text == "" then
-					text = "[]"
-				end
-				local ok, rows = pcall(vim.json.decode, text)
-				if not ok then
-					callback(nil, "Failed to decode OpenCode database response")
-					return
-				end
-				callback(rows)
-			end)
-		end,
-	})
-
-	if job <= 0 then
-		callback(nil, "Failed to start sqlite3")
-	end
+		local raw = vim.trim(result.stdout)
+		if raw == "" then
+			raw = "[]"
+		end
+		local ok, rows = pcall(vim.json.decode, raw)
+		if not ok then
+			callback(nil, "Failed to decode OpenCode database response")
+			return
+		end
+		callback(rows)
+	end, { executable = "sqlite3", start_error = "Failed to start sqlite3" })
 end
 
 local function sort_sessions(sessions)
@@ -310,55 +345,38 @@ local function decode_json(raw, path, callback)
 end
 
 function M.get(path, callback)
-	if vim.fn.executable("curl") ~= 1 then
-		callback(nil, "curl is required to talk to OpenCode")
-		return
-	end
-
 	local args = curl_args(path)
-	if vim.system then
-		vim.system(args, { text = true }, function(result)
-			vim.schedule(function()
-				if result.code ~= 0 then
-					local message = (result.stderr or "") .. (result.stdout or "")
-					callback(nil, vim.trim(message) ~= "" and vim.trim(message) or "Could not reach OpenCode")
-					return
-				end
-				decode_json(result.stdout, path, callback)
-			end)
-		end)
-		return
-	end
-
-	local output = {}
-	local job = vim.fn.jobstart(args, {
-		stdout_buffered = true,
-		stderr_buffered = true,
-		on_stdout = function(_, data)
-			vim.list_extend(output, data or {})
-		end,
-		on_stderr = function(_, data)
-			vim.list_extend(output, data or {})
-		end,
-		on_exit = function(_, code)
-			vim.schedule(function()
-				local text = table.concat(output, "\n")
-				if code ~= 0 then
-					callback(nil, vim.trim(text) ~= "" and vim.trim(text) or "Could not reach OpenCode")
-					return
-				end
-				decode_json(text, path, callback)
-			end)
-		end,
-	})
-
-	if job <= 0 then
-		callback(nil, "Failed to start curl")
-	end
+	run_command(args, function(result, err)
+		if not result then
+			callback(nil, err or "Failed to start curl")
+			return
+		end
+		if result.code ~= 0 then
+			local message = result.stderr .. result.stdout
+			callback(nil, vim.trim(message) ~= "" and vim.trim(message) or "Could not reach OpenCode")
+			return
+		end
+		decode_json(result.stdout, path, callback)
+	end, { executable = "curl", start_error = "Failed to start curl" })
 end
 
 local function fresh(timestamp)
 	return timestamp > 0 and (vim.uv.now() - timestamp) < cache_ttl_ms
+end
+
+local function store_sessions(sessions)
+	sort_sessions(sessions)
+	cache.sessions = vim.deepcopy(sessions)
+	cache.sessions_at = vim.uv.now()
+	return sessions
+end
+
+local function store_messages(session_id, messages)
+	cache.messages[session_id] = {
+		at = vim.uv.now(),
+		messages = vim.deepcopy(messages),
+	}
+	return messages
 end
 
 function M.sessions(callback, opts)
@@ -376,18 +394,12 @@ function M.sessions(callback, opts)
 					return
 				end
 
-				sort_sessions(db_sessions)
-				cache.sessions = vim.deepcopy(db_sessions)
-				cache.sessions_at = vim.uv.now()
-				callback(db_sessions)
+			callback(store_sessions(db_sessions))
 			end)
 			return
 		end
 
-		sort_sessions(http_sessions)
-		cache.sessions = vim.deepcopy(http_sessions)
-		cache.sessions_at = vim.uv.now()
-		callback(http_sessions)
+		callback(store_sessions(http_sessions))
 	end)
 end
 
@@ -425,19 +437,11 @@ function M.messages(session_id, callback, opts)
 					callback(nil, http_err or db_err)
 					return
 				end
-				cache.messages[session_id] = {
-					at = vim.uv.now(),
-					messages = vim.deepcopy(db_messages),
-				}
-				callback(db_messages)
+				callback(store_messages(session_id, db_messages))
 			end)
 			return
 		end
-		cache.messages[session_id] = {
-			at = vim.uv.now(),
-			messages = vim.deepcopy(http_messages),
-		}
-		callback(http_messages)
+		callback(store_messages(session_id, http_messages))
 	end)
 end
 

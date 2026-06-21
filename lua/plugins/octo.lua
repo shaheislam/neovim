@@ -1,6 +1,22 @@
 -- GitHub integration with octo.nvim
 -- Requires: gh CLI installed and authenticated (gh auth login)
 
+local git_command = require("git.command")
+
+local function run_gh(args)
+  local cmd = { "gh" }
+  vim.list_extend(cmd, args)
+  if vim.system then
+    local result = vim.system(cmd, { text = true, env = { MISE_QUIET = "1" } }):wait()
+    local stdout = result.stdout or ""
+    local stderr = result.stderr or ""
+    return result.code == 0, vim.trim(stdout ~= "" and stdout or stderr)
+  end
+
+  local output = vim.fn.system(vim.list_extend({ "env", "MISE_QUIET=1" }, cmd))
+  return vim.v.shell_error == 0, vim.trim(output or "")
+end
+
 return {
   {
     "pwntester/octo.nvim",
@@ -324,26 +340,22 @@ return {
       ---Get current git branch name
       ---@return string|nil
       local function get_current_branch()
-        local result = vim.fn.system("MISE_QUIET=1 git rev-parse --abbrev-ref HEAD 2>/dev/null")
-        if vim.v.shell_error == 0 then
-          return vim.trim(result)
-        end
-        return nil
+        local ok, result = git_command.output({ "rev-parse", "--abbrev-ref", "HEAD" })
+        return ok and result or nil
       end
 
       ---Check if a git ref exists
       ---@param ref string
       ---@return boolean
       local function ref_exists(ref)
-        vim.fn.system("MISE_QUIET=1 git rev-parse --verify " .. ref .. " 2>/dev/null")
-        return vim.v.shell_error == 0
+        return git_command.succeeds({ "rev-parse", "--verify", ref })
       end
 
       ---Get the current local repo's remote URL (normalized)
       ---@return string|nil
       local function get_local_repo_name()
-        local result = vim.fn.system("MISE_QUIET=1 git remote get-url origin 2>/dev/null")
-        if vim.v.shell_error ~= 0 then
+        local ok, result = git_command.output({ "remote", "get-url", "origin" })
+        if not ok then
           return nil
         end
         -- Normalize: extract owner/repo from various URL formats
@@ -382,9 +394,7 @@ return {
             local direct_path = dir .. "/" .. repo
             if vim.fn.isdirectory(direct_path .. "/.git") == 1 then
               -- Verify it's the right repo by checking remote
-              local remote = vim.fn.system(
-                string.format("MISE_QUIET=1 git -C %q remote get-url origin 2>/dev/null", direct_path)
-              )
+              local _, remote = git_command.output({ "remote", "get-url", "origin" }, { cwd = direct_path })
               if remote:lower():find(repo_name:lower(), 1, true) then
                 return direct_path
               end
@@ -416,10 +426,10 @@ return {
         local function register_diffview_cleanup(original_branch, temp_branch, had_stash)
           _G.octo_diffview.cleanup = function()
             vim.cmd("DiffviewClose")
-            vim.fn.system("MISE_QUIET=1 git checkout " .. original_branch .. " 2>/dev/null")
-            vim.fn.system("MISE_QUIET=1 git branch -D " .. temp_branch .. " 2>/dev/null")
+            git_command.run({ "checkout", original_branch })
+            git_command.run({ "branch", "-D", temp_branch })
             if had_stash then
-              vim.fn.system("MISE_QUIET=1 git stash pop 2>/dev/null")
+              git_command.run({ "stash", "pop" })
             end
             vim.notify("Cleaned up and restored to " .. original_branch, vim.log.levels.INFO)
           end
@@ -480,8 +490,7 @@ return {
           local original_branch = get_current_branch() or "main"
 
           -- Stash any uncommitted changes
-          vim.fn.system("MISE_QUIET=1 git stash push -m 'octo-diffview-temp' 2>/dev/null")
-          local had_stash = vim.v.shell_error == 0
+          local had_stash = git_command.succeeds({ "stash", "push", "-m", "octo-diffview-temp" })
 
           -- Strategy: Use gh api to get PR head SHA, then fetch that commit
           -- This works even when refs/pull/{n}/head isn't available
@@ -492,50 +501,41 @@ return {
           local head_sha = pr_info.headSha
           if not head_sha or head_sha == "" then
             -- Fetch from API if not in pr_info
-            local api_result = vim.fn.system(
-              string.format("MISE_QUIET=1 gh api repos/%s/pulls/%d --jq .head.sha 2>/dev/null", pr_info.repo, pr_info.number)
-            )
-            if vim.v.shell_error == 0 then
-              head_sha = vim.trim(api_result)
+            local api_ok, api_result = run_gh({ "api", "repos/" .. pr_info.repo .. "/pulls/" .. pr_info.number, "--jq", ".head.sha" })
+            if api_ok then
+              head_sha = api_result
             end
           end
 
           if head_sha and head_sha ~= "" then
             -- Try to fetch the specific commit
             -- First, try fetching with the commit SHA directly
-            vim.fn.system(string.format("MISE_QUIET=1 git fetch origin %s 2>&1", head_sha))
-            if vim.v.shell_error == 0 then
+            if git_command.succeeds({ "fetch", "origin", head_sha }) then
               -- Create branch from fetched commit
-              vim.fn.system(string.format("MISE_QUIET=1 git branch -f %s %s 2>&1", temp_branch, head_sha))
-              fetch_ok = vim.v.shell_error == 0
+              fetch_ok = git_command.succeeds({ "branch", "-f", temp_branch, head_sha })
             end
 
             -- If that failed, try fetching via PR ref
             if not fetch_ok then
-              vim.fn.system(string.format("MISE_QUIET=1 git fetch origin pull/%d/head 2>&1", pr_info.number))
-              if vim.v.shell_error == 0 then
-                vim.fn.system(string.format("MISE_QUIET=1 git branch -f %s FETCH_HEAD 2>&1", temp_branch))
-                fetch_ok = vim.v.shell_error == 0
+              if git_command.succeeds({ "fetch", "origin", "pull/" .. pr_info.number .. "/head" }) then
+                fetch_ok = git_command.succeeds({ "branch", "-f", temp_branch, "FETCH_HEAD" })
               end
             end
 
             -- Last resort: fetch all and hope the commit is reachable
             if not fetch_ok then
-              vim.fn.system("MISE_QUIET=1 git fetch origin 2>&1")
+              git_command.run({ "fetch", "origin" })
               if ref_exists(head_sha) then
-                vim.fn.system(string.format("MISE_QUIET=1 git branch -f %s %s 2>&1", temp_branch, head_sha))
-                fetch_ok = vim.v.shell_error == 0
+                fetch_ok = git_command.succeeds({ "branch", "-f", temp_branch, head_sha })
               end
             end
           end
 
           if fetch_ok then
             -- Checkout the temp branch
-            local checkout_result = vim.fn.system(
-              string.format("MISE_QUIET=1 git checkout %s 2>&1", temp_branch)
-            )
+            local checkout_result = git_command.run({ "checkout", temp_branch })
 
-            if vim.v.shell_error == 0 then
+            if checkout_result.ok then
               -- Success! Now use DiffView
               local diff_cmd = string.format("DiffviewOpen origin/%s...HEAD", pr_info.base)
               vim.notify(
@@ -558,22 +558,20 @@ return {
           )
 
           -- Get the diff from GitHub
-          local diff_output = vim.fn.system(
-            string.format("MISE_QUIET=1 gh pr diff %d --repo %s 2>/dev/null", pr_info.number, pr_info.repo)
-          )
+          local diff_ok, diff_output = run_gh({ "pr", "diff", tostring(pr_info.number), "--repo", pr_info.repo })
 
-          if vim.v.shell_error == 0 and diff_output ~= "" then
+          if diff_ok and diff_output ~= "" then
             -- Checkout the base branch
-            vim.fn.system(string.format("MISE_QUIET=1 git checkout origin/%s 2>&1", pr_info.base))
-            if vim.v.shell_error ~= 0 then
+            local checkout_base = git_command.run({ "checkout", "origin/" .. pr_info.base })
+            if not checkout_base.ok then
               -- Try without origin/ prefix
-              vim.fn.system(string.format("MISE_QUIET=1 git checkout %s 2>&1", pr_info.base))
+              git_command.run({ "checkout", pr_info.base })
             end
 
             -- Create temp branch from base
-            vim.fn.system(string.format("MISE_QUIET=1 git checkout -b %s 2>&1", temp_branch))
+            local checkout_temp = git_command.run({ "checkout", "-b", temp_branch })
 
-            if vim.v.shell_error == 0 then
+            if checkout_temp.ok then
               -- Write diff to temp file and apply
               local temp_file = vim.fn.tempname() .. ".patch"
               local f = io.open(temp_file, "w")
@@ -582,22 +580,17 @@ return {
                 f:close()
 
                 -- Apply the diff (--3way handles conflicts better)
-                local apply_result = vim.fn.system(
-                  string.format("MISE_QUIET=1 git apply --3way %s 2>&1", temp_file)
-                )
+                git_command.run({ "apply", "--3way", temp_file })
                 vim.fn.delete(temp_file)
 
                 -- Check if apply worked (may have partial success)
-                local status = vim.fn.system("MISE_QUIET=1 git status --porcelain 2>/dev/null")
+                local _, status = git_command.output({ "status", "--porcelain" })
                 if status ~= "" then
                   -- Stage and commit all changes
-                  vim.fn.system("MISE_QUIET=1 git add -A 2>/dev/null")
-                  vim.fn.system(string.format(
-                    'MISE_QUIET=1 git commit -m "PR #%d: %s" 2>/dev/null',
-                    pr_info.number, pr_info.head
-                  ))
+                  git_command.run({ "add", "-A" })
+                  local commit_result = git_command.run({ "commit", "-m", string.format("PR #%d: %s", pr_info.number, pr_info.head) })
 
-                  if vim.v.shell_error == 0 then
+                  if commit_result.ok then
                     -- Success! Open DiffView
                     local diff_cmd = string.format("DiffviewOpen origin/%s...HEAD", pr_info.base)
                     vim.notify(
@@ -617,10 +610,10 @@ return {
           end
 
           -- All methods failed - restore state and show scratch buffer
-          vim.fn.system("MISE_QUIET=1 git checkout " .. original_branch .. " 2>/dev/null")
-          vim.fn.system("MISE_QUIET=1 git branch -D " .. temp_branch .. " 2>/dev/null")
+          git_command.run({ "checkout", original_branch })
+          git_command.run({ "branch", "-D", temp_branch })
           if had_stash then
-            vim.fn.system("MISE_QUIET=1 git stash pop 2>/dev/null")
+            git_command.run({ "stash", "pop" })
           end
 
           -- Fall back to scratch buffer
@@ -628,11 +621,9 @@ return {
             string.format("PR #%d: Could not apply diff for DiffView. Showing raw diff...", pr_info.number),
             vim.log.levels.WARN
           )
-          local diff_output = vim.fn.system(
-            string.format("MISE_QUIET=1 gh pr diff %d --repo %s 2>/dev/null", pr_info.number, pr_info.repo)
-          )
+          local fallback_ok, diff_output = run_gh({ "pr", "diff", tostring(pr_info.number), "--repo", pr_info.repo })
 
-          if vim.v.shell_error == 0 and diff_output ~= "" then
+          if fallback_ok and diff_output ~= "" then
             vim.cmd("tabnew")
             local buf = vim.api.nvim_get_current_buf()
             vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
@@ -665,15 +656,14 @@ return {
             -- GitHub exposes all PRs at refs/pull/{number}/head
             vim.notify(string.format("Fetching PR #%d from origin...", pr_info.number), vim.log.levels.INFO)
 
-            local fetch_cmd = string.format("MISE_QUIET=1 git fetch origin pull/%d/head 2>&1", pr_info.number)
-            local fetch_result = vim.fn.system(fetch_cmd)
+            local fetch_result = git_command.run({ "fetch", "origin", "pull/" .. pr_info.number .. "/head" })
 
-            if vim.v.shell_error ~= 0 then
+            if not fetch_result.ok then
               -- Last resort: try using the head SHA if available
               if pr_info.headSha then
                 vim.notify("Branch ref unavailable, using commit SHA...", vim.log.levels.INFO)
                 -- Force fetch by SHA (may not work if commit is unreachable)
-                vim.fn.system("MISE_QUIET=1 git fetch origin 2>/dev/null")
+                git_command.run({ "fetch", "origin" })
                 if ref_exists(pr_info.headSha) then
                   head_ref = pr_info.headSha
                 end

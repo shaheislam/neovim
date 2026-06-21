@@ -22,6 +22,8 @@ require("config.return_target").setup()
 -- Load kubectl helpers
 require("config.kubectl").setup()
 
+local bufutil = require("config.bufutil")
+
 -- Helper function to create augroups
 local function augroup(name)
   return vim.api.nvim_create_augroup("nvim_mini_" .. name, { clear = true })
@@ -123,11 +125,25 @@ local function set_transparent_floats()
   -- Get the Normal highlight to use as base (should be transparent)
   local normal_hl = vim.api.nvim_get_hl(0, { name = "Normal" })
 
-  -- Make floating windows transparent by linking to Normal
-  vim.api.nvim_set_hl(0, "NormalFloat", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "FloatBorder", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "FloatTitle", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "FloatFooter", { link = "Normal" })
+  local link_to_normal = {
+    "NormalFloat",
+    "FloatBorder",
+    "FloatTitle",
+    "FloatFooter",
+    "WhichKeyNormal",
+    "WhichKey",
+    "WhichKeyFloat",
+    "WhichKeyBorder",
+    "WhichKeyTitle",
+    "BlinkCmpMenu",
+    "BlinkCmpMenuBorder",
+    "BlinkCmpDoc",
+    "BlinkCmpDocBorder",
+  }
+
+  for _, group in ipairs(link_to_normal) do
+    vim.api.nvim_set_hl(0, group, { link = "Normal" })
+  end
 
   -- Make popup menus (completion) use transparent background
   vim.api.nvim_set_hl(0, "Pmenu", { bg = normal_hl.bg })
@@ -135,31 +151,20 @@ local function set_transparent_floats()
   vim.api.nvim_set_hl(0, "PmenuSbar", { bg = normal_hl.bg })
   vim.api.nvim_set_hl(0, "PmenuThumb", { bg = normal_hl.bg })
 
-  -- Make which-key popup use transparent background
-  -- WhichKeyNormal is used by winhighlight for the main window background
-  vim.api.nvim_set_hl(0, "WhichKeyNormal", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "WhichKey", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "WhichKeyFloat", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "WhichKeyBorder", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "WhichKeyTitle", { link = "Normal" })
+  local diagnostic_links = {
+    DiagnosticFloatingError = "DiagnosticError",
+    DiagnosticFloatingWarn = "DiagnosticWarn",
+    DiagnosticFloatingInfo = "DiagnosticInfo",
+    DiagnosticFloatingHint = "DiagnosticHint",
+    DiagnosticVirtualTextError = "DiagnosticError",
+    DiagnosticVirtualTextWarn = "DiagnosticWarn",
+    DiagnosticVirtualTextInfo = "DiagnosticInfo",
+    DiagnosticVirtualTextHint = "DiagnosticHint",
+  }
 
-  -- Make blink.cmp menus transparent
-  vim.api.nvim_set_hl(0, "BlinkCmpMenu", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "BlinkCmpMenuBorder", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "BlinkCmpDoc", { link = "Normal" })
-  vim.api.nvim_set_hl(0, "BlinkCmpDocBorder", { link = "Normal" })
-
-  -- Optional: Make diagnostic floating windows specifically transparent
-  vim.api.nvim_set_hl(0, "DiagnosticFloatingError", { link = "DiagnosticError" })
-  vim.api.nvim_set_hl(0, "DiagnosticFloatingWarn", { link = "DiagnosticWarn" })
-  vim.api.nvim_set_hl(0, "DiagnosticFloatingInfo", { link = "DiagnosticInfo" })
-  vim.api.nvim_set_hl(0, "DiagnosticFloatingHint", { link = "DiagnosticHint" })
-
-  -- Keep inline diagnostics transparent; many themes add tinted virtual-text backgrounds.
-  vim.api.nvim_set_hl(0, "DiagnosticVirtualTextError", { link = "DiagnosticError" })
-  vim.api.nvim_set_hl(0, "DiagnosticVirtualTextWarn", { link = "DiagnosticWarn" })
-  vim.api.nvim_set_hl(0, "DiagnosticVirtualTextInfo", { link = "DiagnosticInfo" })
-  vim.api.nvim_set_hl(0, "DiagnosticVirtualTextHint", { link = "DiagnosticHint" })
+  for group, link in pairs(diagnostic_links) do
+    vim.api.nvim_set_hl(0, group, { link = link })
+  end
 end
 
 -- Apply on colorscheme changes
@@ -238,15 +243,7 @@ vim.api.nvim_create_autocmd("VimResized", {
 
       for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
         local buf = vim.api.nvim_win_get_buf(win)
-        local name = vim.api.nvim_buf_get_name(buf)
-        local ft = vim.bo[buf].filetype
-
-        if
-          name == "Commit Info"
-          or name:match("^diffview://")
-          or ft == "DiffviewFiles"
-          or ft == "DiffviewFileHistory"
-        then
+        if bufutil.is_diffview_buffer(buf) then
           has_diffview_layout = true
         end
       end

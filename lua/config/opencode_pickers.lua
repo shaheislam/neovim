@@ -11,8 +11,43 @@ local scopes = {
 
 local scope_order = { "all", "prompts", "assistant", "reasoning", "tools", "tool_output" }
 
+local part_filters = {
+	all = function(_, part)
+		return part.type == "text" or part.type == "reasoning" or part.type == "tool"
+	end,
+	prompts = function(role, part)
+		return role == "user" and part.type == "text"
+	end,
+	assistant = function(role, part)
+		return role == "assistant" and part.type == "text"
+	end,
+	reasoning = function(_, part)
+		return part.type == "reasoning"
+	end,
+	tools = function(_, part)
+		return part.type == "tool"
+	end,
+	tool_output = function(_, part)
+		return part.type == "tool" and part.state and part.state.output ~= nil
+	end,
+}
+
 local resolve_timeline_anchor
 local surrounding_payload
+
+---@class OpenCodePickerItem
+---@field session OpenCodeSession
+---@field messages OpenCodeMessage[]
+---@field message_idx integer
+---@field part_idx integer
+---@field message_id? string
+---@field part_id? string
+---@field role string
+---@field kind string
+---@field tool? string
+---@field title? string
+---@field time string
+---@field text string
 
 local function to_text(value)
 	if value == nil then
@@ -438,18 +473,8 @@ local function tool_text(part, mode)
 end
 
 local function include_part(scope, role, part)
-	if scope == "prompts" then
-		return role == "user" and part.type == "text"
-	elseif scope == "assistant" then
-		return role == "assistant" and part.type == "text"
-	elseif scope == "reasoning" then
-		return part.type == "reasoning"
-	elseif scope == "tools" then
-		return part.type == "tool"
-	elseif scope == "tool_output" then
-		return part.type == "tool" and part.state and part.state.output ~= nil
-	end
-	return part.type == "text" or part.type == "reasoning" or part.type == "tool"
+	local filter = part_filters[scope] or part_filters.all
+	return filter(role, part)
 end
 
 local function part_content(scope, part)
@@ -683,7 +708,11 @@ local function open_message_picker(items, scope, opts)
 	local entries = {}
 	local entry_map = {}
 	local preview_dir = vim.fn.tempname()
-	vim.fn.mkdir(preview_dir, "p")
+	local ok_mkdir = pcall(vim.fn.mkdir, preview_dir, "p")
+	if not ok_mkdir then
+		vim.notify("Could not create OpenCode preview directory", vim.log.levels.ERROR, { title = "opencode" })
+		return
+	end
 	for idx, item in ipairs(items) do
 		local entry
 		if opts.all_sessions then
@@ -706,7 +735,12 @@ local function open_message_picker(items, scope, opts)
 		end
 		table.insert(entries, entry)
 		entry_map[entry] = item
-		vim.fn.writefile(preview_lines(item), ("%s/%04d.md"):format(preview_dir, idx))
+		local ok_write = pcall(vim.fn.writefile, preview_lines(item), ("%s/%04d.md"):format(preview_dir, idx))
+		if not ok_write then
+			vim.notify("Could not write OpenCode preview", vim.log.levels.ERROR, { title = "opencode" })
+			vim.fn.delete(preview_dir, "rf")
+			return
+		end
 	end
 
 	local function first_item(selected)
@@ -748,6 +782,78 @@ local function open_message_picker(items, scope, opts)
 		})
 	end
 
+	local actions = {
+		["default"] = function(selected)
+			local item = first_item(selected)
+			if item then
+				vim.schedule(function()
+					open_transcript(item)
+				end)
+			end
+		end,
+		["ctrl-a"] = function(selected)
+			send_to_prompt(selected_items(selected, entry_map))
+		end,
+		["ctrl-x"] = function(selected)
+			send_context_to_prompt(selected_items(selected, entry_map))
+		end,
+		["ctrl-u"] = function(selected)
+			resume_from_item(first_item(selected))
+		end,
+		["ctrl-y"] = function(selected)
+			yank_items(selected_items(selected, entry_map))
+		end,
+		["ctrl-b"] = function(selected)
+			yank_references(selected_items(selected, entry_map))
+		end,
+		["ctrl-o"] = function(selected)
+			switch_tui_session(first_item(selected))
+		end,
+		["ctrl-l"] = function(selected)
+			sync_live_timeline(first_item(selected))
+		end,
+		["alt-l"] = function(selected)
+			local item = first_item(selected)
+			if item then
+				vim.schedule(function()
+					open_transcript(item)
+				end)
+				sync_live_timeline(item)
+			end
+		end,
+		["alt-s"] = function()
+			pick_scope()
+		end,
+		["ctrl-s"] = function()
+			vim.schedule(function()
+				M.sessions(scope)
+			end)
+		end,
+		["ctrl-r"] = function()
+			vim.schedule(function()
+				if opts.all_sessions then
+					M.all_sessions(scope, { refresh = true })
+				else
+					M.messages(scope, { session = opts.session, refresh = true })
+				end
+			end)
+		end,
+	}
+
+	local scope_actions = {
+		["alt-a"] = "all",
+		["alt-p"] = "prompts",
+		["alt-m"] = "assistant",
+		["alt-r"] = "reasoning",
+		["alt-t"] = "tools",
+		["alt-o"] = "tool_output",
+	}
+	for key, new_scope in pairs(scope_actions) do
+		actions[key] = function()
+			reopen(new_scope)
+		end
+	end
+
 	fzf.fzf_exec(entries, {
 		prompt = "OpenCode " .. label .. "> ",
 		preview = preview_command(preview_dir),
@@ -760,81 +866,7 @@ local function open_message_picker(items, scope, opts)
 			["--multi"] = true,
 			["--header"] = "Enter: transcript | A-l: transcript+live | C-l: live | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview",
 		},
-		actions = {
-			["default"] = function(selected)
-				local item = first_item(selected)
-				if item then
-					vim.schedule(function()
-						open_transcript(item)
-					end)
-				end
-			end,
-			["ctrl-a"] = function(selected)
-				send_to_prompt(selected_items(selected, entry_map))
-			end,
-			["ctrl-x"] = function(selected)
-				send_context_to_prompt(selected_items(selected, entry_map))
-			end,
-			["ctrl-u"] = function(selected)
-				resume_from_item(first_item(selected))
-			end,
-			["ctrl-y"] = function(selected)
-				yank_items(selected_items(selected, entry_map))
-			end,
-			["ctrl-b"] = function(selected)
-				yank_references(selected_items(selected, entry_map))
-			end,
-			["ctrl-o"] = function(selected)
-				switch_tui_session(first_item(selected))
-			end,
-			["ctrl-l"] = function(selected)
-				sync_live_timeline(first_item(selected))
-			end,
-			["alt-l"] = function(selected)
-				local item = first_item(selected)
-				if item then
-					vim.schedule(function()
-						open_transcript(item)
-					end)
-					sync_live_timeline(item)
-				end
-			end,
-			["alt-a"] = function()
-				reopen("all")
-			end,
-			["alt-s"] = function()
-				pick_scope()
-			end,
-			["alt-p"] = function()
-				reopen("prompts")
-			end,
-			["alt-m"] = function()
-				reopen("assistant")
-			end,
-			["alt-r"] = function()
-				reopen("reasoning")
-			end,
-			["alt-t"] = function()
-				reopen("tools")
-			end,
-			["alt-o"] = function()
-				reopen("tool_output")
-			end,
-			["ctrl-s"] = function()
-				vim.schedule(function()
-					M.sessions(scope)
-				end)
-			end,
-			["ctrl-r"] = function()
-				vim.schedule(function()
-					if opts.all_sessions then
-						M.all_sessions(scope, { refresh = true })
-					else
-						M.messages(scope, { session = opts.session, refresh = true })
-					end
-				end)
-			end,
-		},
+		actions = actions,
 	})
 end
 

@@ -2,6 +2,7 @@
 
 local workflow = require("git.workflow")
 local return_target = require("config.return_target")
+local git_command = require("git.command")
 local commit_cycle_state = workflow.commit_cycle_state
 local cross_worktree_state = workflow.cross_worktree_state
 local close_commit_info_window = workflow.close_commit_info_window
@@ -36,6 +37,10 @@ local function diffview_internal_reopen(command)
 	end, 100)
 end
 
+local function capture_return()
+	diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+end
+
 return {
 	"dlyongemallo/diffview.nvim",
 	dependencies = { "nvim-lua/plenary.nvim" },
@@ -55,7 +60,7 @@ return {
 			"<leader>gd",
 			function()
 				if next(require("diffview.lib").views) == nil then
-					diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+					capture_return()
 					vim.cmd("DiffviewOpen")
 				else
 					close_diffview_restore()
@@ -66,7 +71,7 @@ return {
 		{
 			"<leader>gh",
 			function()
-				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				capture_return()
 				vim.cmd("DiffviewFileHistory %")
 			end,
 			desc = "File History",
@@ -74,7 +79,7 @@ return {
 		{
 			"<leader>gH",
 			function()
-				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				capture_return()
 				vim.cmd("DiffviewFileHistory")
 			end,
 			desc = "Repository History",
@@ -82,7 +87,7 @@ return {
 		{
 			"<leader>gm",
 			function()
-				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				capture_return()
 				vim.cmd("DiffviewOpen")
 			end,
 			desc = "Open Diffview (merge conflicts)",
@@ -93,7 +98,7 @@ return {
 			function()
 				local line = vim.fn.line(".")
 				local file = vim.fn.expand("%")
-				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				capture_return()
 				vim.cmd(string.format("DiffviewFileHistory -L%d,%d:%s", line, line, file))
 			end,
 			desc = "Line history (cursor)",
@@ -105,7 +110,7 @@ return {
 				local start_line = vim.fn.line("'<")
 				local end_line = vim.fn.line("'>")
 				local file = vim.fn.expand("%")
-				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				capture_return()
 				vim.cmd(string.format("DiffviewFileHistory -L%d,%d:%s", start_line, end_line, file))
 			end,
 			mode = "v",
@@ -121,10 +126,7 @@ return {
 						return
 					end
 
-					vim.fn.system(
-						"MISE_QUIET=1 git rev-parse --verify " .. vim.fn.shellescape(branch) .. " 2>/dev/null"
-					)
-					if vim.v.shell_error == 0 then
+					if git_command.succeeds({ "rev-parse", "--verify", branch }) then
 						seen[branch] = true
 						table.insert(list, branch)
 					end
@@ -134,16 +136,10 @@ return {
 					local available = {}
 					local seen = {}
 
-					local upstream = vim.fn.system(
-						"MISE_QUIET=1 git rev-parse --abbrev-ref --symbolic-full-name "
-							.. vim.fn.shellescape("@{upstream}")
-							.. " 2>/dev/null"
-					)
+					local _, upstream = git_command.output({ "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}" })
 					add_unique(available, seen, upstream)
 
-					local default_branch = vim.fn.system(
-						"MISE_QUIET=1 git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null"
-					)
+					local _, default_branch = git_command.output({ "symbolic-ref", "--short", "refs/remotes/origin/HEAD" })
 					add_unique(available, seen, default_branch)
 
 					local candidates = {
@@ -164,7 +160,7 @@ return {
 				end
 
 				local function open_diff(base)
-					diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+					capture_return()
 					vim.cmd("DiffviewOpen " .. vim.fn.fnameescape(base .. "...HEAD"))
 				end
 
@@ -190,7 +186,7 @@ return {
 		{
 			"<leader>gS",
 			function()
-				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				capture_return()
 				vim.cmd("DiffviewOpen --staged")
 			end,
 			desc = "Staged changes",
@@ -198,7 +194,7 @@ return {
 		{
 			"<leader>gT",
 			function()
-				diffview_return_target = return_target.capture({ force = true }) or return_target.last()
+				capture_return()
 				vim.cmd("DiffviewFileHistory -g --range=stash")
 			end,
 			desc = "Stash history",

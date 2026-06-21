@@ -1,5 +1,4 @@
 local M = {}
-local workflow = require("git.workflow")
 
 local function current_view()
 	local ok, lib = pcall(require, "diffview.lib")
@@ -79,9 +78,16 @@ local function diff_files(files)
 		return
 	end
 
-	vim.cmd("tabnew " .. vim.fn.fnameescape(files[1]))
-	vim.cmd("vertical diffsplit " .. vim.fn.fnameescape(files[2]))
-	vim.defer_fn(workflow.jump_to_first_diff, 50)
+	vim.cmd("DiffviewDiffFiles " .. vim.fn.fnameescape(files[1]) .. " " .. vim.fn.fnameescape(files[2]))
+end
+
+local function diff_dirs(dirs)
+	if #dirs ~= 2 then
+		vim.notify("Usage: DiffDirs <dir1> <dir2>", vim.log.levels.ERROR)
+		return
+	end
+
+	vim.cmd("DiffviewDiffDirs " .. vim.fn.fnameescape(dirs[1]) .. " " .. vim.fn.fnameescape(dirs[2]))
 end
 
 function M.setup(opts)
@@ -110,6 +116,10 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("DiffFiles", function(command_opts)
 		diff_files(command_opts.fargs)
 	end, { nargs = "+", complete = "file", desc = "Diff two arbitrary files" })
+
+	vim.api.nvim_create_user_command("DiffDirs", function(command_opts)
+		diff_dirs(command_opts.fargs)
+	end, { nargs = "+", complete = "dir", desc = "Diff two arbitrary directories" })
 end
 
 return M

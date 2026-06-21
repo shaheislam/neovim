@@ -49,11 +49,13 @@ return {
 		"DiffviewToggle",
 		"DiffviewFileHistory",
 		"DiffviewDiffFiles",
+		"DiffviewDiffDirs",
 		"DiffviewLog",
 		"DiffviewClose",
 		"DiffviewToggleFiles",
 		"DiffviewFocusFiles",
 		"DiffFiles",
+		"DiffDirs",
 	},
 	keys = {
 		{
@@ -213,6 +215,23 @@ return {
 		},
 		{ "<leader>gr", "<cmd>DiffviewReviewedList<cr>", desc = "Reviewed files" },
 		{ "<leader>gX", "<cmd>DiffviewReviewedClear<cr>", desc = "Clear reviewed files" },
+		{
+			"<leader>gD",
+			function()
+				local cwd = vim.fn.getcwd()
+				vim.ui.input({ prompt = "Directory 1: ", default = cwd, completion = "dir" }, function(dir1)
+					if not dir1 or dir1 == "" then
+						return
+					end
+					vim.ui.input({ prompt = "Directory 2: ", default = cwd, completion = "dir" }, function(dir2)
+						if dir2 and dir2 ~= "" then
+							vim.cmd("DiffDirs " .. vim.fn.fnameescape(dir1) .. " " .. vim.fn.fnameescape(dir2))
+						end
+					end)
+				end)
+			end,
+			desc = "Diff two directories",
+		},
 		{
 			"<leader>gF",
 			function()

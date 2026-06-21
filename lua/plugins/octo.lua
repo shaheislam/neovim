@@ -1389,21 +1389,75 @@ return {
               counts.pending
             )
 
+            -- Open a check's job logs in a read-only scratch buffer. GitHub
+            -- Actions links carry the job id; external/non-Actions checks have
+            -- none, so fall back to opening the check link in the browser.
+            local function open_logs(c)
+              if not c then
+                return
+              end
+              local job_id = c.link and c.link:match("/actions/runs/%d+/job/(%d+)")
+              if not job_id then
+                vim.notify("No TUI logs for this check (external CI); opening in browser", vim.log.levels.WARN)
+                if c.link and c.link ~= "" then
+                  vim.ui.open(c.link)
+                end
+                return
+              end
+              local run_args = { "gh", "run", "view", "--job", job_id, "--log" }
+              if opts.repo then
+                table.insert(run_args, "--repo")
+                table.insert(run_args, opts.repo)
+              end
+              vim.notify("Fetching logs for " .. (c.name or "job") .. "…")
+              vim.system(run_args, { text = true, env = { MISE_QUIET = "1" } }, function(o)
+                vim.schedule(function()
+                  local out = o.stdout or ""
+                  if o.code ~= 0 and vim.trim(out) == "" then
+                    local msg = vim.trim(o.stderr or "")
+                    vim.notify(
+                      "Failed to fetch logs: " .. (msg ~= "" and msg or "job may still be in progress"),
+                      vim.log.levels.ERROR
+                    )
+                    return
+                  end
+                  local lines = vim.split(out, "\n", { plain = true })
+                  vim.cmd("botright new")
+                  local buf = vim.api.nvim_get_current_buf()
+                  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+                  vim.bo[buf].buftype = "nofile"
+                  vim.bo[buf].bufhidden = "wipe"
+                  vim.bo[buf].swapfile = false
+                  vim.bo[buf].modifiable = false
+                  vim.bo[buf].filetype = "log"
+                  pcall(vim.api.nvim_buf_set_name, buf, "octo://checks/" .. (c.name or "job") .. ".log")
+                end)
+              end)
+            end
+
             fzf.fzf_exec(display_items, {
               prompt = "Checks> ",
               fzf_opts = {
                 ["--no-multi"] = "",
-                ["--header"] = "⏎:Open run  ^y:Copy link  ^b:Checks page",
+                ["--header"] = "⏎:Logs  ^b:Job page  ^y:Copy link  ^o:All checks",
                 ["--info"] = "default",
               },
               winopts = { title = title, title_pos = "center" },
               actions = {
+                -- Enter: view this job's logs in a read-only TUI scratch buffer.
                 ["default"] = function(selected)
+                  open_logs(check_from(selected))
+                end,
+                -- ^b: open this specific job's page in the browser.
+                ["ctrl-b"] = function(selected)
                   local c = check_from(selected)
                   if c and c.link and c.link ~= "" then
-                    vim.ui.open(c.link)
+                    local ok, err = vim.ui.open(c.link)
+                    if not ok then
+                      vim.notify("Failed to open: " .. (err or "unknown"), vim.log.levels.ERROR)
+                    end
                   else
-                    vim.notify("No run link for this check", vim.log.levels.WARN)
+                    vim.notify("No job page link for this check", vim.log.levels.WARN)
                   end
                 end,
                 ["ctrl-y"] = function(selected)
@@ -1413,7 +1467,8 @@ return {
                     vim.notify("Copied " .. c.link)
                   end
                 end,
-                ["ctrl-b"] = function()
+                -- ^o: open the PR's overall checks page in the browser.
+                ["ctrl-o"] = function()
                   local web = { "gh", "pr", "checks" }
                   if opts.number then
                     table.insert(web, tostring(opts.number))
@@ -1423,7 +1478,13 @@ return {
                     table.insert(web, opts.repo)
                   end
                   table.insert(web, "--web")
-                  vim.system(web, { text = true, env = { MISE_QUIET = "1" } })
+                  vim.system(web, { text = true, env = { MISE_QUIET = "1" } }, function(o)
+                    if o.code ~= 0 then
+                      vim.schedule(function()
+                        vim.notify("Failed to open checks page: " .. (o.stderr or ""), vim.log.levels.ERROR)
+                      end)
+                    end
+                  end)
                 end,
               },
               silent = true,
@@ -1739,7 +1800,7 @@ return {
           local global_label = global and " │ Global" or ""
           local search_label = gh_search_query and (" │ Search: " .. gh_search_query) or ""
           local act_hints = (entity == "pr")
-              and "⏎:Open ^o:Create ^s:HSplit ^v:VSplit ^d:Diffview ^b:Browser ^x:Checkout M-k:Checks ^n:Comment ^r:👍 ^y:Copy"
+              and "⏎:Open ^o:Create ^s:HSplit ^v:VSplit ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍 ^y:Copy"
             or "⏎:Open ^o:Create ^s:HSplit ^v:VSplit ^b:Browser ^n:Comment ^r:👍 ^y:Copy"
           local header = string.format(
             "%s · State:%s%s%s%s%s%s\n%s\nM-t:PRs⇄Issues │ M-s:State │ M-m:Scope │ M-u:Author │ M-l:Label │ M-g:Global │ M-f:Search │ M-r:Refresh",
@@ -1752,6 +1813,10 @@ return {
             search_label,
             act_hints
           )
+          -- Surface the checks drill-down on the switches row for PRs only.
+          if entity == "pr" then
+            header = header .. " │ M-k:Checks"
+          end
 
           -- Entity-aware actions (PR-only actions added conditionally below)
           local actions = {

@@ -216,7 +216,7 @@ return {
 		{ "<leader>gr", "<cmd>DiffviewReviewedList<cr>", desc = "Reviewed files" },
 		{ "<leader>gX", "<cmd>DiffviewReviewedClear<cr>", desc = "Clear reviewed files" },
 		{
-			"<leader>gD",
+			"<leader>gE",
 			function()
 				local cwd = vim.fn.getcwd()
 				vim.ui.input({ prompt = "Directory 1: ", default = cwd, completion = "dir" }, function(dir1)

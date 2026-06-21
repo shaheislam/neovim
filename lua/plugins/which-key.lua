@@ -145,6 +145,7 @@ return {
 				{ "<leader>gc", desc = "Git Commit (create)" },
 				{ "<leader>gd", desc = "Toggle Diffview" },
 				{ "<leader>gD", desc = "Diff refs" },
+				{ "<leader>gE", desc = "Diff directories" },
 				{ "<leader>gl", desc = "Git Log" },
 				{ "<leader>gf", desc = "Git Files" },
 				{ "<leader>gG", desc = "Git Graph" },

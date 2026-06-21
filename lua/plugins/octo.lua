@@ -1390,6 +1390,19 @@ return {
               counts.pending
             )
 
+            -- Open a URL in the browser, surfacing failures (vim.ui.open
+            -- returns nil + an error when no handler is available).
+            local function open_in_browser(url)
+              if not url or url == "" then
+                vim.notify("No link for this check", vim.log.levels.WARN)
+                return
+              end
+              local cmd, err = vim.ui.open(url)
+              if not cmd then
+                vim.notify("Failed to open browser: " .. (err or "unknown"), vim.log.levels.ERROR)
+              end
+            end
+
             -- Open a check's job logs in a read-only scratch buffer. GitHub
             -- Actions links carry the job id; external/non-Actions checks have
             -- none, so fall back to opening the check link in the browser.
@@ -1404,9 +1417,7 @@ return {
               if not job_id and not run_id then
                 -- Genuinely external CI (CircleCI/Jenkins/etc.) — no gh logs.
                 vim.notify("No TUI logs for this check (external CI); opening in browser", vim.log.levels.WARN)
-                if c.link and c.link ~= "" then
-                  vim.ui.open(c.link)
-                end
+                open_in_browser(c.link)
                 return
               end
               -- Logs are only archived once a run finishes; a pending run would
@@ -1416,9 +1427,7 @@ return {
                   "Run still in progress — logs aren't archived yet; opening job page in browser",
                   vim.log.levels.WARN
                 )
-                if c.link and c.link ~= "" then
-                  vim.ui.open(c.link)
-                end
+                open_in_browser(c.link)
                 return
               end
               local run_args = { "gh", "run", "view" }
@@ -1447,9 +1456,7 @@ return {
                         "Logs unavailable (run in progress or expired); opening job page in browser",
                         vim.log.levels.WARN
                       )
-                      if c.link and c.link ~= "" then
-                        vim.ui.open(c.link)
-                      end
+                open_in_browser(c.link)
                       return
                     end
                     vim.notify(
@@ -1480,6 +1487,9 @@ return {
                 ["--info"] = "default",
               },
               winopts = { title = title, title_pos = "center" },
+              -- The global keymap.fzf binds ctrl-b to preview-page-up; this
+              -- picker has no preview, so free ctrl-b for the job-page action.
+              keymap = { fzf = { ["ctrl-b"] = false } },
               actions = {
                 -- Enter: view this job's logs in a read-only TUI scratch buffer.
                 ["default"] = function(selected)
@@ -1488,14 +1498,7 @@ return {
                 -- ^b: open this specific job's page in the browser.
                 ["ctrl-b"] = function(selected)
                   local c = check_from(selected)
-                  if c and c.link and c.link ~= "" then
-                    local ok, err = vim.ui.open(c.link)
-                    if not ok then
-                      vim.notify("Failed to open: " .. (err or "unknown"), vim.log.levels.ERROR)
-                    end
-                  else
-                    vim.notify("No job page link for this check", vim.log.levels.WARN)
-                  end
+                  open_in_browser(c and c.link)
                 end,
                 ["ctrl-y"] = function(selected)
                   local c = check_from(selected)

@@ -1404,6 +1404,18 @@ return {
                 end
                 return
               end
+              -- Logs are only archived once a run finishes; a pending run would
+              -- 410 on the archive endpoint, so go straight to the browser.
+              if c.bucket == "pending" then
+                vim.notify(
+                  "Run still in progress — logs aren't archived yet; opening job page in browser",
+                  vim.log.levels.WARN
+                )
+                if c.link and c.link ~= "" then
+                  vim.ui.open(c.link)
+                end
+                return
+              end
               local run_args = { "gh", "run", "view", "--job", job_id, "--log" }
               if opts.repo then
                 table.insert(run_args, "--repo")
@@ -1415,6 +1427,18 @@ return {
                   local out = o.stdout or ""
                   if o.code ~= 0 and vim.trim(out) == "" then
                     local msg = vim.trim(o.stderr or "")
+                    -- Expired or not-yet-archived logs return HTTP 410/404; fall
+                    -- back to the job page in the browser rather than erroring.
+                    if msg:match("HTTP 41%d") or msg:match("HTTP 404") or msg:match("Gone") then
+                      vim.notify(
+                        "Logs unavailable (run in progress or expired); opening job page in browser",
+                        vim.log.levels.WARN
+                      )
+                      if c.link and c.link ~= "" then
+                        vim.ui.open(c.link)
+                      end
+                      return
+                    end
                     vim.notify(
                       "Failed to fetch logs: " .. (msg ~= "" and msg or "job may still be in progress"),
                       vim.log.levels.ERROR

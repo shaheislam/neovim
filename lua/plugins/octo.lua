@@ -32,7 +32,19 @@ return {
             vim.cmd("Octo pr list")
           end
         end,
-        desc = "PRs & Issues hub (M-t entity | M-s state | M-m scope | M-u author | M-l label | M-f search | M-g global | CR open | ^o create | ^d diffview | ^x checkout | ^b browser)",
+        desc = "PRs & Issues hub (M-t entity | M-s state | M-m scope | M-u author | M-l label | M-f search | M-g global | M-k checks | CR open | ^o create | ^d diffview | ^x checkout | ^b browser)",
+      },
+      {
+        "<leader>gok",
+        function()
+          -- Defer to the global set up in config; falls back to the buffer cmd
+          if _G.octo_pr_checks then
+            _G.octo_pr_checks()
+          else
+            vim.cmd("Octo pr checks")
+          end
+        end,
+        desc = "PR checks (current branch CI)",
       },
 
       -- ══════════════════════════════════════════════════════════════
@@ -1128,6 +1140,7 @@ return {
       --   alt-g   → toggle repo ⇄ global (your work across all repos, via gh search)
       --   alt-f   → server-side search (GitHub query; bypasses the 200-item ceiling)
       --   alt-r   → force-refresh (clear cache for current filters, re-fetch)
+      --   alt-k   → CI checks for the selected PR (pipeline runs; PRs only)
       -- ctrl-n/ctrl-r/ctrl-y keep the picker open (act on several items in a row).
       -- Preview is octo's own fzf-lua previewer (Octo-style buffer, focusable).
       -- NOTE: alt-* (not ctrl-i) is used for switches — ctrl-i == Tab in terminals.
@@ -1248,6 +1261,175 @@ return {
           return math.floor(diff / 86400) .. "d"
         end
         return math.floor(diff / 604800) .. "w"
+      end
+
+      -- CI checks drill-down for a PR: list individual pipeline runs for the
+      -- head commit via `gh pr checks`. opts = { number, repo } or nil for the
+      -- current branch's PR. Works cross-repo (gh pr checks -R), so it stays
+      -- usable from the picker's global mode.
+      _G.octo_pr_checks = function(opts)
+        opts = opts or {}
+        local label = opts.number and ("#" .. opts.number) or "current branch"
+        local args = { "gh", "pr", "checks" }
+        if opts.number then
+          table.insert(args, tostring(opts.number))
+        end
+        if opts.repo then
+          table.insert(args, "--repo")
+          table.insert(args, opts.repo)
+        end
+        table.insert(args, "--json")
+        table.insert(args, "name,workflow,state,bucket,link,startedAt,completedAt,description")
+
+        vim.system(args, { text = true, env = { MISE_QUIET = "1" } }, function(obj)
+          vim.schedule(function()
+            -- gh pr checks exits 8 (pending) or 1 (failures/none) on success too,
+            -- so parse stdout regardless of exit code; empty stdout = no checks.
+            local fzf = require("fzf-lua")
+            local ok, checks = pcall(vim.json.decode, obj.stdout or "")
+            if not ok or type(checks) ~= "table" or #checks == 0 then
+              local msg = (obj.stderr and vim.trim(obj.stderr) ~= "") and vim.trim(obj.stderr)
+                or ("No CI checks reported for " .. label)
+              vim.notify(msg, vim.log.levels.INFO)
+              return
+            end
+
+            local glyphs = {
+              pass = { "✓", "OctoGreen" },
+              fail = { "✗", "OctoRed" },
+              pending = { "●", "DiagnosticWarn" },
+              skipping = { "○", "Comment" },
+              cancel = { "⊘", "Comment" },
+            }
+            -- Failures first, then pending, so the rows that need attention lead.
+            local rank = { fail = 1, pending = 2, cancel = 3, skipping = 4, pass = 5 }
+            table.sort(checks, function(a, b)
+              local ra, rb = rank[a.bucket] or 9, rank[b.bucket] or 9
+              if ra ~= rb then
+                return ra < rb
+              end
+              return (a.name or "") < (b.name or "")
+            end)
+
+            -- Run duration from ISO-8601 start/end timestamps (epoch diff).
+            local function epoch(iso)
+              if type(iso) ~= "string" then
+                return nil
+              end
+              local y, mo, d, h, mi, s = iso:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+              if not y then
+                return nil
+              end
+              return os.time({
+                year = tonumber(y),
+                month = tonumber(mo),
+                day = tonumber(d),
+                hour = tonumber(h),
+                min = tonumber(mi),
+                sec = tonumber(s),
+              })
+            end
+            local function duration(startedAt, completedAt)
+              local a, b = epoch(startedAt), epoch(completedAt)
+              if not a or not b then
+                return nil
+              end
+              local diff = b - a
+              if diff < 0 then
+                diff = 0
+              end
+              if diff < 60 then
+                return diff .. "s"
+              elseif diff < 3600 then
+                return math.floor(diff / 60) .. "m"
+              end
+              return math.floor(diff / 3600) .. "h"
+            end
+
+            local counts = { pass = 0, fail = 0, pending = 0, skipping = 0, cancel = 0 }
+            local display_items = {}
+            local by_line = {}
+            for _, c in ipairs(checks) do
+              local bk = c.bucket
+              if bk and counts[bk] ~= nil then
+                counts[bk] = counts[bk] + 1
+              end
+              local g = glyphs[bk] or { "·", "Comment" }
+              -- Parenthesize ansi_from_hl: it returns multiple values and would
+              -- otherwise expand as the last arg to table.concat's parts list.
+              local glyph = (fzf.utils.ansi_from_hl(g[2], g[1]))
+              local wf, nm = c.workflow or "", c.name or ""
+              local title = (wf ~= "" and wf ~= nm) and (wf .. " / " .. nm)
+                or ((nm ~= "") and nm or wf)
+              local parts = { glyph, title }
+              local dur = duration(c.startedAt, c.completedAt)
+              if dur then
+                table.insert(parts, (fzf.utils.ansi_from_hl("Comment", "· " .. dur)))
+              end
+              if c.description and c.description ~= "" then
+                table.insert(parts, (fzf.utils.ansi_from_hl("Comment", "· " .. c.description)))
+              end
+              local line = table.concat(parts, " ")
+              table.insert(display_items, line)
+              by_line[fzf.utils.strip_ansi_coloring(line)] = c
+            end
+
+            local function check_from(selected)
+              if not selected or not selected[1] then
+                return nil
+              end
+              return by_line[fzf.utils.strip_ansi_coloring(selected[1])]
+            end
+
+            local title = string.format(
+              " %s checks · %d✓ %d✗ %d● ",
+              label,
+              counts.pass,
+              counts.fail,
+              counts.pending
+            )
+
+            fzf.fzf_exec(display_items, {
+              prompt = "Checks> ",
+              fzf_opts = {
+                ["--no-multi"] = "",
+                ["--header"] = "⏎:Open run  ^y:Copy link  ^b:Checks page",
+                ["--info"] = "default",
+              },
+              winopts = { title = title, title_pos = "center" },
+              actions = {
+                ["default"] = function(selected)
+                  local c = check_from(selected)
+                  if c and c.link and c.link ~= "" then
+                    vim.ui.open(c.link)
+                  else
+                    vim.notify("No run link for this check", vim.log.levels.WARN)
+                  end
+                end,
+                ["ctrl-y"] = function(selected)
+                  local c = check_from(selected)
+                  if c and c.link and c.link ~= "" then
+                    vim.fn.setreg("+", c.link)
+                    vim.notify("Copied " .. c.link)
+                  end
+                end,
+                ["ctrl-b"] = function()
+                  local web = { "gh", "pr", "checks" }
+                  if opts.number then
+                    table.insert(web, tostring(opts.number))
+                  end
+                  if opts.repo then
+                    table.insert(web, "--repo")
+                    table.insert(web, opts.repo)
+                  end
+                  table.insert(web, "--web")
+                  vim.system(web, { text = true, env = { MISE_QUIET = "1" } })
+                end,
+              },
+              silent = true,
+            })
+          end)
+        end)
       end
 
       -- Render up to 3 labels as truecolor ANSI chips ("+N" overflow). Raw SGR
@@ -1557,7 +1739,7 @@ return {
           local global_label = global and " │ Global" or ""
           local search_label = gh_search_query and (" │ Search: " .. gh_search_query) or ""
           local act_hints = (entity == "pr")
-              and "⏎:Open ^o:Create ^s:HSplit ^v:VSplit ^d:Diffview ^b:Browser ^x:Checkout ^n:Comment ^r:👍 ^y:Copy"
+              and "⏎:Open ^o:Create ^s:HSplit ^v:VSplit ^d:Diffview ^b:Browser ^x:Checkout M-k:Checks ^n:Comment ^r:👍 ^y:Copy"
             or "⏎:Open ^o:Create ^s:HSplit ^v:VSplit ^b:Browser ^n:Comment ^r:👍 ^y:Copy"
           local header = string.format(
             "%s · State:%s%s%s%s%s%s\n%s\nM-t:PRs⇄Issues │ M-s:State │ M-m:Scope │ M-u:Author │ M-l:Label │ M-g:Global │ M-f:Search │ M-r:Refresh",
@@ -1700,6 +1882,14 @@ return {
                 else
                   vim.cmd("Octo pr checkout " .. it.number)
                 end
+              end
+            end
+            -- CI checks (pipeline runs) for the selected PR's head commit. Works
+            -- cross-repo (gh pr checks -R), so it stays enabled in global mode.
+            actions["alt-k"] = function(selected)
+              local it = item_from_selection(selected)
+              if it then
+                _G.octo_pr_checks({ number = it.number, repo = repo_of(it) })
               end
             end
           end

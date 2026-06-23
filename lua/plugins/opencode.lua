@@ -8,6 +8,8 @@ local opencode_startup_timeout = 30000
 local opencode_startup_poll = 500
 local opencode_service = "com.dotfiles.opencode-serve"
 local opencode_username = vim.env.OPENCODE_SERVER_USERNAME or "opencode"
+local opencode_terminal
+local opencode_terminal_cmd
 
 local function opencode_password()
 	if vim.env.OPENCODE_SERVER_PASSWORD and vim.env.OPENCODE_SERVER_PASSWORD ~= "" then
@@ -24,13 +26,15 @@ local function opencode_password()
 end
 
 local function opencode_env_prefix()
+	-- The dotfiles opencode shim reroutes `attach` through tmux when $TMUX is set.
+	-- This terminal already owns the split, so bypass that wrapper and run ocv directly.
+	local base = "OPENCODE_TMUX_WRAPPER_ACTIVE=1 OPENCODE_SERVER_USERNAME=" .. vim.fn.shellescape(opencode_username)
 	local password = opencode_password()
 	if not password or password == "" then
-		return "OPENCODE_SERVER_USERNAME=" .. vim.fn.shellescape(opencode_username) .. " "
+		return base .. " "
 	end
 
-	return "OPENCODE_SERVER_USERNAME="
-		.. vim.fn.shellescape(opencode_username)
+	return base
 		.. " OPENCODE_SERVER_PASSWORD="
 		.. vim.fn.shellescape(password)
 		.. " "
@@ -44,11 +48,31 @@ local function opencode_command()
 		.. vim.fn.shellescape(vim.fn.getcwd())
 end
 
-local function opencode_terminal_opts()
-	return {
-		split = "right",
-		width = math.floor(vim.o.columns * 0.35),
-	}
+local function get_opencode_terminal()
+	local cmd = opencode_command()
+	if opencode_terminal and opencode_terminal_cmd == cmd then
+		return opencode_terminal
+	end
+
+	local Terminal = require("toggleterm.terminal").Terminal
+	opencode_terminal_cmd = cmd
+	opencode_terminal = Terminal:new({
+		cmd = cmd,
+		direction = "vertical",
+		dir = vim.fn.getcwd(),
+		display_name = "OpenCode",
+		hidden = true,
+		close_on_exit = false,
+		on_exit = function(_, _, exit_code)
+			if exit_code ~= 0 then
+				vim.notify("OpenCode terminal exited with code " .. exit_code, vim.log.levels.ERROR, { title = "opencode" })
+			end
+		end,
+		size = function()
+			return math.floor(vim.o.columns * 0.35)
+		end,
+	})
+	return opencode_terminal
 end
 
 local function check_opencode_ready(callback)
@@ -82,7 +106,38 @@ local function check_opencode_ready(callback)
 end
 
 local function start_opencode_terminal()
-	require("opencode.terminal").open(opencode_command(), opencode_terminal_opts())
+	get_opencode_terminal():open()
+end
+
+local function toggle_opencode_terminal()
+	get_opencode_terminal():toggle()
+end
+
+local function close_opencode_terminal()
+	if opencode_terminal then
+		opencode_terminal:close()
+	end
+end
+
+local function patch_opencode_server_disconnect()
+	local server = require("opencode.server")
+	if server._nvim_mini_disconnect_patched then
+		return
+	end
+
+	local disconnect = server.disconnect
+	function server:disconnect()
+		if self == nil then
+			if server.connected then
+				return disconnect(server.connected)
+			end
+			return
+		end
+
+		return disconnect(self)
+	end
+
+	server._nvim_mini_disconnect_patched = true
 end
 
 local function kickstart_opencode_service()
@@ -147,12 +202,8 @@ local function opencode_opts()
 			username = opencode_username,
 			password = opencode_password(),
 			start = start_opencode_terminal,
-			toggle = function()
-				require("opencode.terminal").toggle(opencode_command(), opencode_terminal_opts())
-			end,
-			stop = function()
-				require("opencode.terminal").close()
-			end,
+			toggle = toggle_opencode_terminal,
+			stop = close_opencode_terminal,
 		},
 		events = {
 			enabled = true,
@@ -191,9 +242,9 @@ local function with_opencode_ready(action, on_error)
 	end
 
 	ready
-		:next(function()
+		:next(function(server)
 			vim.defer_fn(function()
-				local action_ok, err = pcall(action)
+				local action_ok, err = pcall(action, server)
 				if not action_ok then
 					vim.notify("OpenCode action failed: " .. err, vim.log.levels.ERROR, { title = "opencode" })
 				end
@@ -225,37 +276,37 @@ local function prompt_text(value)
 	return nil
 end
 
-local function submit_prompt(text, context)
+local function submit_prompt(text, server, context)
 	text = (text or ""):gsub("%s+$", "")
 	if text == "" then
 		context:clear()
 		return
 	end
 
-	require("opencode.api.prompt").prompt(text, { context = context }):catch(notify_opencode_error)
+	require("opencode.api.prompt").prompt(text, server, context):catch(notify_opencode_error)
 end
 
-local function append_prompt(text, context)
+local function append_prompt(text, server, context)
 	text = (text or ""):gsub("%s+$", "")
 	if text == "" then
 		context:clear()
 		return
 	end
 
-	require("opencode.api.prompt").prompt(text .. " ", { context = context }):catch(notify_opencode_error)
+	require("opencode.api.prompt").prompt(text .. " ", server, context):catch(notify_opencode_error)
 end
 
 local function ask_with_context(prefix, submit)
 	return function()
 		local context = require("opencode.context").new()
-		with_opencode_ready(function()
+		with_opencode_ready(function(server)
 			require("opencode.ui.ask")
-				.ask(prefix, context)
+				.ask(prefix, server, context)
 				:next(function(input)
 					if submit then
-						submit_prompt(input, context)
+						submit_prompt(input, server, context)
 					else
-						append_prompt(input, context)
+						append_prompt(input, server, context)
 					end
 				end)
 				:catch(function(err)
@@ -270,10 +321,21 @@ end
 
 local function run_command(command)
 	return function()
-		with_opencode_ready(function()
-			require("opencode").command(command)
+		with_opencode_ready(function(server)
+			require("opencode.api.command").command(command, server):catch(notify_opencode_error)
 		end)
 	end
+end
+
+local function select_opencode_session()
+	with_opencode_ready(function(server)
+		require("opencode.ui.select_session")
+			.select_session(server)
+			:next(function(session)
+				return server:select_session(session.id)
+			end)
+			:catch(notify_opencode_error)
+	end)
 end
 
 local function run_prompt(name)
@@ -283,15 +345,15 @@ local function run_prompt(name)
 		local prompt = (config.prompts and config.prompts[name])
 			or (config.select and config.select.prompts and config.select.prompts[name])
 		if not prompt then
-			with_opencode_ready(function()
-				submit_prompt(name, context)
+			with_opencode_ready(function(server)
+				submit_prompt(name, server, context)
 			end, function()
 				context:clear()
 			end)
 			return
 		end
 
-		with_opencode_ready(function()
+		with_opencode_ready(function(server)
 			local text = prompt_text(prompt)
 			if not text or text == "" then
 				context:clear()
@@ -300,12 +362,12 @@ local function run_prompt(name)
 
 			if type(prompt) == "table" and prompt.ask then
 				require("opencode.ui.ask")
-					.ask(text, context)
+					.ask(text, server, context)
 					:next(function(input)
 						if prompt.submit == false then
-							append_prompt(input, context)
+							append_prompt(input, server, context)
 						else
-							submit_prompt(input, context)
+							submit_prompt(input, server, context)
 						end
 					end)
 					:catch(function(err)
@@ -313,9 +375,9 @@ local function run_prompt(name)
 						notify_opencode_error(err)
 					end)
 			elseif type(prompt) == "table" and prompt.submit == false then
-				append_prompt(text, context)
+				append_prompt(text, server, context)
 			else
-				submit_prompt(text, context)
+				submit_prompt(text, server, context)
 			end
 		end, function()
 			context:clear()
@@ -349,37 +411,13 @@ local function send_visual_selection()
 	})
 end
 
-local function extend_opencode_publish_timeout()
-	local server = require("opencode.server")
-	local publish_timeout = 10
-
-	function server:tui_append_prompt(text, callback)
-		return self:curl(
-			"/tui/publish",
-			"POST",
-			{ type = "tui.prompt.append", properties = { text = text } },
-			callback,
-			nil,
-			{ max_time = publish_timeout }
-		)
-	end
-
-	function server:tui_execute_command(command, callback)
-		return self:curl(
-			"/tui/publish",
-			"POST",
-			{ type = "tui.command.execute", properties = { command = command } },
-			callback,
-			nil,
-			{ max_time = publish_timeout }
-		)
-	end
-end
-
 return {
 	{
 		"nickjvandyke/opencode.nvim",
 		version = "*",
+		dependencies = {
+			"akinsho/toggleterm.nvim",
+		},
 		cmd = { "Opencode" },
 		init = apply_opencode_opts,
 		keys = {
@@ -387,7 +425,7 @@ return {
 			{
 				"<leader>aoc",
 				function()
-					require("opencode").toggle()
+					toggle_opencode_terminal()
 				end,
 				mode = { "n", "t" },
 				desc = "Toggle opencode",
@@ -396,7 +434,7 @@ return {
 			{
 				"<C-.>",
 				function()
-					require("opencode").toggle()
+					toggle_opencode_terminal()
 				end,
 				mode = { "n", "t" },
 				desc = "Toggle opencode",
@@ -531,9 +569,7 @@ return {
 			},
 			{
 				"<leader>aop",
-				function()
-					require("opencode").select_session()
-				end,
+				select_opencode_session,
 				mode = "n",
 				desc = "Pick opencode session",
 			},
@@ -629,22 +665,17 @@ return {
 		},
 		config = function()
 			apply_opencode_opts()
-			extend_opencode_publish_timeout()
+			patch_opencode_server_disconnect()
 
 			-- Required for auto-reload when opencode edits files
 			vim.o.autoread = true
 
 			-- Track opencode status for statusline via OpencodeEvent autocmds
 			vim.api.nvim_create_autocmd("User", {
-				pattern = "OpencodeEvent:session.idle",
-				callback = function()
-					vim.g.opencode_status = "idle"
-				end,
-			})
-			vim.api.nvim_create_autocmd("User", {
-				pattern = "OpencodeEvent:session.busy",
-				callback = function()
-					vim.g.opencode_status = "busy"
+				pattern = "OpencodeEvent:session.status",
+				callback = function(args)
+					local event = args.data and args.data.event
+					vim.g.opencode_status = event and event.properties and event.properties.status.type or nil
 				end,
 			})
 			vim.api.nvim_create_autocmd("User", {
@@ -654,13 +685,13 @@ return {
 				end,
 			})
 			vim.api.nvim_create_autocmd("User", {
-				pattern = "OpencodeEvent:connected",
+				pattern = "OpencodeEvent:server.connected",
 				callback = function()
 					vim.g.opencode_status = "connected"
 				end,
 			})
 			vim.api.nvim_create_autocmd("User", {
-				pattern = "OpencodeEvent:disconnected",
+				pattern = "OpencodeEvent:server.instance.disposed",
 				callback = function()
 					vim.g.opencode_status = nil
 				end,

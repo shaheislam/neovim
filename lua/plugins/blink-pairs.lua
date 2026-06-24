@@ -15,7 +15,9 @@ return {
     --- @module 'blink.pairs'
     --- @type blink.pairs.Config
     config = function(_, opts)
-      require('blink.pairs').setup(opts)
+      local pairs = require('blink.pairs')
+      if not pairs.library_available() then pairs.build({ force = true }):pwait(60000) end
+      pairs.setup(opts)
       -- Disable built-in matchparen after runtime plugins are sourced
       -- (NoMatchParen unsets g:loaded_matchparen, so it must run after matchparen.vim)
       vim.api.nvim_create_autocmd('VimEnter', {

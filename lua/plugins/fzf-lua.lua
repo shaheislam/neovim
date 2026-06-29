@@ -1257,9 +1257,11 @@ return {
 						-- ["ctrl-u"] is now free for other uses
 					},
 					-- For builtin Neovim previewers (Octo, help_tags, etc.)
-					-- NOTE: Neovim registers <C-/> as <C-_> in terminal mode
+					-- NOTE: Modern terminals can report <C-/> distinctly, while
+					-- legacy terminal encoding reports ctrl-/ as <C-_>.
 					builtin = {
-						["<C-_>"] = "toggle-preview", -- Toggle preview on/off (ctrl-/)
+						["<C-/>"] = "toggle-preview", -- Toggle preview on/off (ctrl-/)
+						["<C-_>"] = "toggle-preview", -- Legacy terminal encoding for ctrl-/
 					},
 				},
 

@@ -7,16 +7,10 @@ return {
     dependencies = 'saghen/blink.lib',
     version = '*',
 
-    -- Build from source (requires Rust) and install where blink.lib can load it.
-    build = function()
-      require('blink.pairs').build():pwait(60000)
-    end,
-
     --- @module 'blink.pairs'
     --- @type blink.pairs.Config
     config = function(_, opts)
       local pairs = require('blink.pairs')
-      if not pairs.library_available() then pairs.build({ force = true }):pwait(60000) end
       pairs.setup(opts)
       -- Disable built-in matchparen after runtime plugins are sourced
       -- (NoMatchParen unsets g:loaded_matchparen, so it must run after matchparen.vim)

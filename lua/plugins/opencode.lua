@@ -662,6 +662,14 @@ return {
 				mode = "n",
 				desc = "Search opencode session history",
 			},
+			{
+				"<leader>aog",
+				function()
+					require("config.opencode_pickers").grep()
+				end,
+				mode = "n",
+				desc = "Grep opencode messages (live rg)",
+			},
 		},
 		config = function()
 			apply_opencode_opts()

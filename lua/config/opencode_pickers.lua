@@ -1012,4 +1012,219 @@ function M.tool_output()
 	M.messages("tool_output")
 end
 
+-- ============================================================
+-- Grep: live ripgrep over session message content
+-- ============================================================
+
+local function grep_git_root()
+	local git_dir = vim.fs.find(".git", { path = vim.fn.getcwd(), upward = true })[1]
+	return git_dir and vim.fn.fnamemodify(git_dir, ":h") or nil
+end
+
+local function grep_worktree_roots(callback)
+	local root = grep_git_root()
+	if not root then
+		callback({})
+		return
+	end
+	vim.system({ "git", "-C", root, "worktree", "list", "--porcelain" }, { text = true }, function(result)
+		vim.schedule(function()
+			if result.code ~= 0 then
+				callback({ root })
+				return
+			end
+			local roots = {}
+			for line in (result.stdout or ""):gmatch("[^\n]+") do
+				local wt = line:match("^worktree (.+)$")
+				if wt then
+					table.insert(roots, wt)
+				end
+			end
+			callback(#roots > 0 and roots or { root })
+		end)
+	end)
+end
+
+local function grep_session_matches(session, scope, context)
+	local dir = (session.directory or ""):gsub("/+$", "")
+	if scope == "worktree" then
+		local wt = (context.worktree_root or ""):gsub("/+$", "")
+		return dir == wt or vim.startswith(dir, wt .. "/")
+	elseif scope == "repo" then
+		for _, wt in ipairs(context.worktree_roots or {}) do
+			wt = wt:gsub("/+$", "")
+			if dir == wt or vim.startswith(dir, wt .. "/") then
+				return true
+			end
+		end
+		return false
+	end
+	return true -- global
+end
+
+local function open_grep_picker(items, scope, opts)
+	opts = opts or {}
+	local fzf = require("fzf-lua")
+
+	if #items == 0 then
+		vim.notify("No OpenCode messages to grep", vim.log.levels.WARN, { title = "opencode" })
+		return
+	end
+
+	local temp_dir = vim.fn.tempname()
+	if not pcall(vim.fn.mkdir, temp_dir, "p") then
+		vim.notify("Could not create OpenCode grep temp dir", vim.log.levels.ERROR, { title = "opencode" })
+		return
+	end
+
+	local item_map = {}
+	for idx, item in ipairs(items) do
+		local key = ("%06d"):format(idx)
+		item_map[key] = item
+		local session_label = item.session and (item.session.title or item.session.id) or "unknown"
+		local header = ("[%s/%s]  %s  |  %s"):format(
+			item.role or "?",
+			item.kind or "?",
+			item.time or "",
+			session_label
+		)
+		if item.tool and item.tool ~= "" then
+			header = header .. "  [" .. item.tool .. "]"
+		end
+		local content = header .. "\n" .. string.rep("─", 60) .. "\n\n" .. vim.trim(item.text or "") .. "\n"
+		vim.fn.writefile(vim.split(content, "\n", { plain = true }), temp_dir .. "/" .. key .. ".md")
+	end
+
+	local function get_item(selected)
+		if not selected or #selected == 0 then
+			return nil
+		end
+		local file_info = require("fzf-lua.path").entry_to_file(selected[1], { cwd = temp_dir })
+		if not file_info or not file_info.path then
+			return nil
+		end
+		local key = vim.fn.fnamemodify(file_info.path, ":t:r")
+		return item_map[key]
+	end
+
+	local function reopen(new_scope, ao)
+		local q = ao and ao.__call_opts and ao.__call_opts.query or ""
+		vim.schedule(function()
+			M.grep({ scope = new_scope, query = q })
+		end)
+	end
+
+	fzf.live_grep({
+		cwd = temp_dir,
+		prompt = ("OpenCode Grep (%s)> "):format(scope or "session"),
+		query = opts.query or "",
+		rg_opts = "--column --line-number --no-heading --color=always --smart-case --max-columns=512",
+		winopts = {
+			on_close = function()
+				vim.fn.delete(temp_dir, "rf")
+			end,
+		},
+		fzf_opts = {
+			["--header"] = "Enter: transcript+switch | C-l: switch live | C-a: append | C-y: yank | A-s: session | A-l: worktree | A-r: repo | A-g: global",
+		},
+		actions = {
+			["default"] = function(selected)
+				local item = get_item(selected)
+				if not item then
+					return
+				end
+				vim.schedule(function()
+					open_transcript(item)
+					switch_tui_session(item)
+				end)
+			end,
+			["ctrl-l"] = function(selected)
+				switch_tui_session(get_item(selected))
+			end,
+			["ctrl-a"] = function(selected)
+				local item = get_item(selected)
+				if item then
+					send_to_prompt({ item })
+				end
+			end,
+			["ctrl-y"] = function(selected)
+				local item = get_item(selected)
+				if item then
+					yank_items({ item })
+				end
+			end,
+			["alt-s"] = function(_, ao) reopen("session", ao) end,
+			["alt-l"] = function(_, ao) reopen("worktree", ao) end,
+			["alt-r"] = function(_, ao) reopen("repo", ao) end,
+			["alt-g"] = function(_, ao) reopen("global", ao) end,
+		},
+	})
+end
+
+function M.grep(opts)
+	opts = opts or {}
+	local scope = opts.scope or "session"
+	local api = require("config.opencode_messages")
+
+	if scope == "session" then
+		api.latest_session(function(session, err)
+			if not session then
+				api.notify_error(err)
+				return
+			end
+			api.messages(session.id, function(messages, merr)
+				if not messages then
+					api.notify_error(merr)
+					return
+				end
+				open_grep_picker(build_items(session, messages, "all"), scope, opts)
+			end)
+		end)
+		return
+	end
+
+	local function fetch_and_open(context)
+		api.sessions(function(sessions, err)
+			if not sessions then
+				api.notify_error(err)
+				return
+			end
+			local filtered = vim.tbl_filter(function(s)
+				return scope == "global" or grep_session_matches(s, scope, context)
+			end, sessions)
+			if #filtered == 0 then
+				vim.notify(
+					"No OpenCode sessions match scope: " .. scope,
+					vim.log.levels.WARN,
+					{ title = "opencode" }
+				)
+				return
+			end
+			local pending = #filtered
+			local all_items = {}
+			for _, session in ipairs(filtered) do
+				api.messages(session.id, function(messages)
+					if messages then
+						vim.list_extend(all_items, build_items(session, messages, "all"))
+					end
+					pending = pending - 1
+					if pending == 0 then
+						open_grep_picker(all_items, scope, opts)
+					end
+				end)
+			end
+		end)
+	end
+
+	if scope == "worktree" then
+		fetch_and_open({ worktree_root = grep_git_root() })
+	elseif scope == "repo" then
+		grep_worktree_roots(function(roots)
+			fetch_and_open({ worktree_roots = roots })
+		end)
+	else
+		fetch_and_open({})
+	end
+end
+
 return M

@@ -69,7 +69,7 @@ local function get_opencode_terminal()
 			end
 		end,
 		size = function()
-			return math.floor(vim.o.columns * 0.35)
+			return math.floor(vim.o.columns * 0.5)
 		end,
 	})
 	return opencode_terminal
@@ -189,16 +189,10 @@ local function resolve_opencode_port(callback)
 	poll()
 end
 
-local function resolve_opencode_url(callback)
-	resolve_opencode_port(function(port)
-		callback(port and ("http://127.0.0.1:" .. port) or nil)
-	end)
-end
-
 local function opencode_opts()
 	return {
 		server = {
-			url = resolve_opencode_url,
+			port = resolve_opencode_port,
 			username = opencode_username,
 			password = opencode_password(),
 			start = start_opencode_terminal,
@@ -230,7 +224,7 @@ end
 
 local function with_opencode_ready(action, on_error)
 	local ok, ready = pcall(function()
-		return require("opencode.server.discovery").get()
+		return require("opencode.server").get()
 	end)
 
 	if not ok then

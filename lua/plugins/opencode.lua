@@ -648,14 +648,30 @@ return {
 				mode = "n",
 				desc = "Search all opencode sessions",
 			},
-			{
-				"<leader>aoH",
-				function()
-					require("config.opencode_pickers").sessions("all")
-				end,
-				mode = "n",
-				desc = "Search opencode session history",
-			},
+		{
+			"<leader>aoH",
+			function()
+				require("config.opencode_pickers").sessions("all")
+			end,
+			mode = "n",
+			desc = "Search opencode session history",
+		},
+		{
+			"<leader>aoF",
+			function()
+				require("config.opencode_pickers").forkpane()
+			end,
+			mode = "n",
+			desc = "Fork opencode session into new pane",
+		},
+		{
+			"<leader>aoW",
+			function()
+				require("config.opencode_pickers").gwtfork()
+			end,
+			mode = "n",
+			desc = "Fork opencode session into new worktree",
+		},
 			{
 				"<leader>aog",
 				function()

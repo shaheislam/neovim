@@ -696,6 +696,135 @@ local function open_transcript(item)
 	end, { buffer = buf, silent = true, desc = "Search OpenCode transcript" })
 end
 
+local function opencode_server_url()
+	local url = vim.g.opencode_server_url or vim.env.OPENCODE_SERVER_URL or "http://127.0.0.1:4096"
+	return url:gsub("/+$", "")
+end
+
+local function opencode_bin_path()
+	local bin = vim.fn.expand("~/dotfiles/scripts/bin/opencode")
+	if vim.fn.executable(bin) == 1 then
+		return bin
+	end
+	local found = vim.fn.exepath("opencode")
+	return found ~= "" and found or "opencode"
+end
+
+local function fork_pane_launch(fork_session_id, dir, source_session_id)
+	if not vim.env.TMUX or vim.env.TMUX == "" then
+		vim.notify("forkpane requires a running tmux session", vim.log.levels.ERROR, { title = "opencode" })
+		return
+	end
+
+	local handoff = dir .. "/.claude/forkpane.local.md"
+	pcall(vim.fn.mkdir, vim.fn.fnamemodify(handoff, ":h"), "p")
+	pcall(vim.fn.writefile, {
+		"# OpenCode Fork Pane Handoff",
+		"",
+		"- Source session: " .. (source_session_id or ""),
+		"- Forked session: " .. fork_session_id,
+		"- Source worktree: " .. dir,
+	}, handoff)
+
+	local cmd = string.format(
+		"tmux split-window -h -c %s -e OPENCODE_TMUX_WRAPPER_ACTIVE=1 %s attach %s --session %s",
+		vim.fn.shellescape(dir),
+		vim.fn.shellescape(opencode_bin_path()),
+		vim.fn.shellescape(opencode_server_url()),
+		vim.fn.shellescape(fork_session_id)
+	)
+	vim.fn.jobstart(cmd, { detach = true })
+	vim.notify("Fork launched: " .. fork_session_id, vim.log.levels.INFO, { title = "opencode" })
+end
+
+local function fork_worktree_launch(fork_session_id, branch_name, item)
+	local dir = (item.session and item.session.directory) or vim.fn.getcwd()
+	local source_session_id = (item.session and item.session.id) or ""
+	local message_id = item.message_id or ""
+	local tmux_pane = vim.env.TMUX_PANE or ""
+
+	local prompt = string.format(
+		"Fork OpenCode session '%s' into a fresh worktree for branch '%s'. Continue the conversation in that isolated worktree. Source worktree: %s.",
+		source_session_id,
+		branch_name,
+		dir
+	)
+	if message_id ~= "" then
+		prompt = prompt .. " Fork point message: " .. message_id .. "."
+	end
+
+	local env_pairs = {
+		{ "WT_AUTO_OPENCODE",            "1" },
+		{ "WT_OPENCODE_REQUIRE_TMUX",    "1" },
+		{ "WT_OPENCODE_TMUX_PANE",       tmux_pane },
+		{ "WT_OPENCODE_SESSION",         fork_session_id },
+		{ "WT_OPENCODE_PROMPT",          prompt },
+		{ "WT_OPENCODE_FORK_SESSION",    source_session_id },
+		{ "WT_OPENCODE_FORKED_SESSION",  fork_session_id },
+		{ "WT_OPENCODE_FORK_MESSAGE",    message_id },
+		{ "WT_OPENCODE_FORK_SOURCE_DIR", dir },
+	}
+	local env_str = table.concat(vim.tbl_map(function(p)
+		return p[1] .. "=" .. vim.fn.shellescape(p[2])
+	end, env_pairs), " ")
+
+	local cmd = string.format(
+		"cd %s && env %s wt switch --create %s",
+		vim.fn.shellescape(dir),
+		env_str,
+		vim.fn.shellescape(branch_name)
+	)
+
+	vim.notify("Creating fork worktree: " .. branch_name .. "...", vim.log.levels.INFO, { title = "opencode" })
+	vim.fn.jobstart({ "fish", "-c", cmd }, {
+		on_exit = function(_, code)
+			vim.schedule(function()
+				if code == 0 then
+					vim.notify("Fork worktree created: " .. branch_name, vim.log.levels.INFO, { title = "opencode" })
+				else
+					vim.notify("gwtfork failed (exit " .. code .. ")", vim.log.levels.ERROR, { title = "opencode" })
+				end
+			end)
+		end,
+	})
+end
+
+local function fork_pane_from_item(item)
+	if not item or not item.session or not item.session.id then
+		vim.notify("No session to fork from", vim.log.levels.WARN, { title = "opencode" })
+		return
+	end
+	local dir = (item.session and item.session.directory) or vim.fn.getcwd()
+	require("config.opencode_http").fork_session(item.session.id, {
+		message_id = item.message_id,
+		dir = dir,
+	}, function(fork_id, err)
+		if not fork_id then
+			vim.notify("Fork failed: " .. (err or "unknown error"), vim.log.levels.ERROR, { title = "opencode" })
+			return
+		end
+		fork_pane_launch(fork_id, dir, item.session.id)
+	end)
+end
+
+local function fork_worktree_from_item(item, branch_name)
+	if not item or not item.session or not item.session.id then
+		vim.notify("No session to fork from", vim.log.levels.WARN, { title = "opencode" })
+		return
+	end
+	local dir = (item.session and item.session.directory) or vim.fn.getcwd()
+	require("config.opencode_http").fork_session(item.session.id, {
+		message_id = item.message_id,
+		dir = dir,
+	}, function(fork_id, err)
+		if not fork_id then
+			vim.notify("Fork failed: " .. (err or "unknown error"), vim.log.levels.ERROR, { title = "opencode" })
+			return
+		end
+		fork_worktree_launch(fork_id, branch_name, item)
+	end)
+end
+
 local function open_message_picker(items, scope, opts)
 	opts = opts or {}
 	local fzf = require("fzf-lua")
@@ -785,11 +914,14 @@ local function open_message_picker(items, scope, opts)
 	local actions = {
 		["default"] = function(selected)
 			local item = first_item(selected)
-			if item then
-				vim.schedule(function()
-					open_transcript(item)
-				end)
+			if not item then return end
+			if opts.enter_action then
+				opts.enter_action(item)
+				return
 			end
+			vim.schedule(function()
+				open_transcript(item)
+			end)
 		end,
 		["ctrl-a"] = function(selected)
 			send_to_prompt(selected_items(selected, entry_map))
@@ -811,6 +943,18 @@ local function open_message_picker(items, scope, opts)
 		end,
 		["ctrl-l"] = function(selected)
 			sync_live_timeline(first_item(selected))
+		end,
+		["ctrl-f"] = function(selected)
+			fork_pane_from_item(first_item(selected))
+		end,
+		["ctrl-w"] = function(selected)
+			local item = first_item(selected)
+			if not item then return end
+			vim.ui.input({ prompt = "Fork branch name: " }, function(branch_name)
+				if branch_name and branch_name ~= "" then
+					fork_worktree_from_item(item, branch_name)
+				end
+			end)
 		end,
 		["alt-l"] = function(selected)
 			local item = first_item(selected)
@@ -864,7 +1008,7 @@ local function open_message_picker(items, scope, opts)
 		},
 		fzf_opts = {
 			["--multi"] = true,
-			["--header"] = "Enter: transcript | A-l: transcript+live | C-l: live | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview",
+			["--header"] = "Enter: transcript | A-l: transcript+live | C-l: live | C-f: forkpane | C-w: gwtfork | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview",
 		},
 		actions = actions,
 	})
@@ -1225,6 +1369,55 @@ function M.grep(opts)
 	else
 		fetch_and_open({})
 	end
+end
+
+function M.forkpane()
+	local api = require("config.opencode_messages")
+	api.latest_session(function(session, err)
+		if not session then
+			api.notify_error(err)
+			return
+		end
+		api.messages(session.id, function(messages, merr)
+			if not messages then
+				api.notify_error(merr)
+				return
+			end
+			open_message_picker(build_items(session, messages, "prompts"), "prompts", {
+				session = session,
+				label = "Fork Point",
+				enter_action = fork_pane_from_item,
+			})
+		end)
+	end)
+end
+
+function M.gwtfork()
+	vim.ui.input({ prompt = "Fork branch name: " }, function(branch_name)
+		if not branch_name or branch_name == "" then
+			return
+		end
+		local api = require("config.opencode_messages")
+		api.latest_session(function(session, err)
+			if not session then
+				api.notify_error(err)
+				return
+			end
+			api.messages(session.id, function(messages, merr)
+				if not messages then
+					api.notify_error(merr)
+					return
+				end
+				open_message_picker(build_items(session, messages, "prompts"), "prompts", {
+					session = session,
+					label = "gwtfork: " .. branch_name,
+					enter_action = function(item)
+						fork_worktree_from_item(item, branch_name)
+					end,
+				})
+			end)
+		end)
+	end)
 end
 
 return M

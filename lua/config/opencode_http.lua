@@ -136,4 +136,83 @@ function M.publish_command(command, callback)
   end)
 end
 
+function M.fork_session(session_id, opts, callback)
+  opts = opts or {}
+  local dir = opts.dir or vim.fn.getcwd()
+  local body = {}
+  if opts.message_id and opts.message_id ~= "" then
+    body.messageID = opts.message_id
+  end
+
+  local args = {
+    "curl",
+    "--silent",
+    "--show-error",
+    "--fail-with-body",
+    "--max-time",
+    "5",
+    "--request",
+    "POST",
+    "--header",
+    "Content-Type: application/json",
+    "--header",
+    "x-opencode-directory: " .. dir,
+    "--data-binary",
+    "@-",
+  }
+
+  local password = server_password()
+  if password and password ~= "" then
+    vim.list_extend(args, { "--user", server_username() .. ":" .. password })
+  end
+
+  table.insert(args, server_url() .. "/session/" .. session_id .. "/fork")
+
+  local json_body = vim.json.encode(body)
+
+  local function handle(code, stdout, stderr)
+    if code ~= 0 then
+      callback(nil, (stderr or "") .. (stdout or ""))
+      return
+    end
+    local ok, decoded = pcall(vim.json.decode, stdout or "")
+    if ok and decoded and decoded.id then
+      callback(decoded.id, nil)
+    else
+      callback(nil, "unexpected fork response: " .. (stdout or ""))
+    end
+  end
+
+  if vim.system then
+    vim.system(args, { text = true, stdin = json_body }, function(result)
+      vim.schedule(function()
+        handle(result.code, result.stdout, result.stderr)
+      end)
+    end)
+    return
+  end
+
+  local out, err = {}, {}
+  local job = vim.fn.jobstart(args, {
+    stdin = "pipe",
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data) vim.list_extend(out, data or {}) end,
+    on_stderr = function(_, data) vim.list_extend(err, data or {}) end,
+    on_exit = function(_, code)
+      vim.schedule(function()
+        handle(code, table.concat(out, "\n"), table.concat(err, "\n"))
+      end)
+    end,
+  })
+
+  if job <= 0 then
+    callback(nil, "Failed to start curl for fork")
+    return
+  end
+
+  vim.fn.chansend(job, json_body)
+  vim.fn.chanclose(job, "stdin")
+end
+
 return M

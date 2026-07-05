@@ -439,6 +439,59 @@ return {
 			end
 		end
 
+		-- Scan all diff windows for the first intra-line changed column (DiffText),
+		-- then apply the same leftcol to every diff window so both panes center on it.
+		-- No-ops if no DiffText is found (whole-line-only changes don't need scrolling).
+		-- diff_hlID() requires the queried window to be current — same constraint as
+		-- refresh_diffview_word_changes; uses the same set_current_win + restore pattern.
+		local function scroll_diff_wins_to_first_change()
+			local diff_wins = {}
+			for _, winid in ipairs(vim.api.nvim_list_wins()) do
+				if vim.api.nvim_win_is_valid(winid) and vim.wo[winid].diff then
+					table.insert(diff_wins, winid)
+				end
+			end
+			if #diff_wins == 0 then
+				return
+			end
+
+			local saved_win = vim.api.nvim_get_current_win()
+			local max_first_col = nil
+
+			for _, winid in ipairs(diff_wins) do
+				pcall(vim.api.nvim_set_current_win, winid)
+				local cursor = vim.api.nvim_win_get_cursor(winid)
+				local row = cursor[1]
+				local bufnr = vim.api.nvim_win_get_buf(winid)
+				local line = vim.api.nvim_buf_get_lines(bufnr, row - 1, row, false)[1] or ""
+				for col = 1, #line + 1 do
+					local hl_id = vim.fn.diff_hlID(row, col)
+					local hl_name = hl_id > 0 and vim.fn.synIDattr(hl_id, "name") or ""
+					if hl_name == "DiffText" or hl_name == "DiffviewDiffText" then
+						local first_col = col - 1
+						if not max_first_col or first_col > max_first_col then
+							max_first_col = first_col
+						end
+						break
+					end
+				end
+			end
+
+			pcall(vim.api.nvim_set_current_win, saved_win)
+			if not max_first_col then
+				return
+			end
+
+			for _, winid in ipairs(diff_wins) do
+				local win_width = vim.api.nvim_win_get_width(winid)
+				local text_width = math.max(1, win_width - 6)
+				local leftcol = math.max(0, max_first_col - math.floor(text_width / 2))
+				pcall(vim.api.nvim_win_call, winid, function()
+					vim.fn.winrestview({ leftcol = leftcol })
+				end)
+			end
+		end
+
 		require("diffview").setup({
 			diff_binaries = false, -- Show diffs for binaries
 			enhanced_diff_hl = false, -- Disabled: adds per-line extra highlight pass; treesitter is stopped in diff_buf_read anyway
@@ -568,9 +621,29 @@ return {
 					{ "n", "<leader>cA", actions.conflict_choose_all("all"), { desc = "Choose ALL (whole file)" } },
 					{ "n", "dX", actions.conflict_choose_all("none"), { desc = "Delete all conflicts" } },
 
-					-- Navigate between conflicts
-					{ "n", "[x", actions.prev_conflict, { desc = "Previous conflict" } },
-					{ "n", "]x", actions.next_conflict, { desc = "Next conflict" } },
+				-- Navigate between conflicts
+				{ "n", "[x", actions.prev_conflict, { desc = "Previous conflict" } },
+				{ "n", "]x", actions.next_conflict, { desc = "Next conflict" } },
+
+				-- Hunk navigation with horizontal auto-centering on first changed character
+				{
+					"n",
+					"]c",
+					function()
+						vim.cmd("normal! ]c")
+						vim.defer_fn(scroll_diff_wins_to_first_change, 50)
+					end,
+					{ desc = "Next hunk (auto-center)" },
+				},
+				{
+					"n",
+					"[c",
+					function()
+						vim.cmd("normal! [c")
+						vim.defer_fn(scroll_diff_wins_to_first_change, 50)
+					end,
+					{ desc = "Previous hunk (auto-center)" },
+				},
 				},
 				file_panel = {
 					-- Navigation
@@ -1087,8 +1160,9 @@ return {
 						refresh_diffview_gutters(bufnr)
 						refresh_diffview_word_changes(bufnr)
 					end, 250)
-					vim.defer_fn(refresh_visible_diffview_gutters, 500)
-				end,
+				vim.defer_fn(refresh_visible_diffview_gutters, 500)
+				vim.defer_fn(scroll_diff_wins_to_first_change, 600)
+			end,
 			},
 		})
 

@@ -3,7 +3,7 @@
 A personal Neovim configuration with lazy.nvim plugin specs, custom editor workflows, and Claude Code integration.
 
 ## Usage
-
+ghgh gjjgjg 
 Launch with the `nvm` alias:
 ```bash
 nvm

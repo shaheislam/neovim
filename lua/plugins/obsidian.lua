@@ -110,24 +110,61 @@ return {
         vim.opt_local.wrap = true
         vim.opt_local.linebreak = true
 
-        -- Heading-level folding (linkarzu workflow)
-        -- Setup treesitter folding for this buffer
-        vim.opt_local.foldmethod = "expr"
-        vim.opt_local.foldexpr = "v:lua.vim.treesitter.foldexpr()"
-        vim.opt_local.foldenable = true
-        vim.opt_local.foldlevel = 99 -- Start with all open
+        -- Keep expensive treesitter fold evaluation off until explicitly requested.
+        local function disable_folds()
+          vim.opt_local.foldenable = false
+          vim.opt_local.foldmethod = "manual"
+        end
+
+        local function enable_folds(level)
+          vim.opt_local.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+          vim.opt_local.foldmethod = "expr"
+          if level then
+            vim.opt_local.foldlevel = level
+          end
+          vim.opt_local.foldenable = true
+        end
+
+        vim.opt_local.foldlevel = 99
+        disable_folds()
 
         vim.keymap.set("n", "zk", function()
-          vim.opt_local.foldlevel = 1
+          enable_folds(1)
         end, { buffer = bufnr, desc = "Fold to H2" })
 
         vim.keymap.set("n", "zl", function()
-          vim.opt_local.foldlevel = 2
+          enable_folds(2)
         end, { buffer = bufnr, desc = "Fold to H3" })
 
         vim.keymap.set("n", "zu", function()
-          vim.cmd("normal! zR")
-        end, { buffer = bufnr, desc = "Unfold all" })
+          vim.w.obsidian_folds_suspended = nil
+          disable_folds()
+        end, { buffer = bufnr, desc = "Disable heading folds" })
+
+        local fold_group = vim.api.nvim_create_augroup("obsidian_note_folding", { clear = false })
+        vim.api.nvim_clear_autocmds({ group = fold_group, buffer = bufnr })
+        vim.api.nvim_create_autocmd("InsertEnter", {
+          group = fold_group,
+          buffer = bufnr,
+          callback = function()
+            if vim.opt_local.foldenable:get() and vim.opt_local.foldmethod:get() == "expr" then
+              vim.w.obsidian_folds_suspended = true
+              disable_folds()
+            end
+          end,
+          desc = "Suspend Obsidian heading folds while typing",
+        })
+        vim.api.nvim_create_autocmd("InsertLeave", {
+          group = fold_group,
+          buffer = bufnr,
+          callback = function()
+            if vim.w.obsidian_folds_suspended then
+              vim.w.obsidian_folds_suspended = nil
+              enable_folds()
+            end
+          end,
+          desc = "Restore Obsidian heading folds after typing",
+        })
 
         -- Task automation: Complete and move to Completed section (linkarzu workflow)
         vim.keymap.set("n", "<A-x>", function()

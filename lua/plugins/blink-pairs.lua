@@ -12,6 +12,37 @@ return {
     config = function(_, opts)
       local pairs = require('blink.pairs')
       pairs.setup(opts)
+
+      -- blink.pairs installs a global Insert-mode <Space> expression mapping that
+      -- builds a parser context and runs rule matching on every literal space;
+      -- in Markdown prose that overhead is perceptible while typing. A buffer-local
+      -- override takes precedence over the global mapping and mirrors the plugin's
+      -- own no-pair fallback (<C-]> first, so Insert abbreviations still expand).
+      -- Trade-off: no smart spacing inside pairs in Markdown; bracket/backtick
+      -- auto-pairs and pair highlights are unaffected.
+      local function markdown_space_override(bufnr)
+        vim.keymap.set('i', '<Space>', '<C-]><Space>', {
+          buffer = bufnr,
+          silent = true,
+          desc = 'Literal space (skip blink.pairs parsing)',
+        })
+      end
+
+      vim.api.nvim_create_autocmd('FileType', {
+        group = vim.api.nvim_create_augroup('nvim_mini_blink_pairs_markdown_space', { clear = true }),
+        pattern = 'markdown',
+        callback = function(ev)
+          markdown_space_override(ev.buf)
+        end,
+      })
+
+      -- Markdown buffers can already exist when this spec loads (session restore)
+      for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == 'markdown' then
+          markdown_space_override(bufnr)
+        end
+      end
+
       -- Disable built-in matchparen after runtime plugins are sourced
       -- (NoMatchParen unsets g:loaded_matchparen, so it must run after matchparen.vim)
       vim.api.nvim_create_autocmd('VimEnter', {

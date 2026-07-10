@@ -42,6 +42,13 @@ return {
       enable = false, -- Use render-markdown.nvim instead
     },
 
+    -- Footer/statusline (on by default) run a full-buffer parse + vault-wide
+    -- ripgrep backlink count per buffer every 10s and on every TextChanged;
+    -- over a 28k-file vault the scheduled match processing floods the main
+    -- thread and surfaces as leader-key lag. Keep both disabled.
+    footer = { enabled = false },
+    statusline = { enabled = false },
+
     attachments = {
       folder = "assets/imgs",
     },

@@ -13,7 +13,7 @@ return {
     "BufNewFile " .. vim.fn.expand("~") .. "/obsidian/*.md",
     "BufNewFile " .. vim.fn.expand("~") .. "/obsidian/**/*.md",
   },
-  dependencies = { "nvim-lua/plenary.nvim" },
+  dependencies = { "nvim-lua/plenary.nvim", "ibhagwan/fzf-lua" },
   opts = {
     workspaces = {
       {

@@ -166,7 +166,23 @@ function M.restore(target, opts)
 			vim.api.nvim_win_set_buf(target.win, target.buf)
 		end
 	else
-		vim.api.nvim_set_current_buf(target.buf)
+		local cur_win = vim.api.nvim_get_current_win()
+		if not vim.wo[cur_win].winfixbuf then
+			vim.api.nvim_set_current_buf(target.buf)
+		else
+			local found = false
+			for _, win in ipairs(vim.api.nvim_list_wins()) do
+				if not vim.wo[win].winfixbuf then
+					vim.api.nvim_set_current_win(win)
+					vim.api.nvim_set_current_buf(target.buf)
+					found = true
+					break
+				end
+			end
+			if not found then
+				vim.cmd.enew()
+			end
+		end
 	end
 
 	state.last = target

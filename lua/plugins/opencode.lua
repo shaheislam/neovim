@@ -637,7 +637,7 @@ return {
 						end)
 					end)
 				end,
-				mode = "n",
+				mode = { "n", "x" },
 				desc = "Select opencode ask model",
 			},
 			-- Action picker

@@ -314,11 +314,17 @@ local function ask_with_context(prefix, submit)
 	end
 end
 
+local function strip_vcs_prefix(bufname)
+	return bufname
+		:gsub("^diffview://", "")
+		:gsub("^[a-f0-9]+:", "")
+		:gsub("^%.git/[a-f0-9]+/", "")
+end
+
 local function ask_via_http()
 	return function()
 		local bufname = vim.api.nvim_buf_get_name(0)
-		local filepath = bufname:gsub("^diffview://", ""):gsub("^[a-f0-9]+:", "")
-		filepath = vim.fn.fnamemodify(filepath, ":.")
+		local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
 		local file_ctx = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
 			and ("[file: " .. filepath .. "]\n")
 			or ""
@@ -422,9 +428,7 @@ local function send_visual_selection()
 	end
 
 	local bufname = vim.api.nvim_buf_get_name(0)
-	-- Strip diffview:// scheme and git-hash prefix (e.g. "abc123:path/to/file")
-	local filepath = bufname:gsub("^diffview://", ""):gsub("^[a-f0-9]+:", "")
-	filepath = vim.fn.fnamemodify(filepath, ":.")
+	local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
 	local header = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
 		and ("[file: " .. filepath .. ", lines " .. start_line .. "-" .. end_line .. "]\n")
 		or ""

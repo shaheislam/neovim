@@ -314,6 +314,28 @@ local function ask_with_context(prefix, submit)
 	end
 end
 
+local function ask_via_http()
+	return function()
+		local bufname = vim.api.nvim_buf_get_name(0)
+		local filepath = bufname:gsub("^diffview://", ""):gsub("^[a-f0-9]+:", "")
+		filepath = vim.fn.fnamemodify(filepath, ":.")
+		local file_ctx = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
+			and ("[file: " .. filepath .. "]\n")
+			or ""
+
+		vim.ui.input({ prompt = "Ask OpenCode: " }, function(input)
+			if not input or input == "" then
+				return
+			end
+			require("config.opencode_http").append_prompt(file_ctx .. input, {
+				title = "opencode",
+				success = "Sent to OpenCode",
+				fallback_clipboard = true,
+			})
+		end)
+	end
+end
+
 local function run_command(command)
 	return function()
 		with_opencode_ready(function(server)
@@ -442,19 +464,18 @@ return {
 				mode = { "n", "t" },
 				desc = "Toggle opencode",
 			},
-			-- Ask opencode with current context
+			-- Ask opencode with current file context via HTTP (no plugin server required)
 			{
 				"<leader>aoa",
-				ask_with_context("@this: "),
+				ask_via_http(),
 				mode = { "n", "x" },
 				desc = "Ask opencode",
 			},
-			-- Quick ask with auto-submit
 			{
 				"<leader>aos",
-				ask_with_context("@this: ", true),
+				ask_via_http(),
 				mode = { "n", "x" },
-				desc = "Ask opencode (submit)",
+				desc = "Ask opencode (append to prompt)",
 			},
 			{
 				"<leader>aoS",

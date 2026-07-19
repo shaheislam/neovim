@@ -321,7 +321,8 @@ local function strip_vcs_prefix(bufname)
 		:gsub("^%.git/[a-f0-9]+/", "")
 end
 
-local function ask_via_http()
+local function ask_via_http(opts)
+	opts = opts or {}
 	return function()
 		local bufname = vim.api.nvim_buf_get_name(0)
 		local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
@@ -334,18 +335,57 @@ local function ask_via_http()
 				return
 			end
 			local http = require("config.opencode_http")
-			http.append_prompt(file_ctx .. input, {
-				title = "opencode",
-				success = "Sent to OpenCode",
-				fallback_clipboard = false,
-				on_success = function()
-					http.publish_command("prompt.submit", function(ok, out)
-						if not ok then
-							vim.notify("OpenCode submit failed: " .. (out or ""), vim.log.levels.WARN, { title = "opencode" })
+
+			local function do_submit(restore_fn)
+				http.append_prompt(file_ctx .. input, {
+					title = "opencode",
+					success = "Sent to OpenCode",
+					fallback_clipboard = false,
+					on_success = function()
+						http.publish_command("prompt.submit", function(ok, out)
+							if restore_fn then restore_fn() end
+							if not ok then
+								vim.notify("OpenCode submit failed: " .. (out or ""), vim.log.levels.WARN, { title = "opencode" })
+							end
+						end)
+					end,
+				})
+			end
+
+			if not opts.model then
+				do_submit(nil)
+				return
+			end
+
+			http.get("/config", function(get_ok, body)
+				local saved_model
+				if get_ok then
+					local ok, cfg = pcall(vim.json.decode, body)
+					if ok and cfg then
+						saved_model = cfg.model
+					end
+				end
+
+				http.patch("/config", { model = opts.model }, function(set_ok, set_out)
+					if not set_ok then
+						vim.notify(
+							"Failed to set model for Ask: " .. (set_out or ""),
+							vim.log.levels.WARN,
+							{ title = "opencode" }
+						)
+						do_submit(nil)
+						return
+					end
+
+					local function restore()
+						if saved_model then
+							http.patch("/config", { model = saved_model }, function() end)
 						end
-					end)
-				end,
-			})
+					end
+
+					do_submit(restore)
+				end)
+			end)
 		end)
 	end
 end
@@ -523,9 +563,9 @@ return {
 			-- Ask opencode with current file context via HTTP (no plugin server required)
 			{
 				"<leader>aoa",
-				ask_via_http(),
+				ask_via_http({ model = "anthropic/claude-sonnet-5" }),
 				mode = { "n", "x" },
-				desc = "Ask opencode",
+				desc = "Ask opencode (sonnet-5)",
 			},
 			{
 				"<leader>aos",

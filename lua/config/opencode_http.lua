@@ -99,6 +99,120 @@ function M.post(path, body, callback, opts)
   vim.fn.chanclose(job, "stdin")
 end
 
+function M.get(path, callback, opts)
+  if vim.fn.executable("curl") ~= 1 then
+    callback(false, "curl is required to talk to OpenCode")
+    return
+  end
+
+  local args = {
+    "curl",
+    "--silent",
+    "--show-error",
+    "--fail-with-body",
+    "--max-time",
+    "2",
+    "--header",
+    "x-opencode-directory: " .. ((opts and opts.dir) or vim.fn.getcwd()),
+  }
+
+  local password = server_password()
+  if password and password ~= "" then
+    vim.list_extend(args, { "--user", server_username() .. ":" .. password })
+  end
+
+  table.insert(args, server_url() .. path)
+
+  if vim.system then
+    vim.system(args, { text = true }, function(result)
+      vim.schedule(function()
+        callback(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
+      end)
+    end)
+    return
+  end
+
+  local output = {}
+  local job = vim.fn.jobstart(args, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data) vim.list_extend(output, data or {}) end,
+    on_stderr = function(_, data) vim.list_extend(output, data or {}) end,
+    on_exit = function(_, code)
+      vim.schedule(function()
+        callback(code == 0, table.concat(output, "\n"))
+      end)
+    end,
+  })
+
+  if job <= 0 then
+    callback(false, "Failed to start curl")
+  end
+end
+
+function M.patch(path, body, callback, opts)
+  if vim.fn.executable("curl") ~= 1 then
+    callback(false, "curl is required to talk to OpenCode")
+    return
+  end
+
+  local json = vim.json.encode(body)
+  local args = {
+    "curl",
+    "--silent",
+    "--show-error",
+    "--fail-with-body",
+    "--max-time",
+    "2",
+    "--request",
+    "PATCH",
+    "--header",
+    "Content-Type: application/json",
+    "--header",
+    "x-opencode-directory: " .. ((opts and opts.dir) or vim.fn.getcwd()),
+    "--data-binary",
+    "@-",
+  }
+
+  local password = server_password()
+  if password and password ~= "" then
+    vim.list_extend(args, { "--user", server_username() .. ":" .. password })
+  end
+
+  table.insert(args, server_url() .. path)
+
+  if vim.system then
+    vim.system(args, { text = true, stdin = json }, function(result)
+      vim.schedule(function()
+        callback(result.code == 0, (result.stderr or "") .. (result.stdout or ""))
+      end)
+    end)
+    return
+  end
+
+  local output = {}
+  local job = vim.fn.jobstart(args, {
+    stdin = "pipe",
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data) vim.list_extend(output, data or {}) end,
+    on_stderr = function(_, data) vim.list_extend(output, data or {}) end,
+    on_exit = function(_, code)
+      vim.schedule(function()
+        callback(code == 0, table.concat(output, "\n"))
+      end)
+    end,
+  })
+
+  if job <= 0 then
+    callback(false, "Failed to start curl")
+    return
+  end
+
+  vim.fn.chansend(job, json)
+  vim.fn.chanclose(job, "stdin")
+end
+
 function M.append_prompt(text, opts)
   opts = opts or {}
   if not text or text == "" then

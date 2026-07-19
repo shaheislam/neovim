@@ -333,10 +333,18 @@ local function ask_via_http()
 			if not input or input == "" then
 				return
 			end
-			require("config.opencode_http").append_prompt(file_ctx .. input, {
+			local http = require("config.opencode_http")
+			http.append_prompt(file_ctx .. input, {
 				title = "opencode",
 				success = "Sent to OpenCode",
-				fallback_clipboard = true,
+				fallback_clipboard = false,
+				on_success = function()
+					http.publish_command("prompt.submit", function(ok, out)
+						if not ok then
+							vim.notify("OpenCode submit failed: " .. (out or ""), vim.log.levels.WARN, { title = "opencode" })
+						end
+					end)
+				end,
 			})
 		end)
 	end

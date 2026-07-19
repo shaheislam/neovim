@@ -350,6 +350,50 @@ local function ask_via_http()
 	end
 end
 
+local function run_prompt_via_http(name)
+	return function()
+		local bufname = vim.api.nvim_buf_get_name(0)
+		local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
+		local file_ctx = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
+			and ("[file: " .. filepath .. "]\n")
+			or ""
+
+		local ok, config = pcall(function()
+			return require("opencode.config").opts
+		end)
+		local prompt = ok and config
+			and ((config.prompts and config.prompts[name]) or (config.select and config.select.prompts and config.select.prompts[name]))
+		local text = prompt_text(prompt) or name
+
+		local http = require("config.opencode_http")
+		local function send(final_text)
+			http.append_prompt(file_ctx .. final_text, {
+				title = "opencode",
+				success = "Sent to OpenCode",
+				fallback_clipboard = false,
+				on_success = function()
+					http.publish_command("prompt.submit", function(send_ok, out)
+						if not send_ok then
+							vim.notify("OpenCode submit failed: " .. (out or ""), vim.log.levels.WARN, { title = "opencode" })
+						end
+					end)
+				end,
+			})
+		end
+
+		if type(prompt) == "table" and prompt.ask then
+			vim.ui.input({ prompt = text }, function(input)
+				if not input or input == "" then
+					return
+				end
+				send(text .. input)
+			end)
+		else
+			send(text)
+		end
+	end
+end
+
 local function run_command(command)
 	return function()
 		with_opencode_ready(function(server)
@@ -541,61 +585,55 @@ return {
 				desc = "Add line to opencode",
 				expr = true,
 			},
-			-- Named prompts
-			{
-				"<leader>aoe",
-				run_prompt("explain"),
-				mode = { "n", "x" },
-				desc = "Explain (opencode)",
-			},
-			{
-				"<leader>aof",
-				run_prompt("fix"),
-				mode = { "n", "x" },
-				desc = "Fix diagnostics (opencode)",
-			},
-			{
-				"<leader>aor",
-				run_prompt("review"),
-				mode = { "n", "x" },
-				desc = "Review (opencode)",
-			},
-			{
-				"<leader>aot",
-				run_prompt("test"),
-				mode = { "n", "x" },
-				desc = "Add tests (opencode)",
-			},
-			{
-				"<leader>aod",
-				run_prompt("document"),
-				mode = { "n", "x" },
-				desc = "Document (opencode)",
-			},
-			{
-				"<leader>aoo",
-				run_prompt("optimize"),
-				mode = { "n", "x" },
-				desc = "Optimize (opencode)",
-			},
-			{
-				"<leader>aoi",
-				run_prompt("implement"),
-				mode = { "n", "x" },
-				desc = "Implement (opencode)",
-			},
-			{
-				"<leader>aog",
-				run_prompt("diff"),
-				mode = { "n", "x" },
-				desc = "Review git diff (opencode)",
-			},
-			{
-				"<leader>aoE",
-				run_prompt("diagnostics"),
-				mode = { "n", "x" },
-				desc = "Explain diagnostics (opencode)",
-			},
+		-- Named prompts
+		{
+			"<leader>aoe",
+			run_prompt_via_http("explain"),
+			mode = { "n", "x" },
+			desc = "Explain (opencode)",
+		},
+		{
+			"<leader>aof",
+			run_prompt_via_http("fix"),
+			mode = { "n", "x" },
+			desc = "Fix diagnostics (opencode)",
+		},
+		{
+			"<leader>aor",
+			run_prompt_via_http("review"),
+			mode = { "n", "x" },
+			desc = "Review (opencode)",
+		},
+		{
+			"<leader>aot",
+			run_prompt_via_http("test"),
+			mode = { "n", "x" },
+			desc = "Add tests (opencode)",
+		},
+		{
+			"<leader>aod",
+			run_prompt_via_http("document"),
+			mode = { "n", "x" },
+			desc = "Document (opencode)",
+		},
+		{
+			"<leader>aoo",
+			run_prompt_via_http("optimize"),
+			mode = { "n", "x" },
+			desc = "Optimize (opencode)",
+		},
+		{
+			"<leader>aoi",
+			run_prompt_via_http("implement"),
+			mode = { "n", "x" },
+			desc = "Implement (opencode)",
+		},
+		{
+			"<leader>aoE",
+			run_prompt_via_http("diagnostics"),
+			mode = { "n", "x" },
+			desc = "Explain diagnostics (opencode)",
+		},
 			-- Session and agent controls
 			{
 				"<leader>aon",

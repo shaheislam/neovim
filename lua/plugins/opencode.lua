@@ -10,6 +10,7 @@ local opencode_service = "com.dotfiles.opencode-serve"
 local opencode_username = vim.env.OPENCODE_SERVER_USERNAME or "opencode"
 local opencode_terminal
 local opencode_terminal_cmd
+local opencode_ask_model = { provider = "anthropic", model = "claude-sonnet-5" }
 
 local function opencode_password()
 	if vim.env.OPENCODE_SERVER_PASSWORD and vim.env.OPENCODE_SERVER_PASSWORD ~= "" then
@@ -330,62 +331,52 @@ local function ask_via_http(opts)
 			and ("[file: " .. filepath .. "]\n")
 			or ""
 
+		local selection_ctx = ""
+		if opts.with_selection then
+			local start_pos = vim.fn.getpos("'<")
+			local end_pos = vim.fn.getpos("'>")
+			local sl, el = start_pos[2], end_pos[2]
+			if sl > 0 and el > 0 then
+				if sl > el then
+					sl, el = el, sl
+				end
+				local lines = vim.api.nvim_buf_get_lines(0, sl - 1, el, false)
+				if #lines > 0 then
+					selection_ctx = "```\n" .. table.concat(lines, "\n") .. "\n```\n"
+				end
+			end
+		end
+
 		vim.ui.input({ prompt = "Ask OpenCode: " }, function(input)
 			if not input or input == "" then
 				return
 			end
 			local http = require("config.opencode_http")
+			local text = file_ctx .. selection_ctx .. input
 
-			local function do_submit(restore_fn)
-				http.append_prompt(file_ctx .. input, {
+			if opts.model then
+				http.send_with_model(text, opts.model.provider, opts.model.model, {
+					title = "opencode",
+					success = "Sent to OpenCode",
+				})
+			else
+				http.append_prompt(text, {
 					title = "opencode",
 					success = "Sent to OpenCode",
 					fallback_clipboard = false,
 					on_success = function()
 						http.publish_command("prompt.submit", function(ok, out)
-							if restore_fn then restore_fn() end
 							if not ok then
-								vim.notify("OpenCode submit failed: " .. (out or ""), vim.log.levels.WARN, { title = "opencode" })
+								vim.notify(
+									"OpenCode submit failed: " .. (out or ""),
+									vim.log.levels.WARN,
+									{ title = "opencode" }
+								)
 							end
 						end)
 					end,
 				})
 			end
-
-			if not opts.model then
-				do_submit(nil)
-				return
-			end
-
-			http.get("/config", function(get_ok, body)
-				local saved_model
-				if get_ok then
-					local ok, cfg = pcall(vim.json.decode, body)
-					if ok and cfg then
-						saved_model = cfg.model
-					end
-				end
-
-				http.patch("/config", { model = opts.model }, function(set_ok, set_out)
-					if not set_ok then
-						vim.notify(
-							"Failed to set model for Ask: " .. (set_out or ""),
-							vim.log.levels.WARN,
-							{ title = "opencode" }
-						)
-						do_submit(nil)
-						return
-					end
-
-					local function restore()
-						if saved_model then
-							http.patch("/config", { model = saved_model }, function() end)
-						end
-					end
-
-					do_submit(restore)
-				end)
-			end)
 		end)
 	end
 end
@@ -560,12 +551,18 @@ return {
 				mode = { "n", "t" },
 				desc = "Toggle opencode",
 			},
-			-- Ask opencode with current file context via HTTP (no plugin server required)
+		-- Ask opencode with current file context via HTTP (no plugin server required)
 			{
 				"<leader>aoa",
-				ask_via_http({ model = "anthropic/claude-sonnet-5" }),
-				mode = { "n", "x" },
-				desc = "Ask opencode (sonnet-5)",
+				ask_via_http({ model = opencode_ask_model }),
+				mode = "n",
+				desc = "Ask opencode",
+			},
+			{
+				"<leader>aoa",
+				ask_via_http({ model = opencode_ask_model, with_selection = true }),
+				mode = "x",
+				desc = "Ask opencode (with selection)",
 			},
 			{
 				"<leader>aos",

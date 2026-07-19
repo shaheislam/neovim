@@ -329,4 +329,48 @@ function M.fork_session(session_id, opts, callback)
   vim.fn.chanclose(job, "stdin")
 end
 
+function M.send_with_model(text, provider_id, model_id, opts)
+  opts = opts or {}
+  if not text or text == "" then
+    notify("No text to send", vim.log.levels.WARN, opts.title)
+    return
+  end
+
+  M.get("/session", function(ok, output)
+    if not ok then
+      notify("Could not list OpenCode sessions", vim.log.levels.ERROR, opts.title)
+      return
+    end
+
+    local parse_ok, sessions = pcall(vim.json.decode, output)
+    if not parse_ok or not sessions or #sessions == 0 then
+      notify("No OpenCode sessions available", vim.log.levels.ERROR, opts.title)
+      return
+    end
+
+    table.sort(sessions, function(a, b)
+      local ta = (a.time and a.time.updated) or 0
+      local tb = (b.time and b.time.updated) or 0
+      return ta > tb
+    end)
+
+    local session_id = sessions[1].id
+    local body = {
+      model = { providerID = provider_id, modelID = model_id },
+      parts = { { type = "text", text = text } },
+    }
+
+    M.post("/session/" .. session_id .. "/message", body, function(post_ok, post_output)
+      if post_ok then
+        notify(opts.success or "Sent to OpenCode", vim.log.levels.INFO, opts.title)
+        if opts.on_success then opts.on_success() end
+        return
+      end
+      local message = (post_output or ""):gsub("^%s+", ""):gsub("%s+$", "")
+      if message == "" then message = "Could not send to OpenCode" end
+      notify(message, vim.log.levels.ERROR, opts.title)
+    end, { dir = opts.dir })
+  end)
+end
+
 return M

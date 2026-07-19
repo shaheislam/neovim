@@ -614,6 +614,32 @@ return {
 				mode = "n",
 				desc = "Ask quickfix list",
 			},
+			{
+				"<leader>aoM",
+				function()
+					local http = require("config.opencode_http")
+					http.get_models(function(models, err)
+						if not models or #models == 0 then
+							vim.notify(err or "No models found", vim.log.levels.ERROR, { title = "opencode" })
+							return
+						end
+						vim.ui.select(models, {
+							prompt = "Ask model:",
+							format_item = function(item)
+								return item.label
+							end,
+						}, function(choice)
+							if not choice then
+								return
+							end
+							opencode_ask_model = { provider = choice.provider, model = choice.model }
+							vim.notify("Ask model → " .. choice.label, vim.log.levels.INFO, { title = "opencode" })
+						end)
+					end)
+				end,
+				mode = "n",
+				desc = "Select opencode ask model",
+			},
 			-- Action picker
 			{
 				"<leader>aox",

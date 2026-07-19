@@ -329,6 +329,33 @@ function M.fork_session(session_id, opts, callback)
   vim.fn.chanclose(job, "stdin")
 end
 
+function M.get_models(callback)
+  M.get("/config", function(ok, output)
+    if not ok then
+      callback(nil, "Could not fetch OpenCode config")
+      return
+    end
+    local parse_ok, cfg = pcall(vim.json.decode, output)
+    if not parse_ok or not cfg then
+      callback(nil, "Could not parse OpenCode config")
+      return
+    end
+    local models = {}
+    for provider_id, provider_cfg in pairs(cfg.provider or {}) do
+      for model_id, model_cfg in pairs((provider_cfg or {}).models or {}) do
+        local name = (type(model_cfg) == "table" and model_cfg.name) or model_id
+        table.insert(models, {
+          label = provider_id .. " / " .. name,
+          provider = provider_id,
+          model = model_id,
+        })
+      end
+    end
+    table.sort(models, function(a, b) return a.label < b.label end)
+    callback(models, nil)
+  end)
+end
+
 function M.send_with_model(text, provider_id, model_id, opts)
   opts = opts or {}
   if not text or text == "" then

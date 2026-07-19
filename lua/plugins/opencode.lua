@@ -475,52 +475,6 @@ local function select_opencode_session()
 	end)
 end
 
-local function run_prompt(name)
-	return function()
-		local context = require("opencode.context").new()
-		local config = require("opencode.config").opts
-		local prompt = (config.prompts and config.prompts[name])
-			or (config.select and config.select.prompts and config.select.prompts[name])
-		if not prompt then
-			with_opencode_ready(function(server)
-				submit_prompt(name, server, context)
-			end, function()
-				context:clear()
-			end)
-			return
-		end
-
-		with_opencode_ready(function(server)
-			local text = prompt_text(prompt)
-			if not text or text == "" then
-				context:clear()
-				return
-			end
-
-			if type(prompt) == "table" and prompt.ask then
-				require("opencode.ui.ask")
-					.ask(text, server, context)
-					:next(function(input)
-						if prompt.submit == false then
-							append_prompt(input, server, context)
-						else
-							submit_prompt(input, server, context)
-						end
-					end)
-					:catch(function(err)
-						context:resume()
-						notify_opencode_error(err)
-					end)
-			elseif type(prompt) == "table" and prompt.submit == false then
-				append_prompt(text, server, context)
-			else
-				submit_prompt(text, server, context)
-			end
-		end, function()
-			context:clear()
-		end)
-	end
-end
 
 local function send_visual_selection()
 	local start_pos = vim.fn.getpos("'<")

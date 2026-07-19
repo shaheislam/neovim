@@ -331,28 +331,12 @@ local function ask_via_http(opts)
 			and ("[file: " .. filepath .. "]\n")
 			or ""
 
-		local selection_ctx = ""
-		if opts.with_selection then
-			local start_pos = vim.fn.getpos("'<")
-			local end_pos = vim.fn.getpos("'>")
-			local sl, el = start_pos[2], end_pos[2]
-			if sl > 0 and el > 0 then
-				if sl > el then
-					sl, el = el, sl
-				end
-				local lines = vim.api.nvim_buf_get_lines(0, sl - 1, el, false)
-				if #lines > 0 then
-					selection_ctx = "```\n" .. table.concat(lines, "\n") .. "\n```\n"
-				end
-			end
-		end
-
 		vim.ui.input({ prompt = "Ask OpenCode: " }, function(input)
 			if not input or input == "" then
 				return
 			end
 			local http = require("config.opencode_http")
-			local text = file_ctx .. selection_ctx .. input
+			local text = file_ctx .. input
 
 			if opts.model then
 				http.send_with_model(text, opts.model.provider, opts.model.model, {
@@ -379,6 +363,42 @@ local function ask_via_http(opts)
 			end
 		end)
 	end
+end
+
+local function ask_via_http_visual()
+	local bufname = vim.api.nvim_buf_get_name(0)
+	local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
+	local start_pos = vim.fn.getpos("'<")
+	local end_pos = vim.fn.getpos("'>")
+	local sl, el = start_pos[2], end_pos[2]
+	if sl == 0 or el == 0 then
+		vim.notify("No selection", vim.log.levels.WARN, { title = "opencode" })
+		return
+	end
+	if sl > el then
+		sl, el = el, sl
+	end
+	local lines = vim.api.nvim_buf_get_lines(0, sl - 1, el, false)
+	if #lines == 0 then
+		vim.notify("No selection", vim.log.levels.WARN, { title = "opencode" })
+		return
+	end
+
+	local header = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
+		and ("[file: " .. filepath .. ", lines " .. sl .. "-" .. el .. "]\n")
+		or ""
+	local selection_text = header .. table.concat(lines, "\n") .. "\n"
+
+	vim.ui.input({ prompt = "Ask OpenCode: " }, function(input)
+		if not input or input == "" then
+			return
+		end
+		local http = require("config.opencode_http")
+		http.send_with_model(selection_text .. input, opencode_ask_model.provider, opencode_ask_model.model, {
+			title = "opencode",
+			success = "Sent to OpenCode",
+		})
+	end)
 end
 
 local function run_prompt_via_http(name)
@@ -560,7 +580,7 @@ return {
 			},
 			{
 				"<leader>aoa",
-				ask_via_http({ model = opencode_ask_model, with_selection = true }),
+				ask_via_http_visual,
 				mode = "x",
 				desc = "Ask opencode (with selection)",
 			},

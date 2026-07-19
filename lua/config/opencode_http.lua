@@ -27,7 +27,7 @@ local function server_password()
   return nil
 end
 
-local function curl_args(path)
+local function curl_args(path, dir)
   local args = {
     "curl",
     "--silent",
@@ -40,7 +40,7 @@ local function curl_args(path)
     "--header",
     "Content-Type: application/json",
     "--header",
-    "x-opencode-directory: " .. vim.fn.getcwd(),
+    "x-opencode-directory: " .. (dir or vim.fn.getcwd()),
     "--data-binary",
     "@-",
   }
@@ -54,14 +54,14 @@ local function curl_args(path)
   return args
 end
 
-function M.post(path, body, callback)
+function M.post(path, body, callback, opts)
   if vim.fn.executable("curl") ~= 1 then
     callback(false, "curl is required to talk to OpenCode")
     return
   end
 
   local json = vim.json.encode(body)
-  local args = curl_args(path)
+  local args = curl_args(path, opts and opts.dir)
 
   if vim.system then
     vim.system(args, { text = true, stdin = json }, function(result)
@@ -122,7 +122,7 @@ function M.append_prompt(text, opts)
     local message = (output or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if message == "" then message = "Could not reach OpenCode at " .. server_url() end
     notify(message, vim.log.levels.ERROR, opts.title)
-  end)
+  end, { dir = opts.dir })
 end
 
 function M.publish_command(command, callback)

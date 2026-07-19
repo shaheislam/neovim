@@ -63,6 +63,11 @@ local function reload_visible_buffers()
       end)
     end
   end
+
+  vim.api.nvim_exec_autocmds("User", {
+    pattern = "NvimMiniExternalFilesChanged",
+    modeline = false,
+  })
 end
 
 -- Debounced reload function

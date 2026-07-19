@@ -1,5 +1,7 @@
 local M = {}
 
+local review_context = require("config.review_context")
+
 local ns = vim.api.nvim_create_namespace("repo_annotations")
 local icon = "󰅺"
 local max_ghost_length = 80
@@ -121,7 +123,42 @@ local function current_file(root, bufnr)
 	if not path then
 		return nil
 	end
-	return annotation_filename(path, root, is_diffview)
+	return annotation_filename(path, root, is_diffview), is_diffview
+end
+
+function M.diff_side(bufnr, winid)
+	bufnr = bufnr == 0 and vim.api.nvim_get_current_buf() or bufnr
+	winid = winid or vim.api.nvim_get_current_win()
+	local ok, lib = pcall(require, "diffview.lib")
+	if not ok then
+		return nil
+	end
+
+	local views = {}
+	local current = lib.get_current_view()
+	if current then
+		table.insert(views, current)
+	end
+	for _, view in pairs(lib.views or {}) do
+		if view ~= current then
+			table.insert(views, view)
+		end
+	end
+
+	for _, view in ipairs(views) do
+		local windows = view.cur_layout and view.cur_layout.windows or {}
+		for _, window in ipairs(windows) do
+			local file = window.file
+			if (window.id == winid or (file and file.bufnr == bufnr)) and file then
+				if file.symbol == "a" then
+					return "old"
+				elseif file.symbol == "b" then
+					return "new"
+				end
+			end
+		end
+	end
+	return nil
 end
 
 local function read_annotations(root)
@@ -156,8 +193,40 @@ local function write_annotations(root, annotations)
 	annotation_cache[root] = nil
 end
 
-local function line_matches(item, file, line)
-	return item.file == file and line >= item.line and line <= (item.end_line or item.line)
+local function diff_for_file(root, file)
+	local result = vim.system({ "git", "-C", root, "diff", "--no-color", "--unified=3", "HEAD", "--", file }, {
+		text = true,
+	}):wait()
+	local diff = result.stdout or ""
+	if diff ~= "" then
+		return diff
+	end
+
+	local absolute = root .. "/" .. file
+	if vim.fn.filereadable(absolute) ~= 1 then
+		return ""
+	end
+	local untracked = vim.system({ "git", "-C", root, "ls-files", "--error-unmatch", "--", file }, { text = true }):wait()
+	if untracked.code == 0 then
+		return ""
+	end
+
+	local new_file = vim.system({
+		"git",
+		"-C",
+		root,
+		"diff",
+		"--no-index",
+		"--no-color",
+		"--unified=3",
+		"/dev/null",
+		absolute,
+	}, { text = true }):wait()
+	return new_file.stdout or ""
+end
+
+local function hunk_for_range(root, file, start_line, end_line, side)
+	return review_context.hunk_for_range(diff_for_file(root, file), start_line, end_line, side)
 end
 
 local function truncate(text)
@@ -180,13 +249,18 @@ function M.refresh_buffer(bufnr)
 	if not root then
 		return
 	end
-	local file = current_file(root, bufnr)
+	local file, is_diffview = current_file(root, bufnr)
 	if not file then
 		return
 	end
+	local side = M.diff_side(bufnr) or (is_diffview and "old" or "new")
 
 	for _, item in ipairs(read_annotations(root)) do
-		if item.file == file and type(item.text) == "string" and not item.text:match("^RESOLVED:") then
+		if
+			review_context.item_matches(item, file, item.line, side)
+			and type(item.text) == "string"
+			and not item.text:match("^RESOLVED:")
+		then
 			local line = math.max((item.line or 1) - 1, 0)
 			vim.api.nvim_buf_set_extmark(bufnr, ns, line, 0, {
 				sign_text = icon,
@@ -213,16 +287,17 @@ local function add_range(start_line, end_line)
 		return
 	end
 
-	local file = current_file(root)
+	local file, is_diffview = current_file(root)
 	if not file then
 		vim.notify("Annotations require a repo-local file", vim.log.levels.WARN)
 		return
 	end
 
+	local side = M.diff_side(0) or (is_diffview and "old" or "new")
 	local annotations = read_annotations(root)
 	local existing
 	for _, item in ipairs(annotations) do
-		if line_matches(item, file, start_line) then
+		if review_context.item_matches(item, file, start_line, side) then
 			existing = item
 			break
 		end
@@ -236,8 +311,17 @@ local function add_range(start_line, end_line)
 			existing.text = text
 			existing.line = start_line
 			existing.end_line = end_line
+			existing.side = side
+			existing.hunk = hunk_for_range(root, file, start_line, end_line, side)
 		else
-			table.insert(annotations, { file = file, line = start_line, end_line = end_line, text = text })
+			table.insert(annotations, {
+				file = file,
+				line = start_line,
+				end_line = end_line,
+				text = text,
+				side = side,
+				hunk = hunk_for_range(root, file, start_line, end_line, side),
+			})
 		end
 		write_annotations(root, annotations)
 		M.refresh_all()
@@ -263,13 +347,14 @@ function M.delete_current()
 	if not root then
 		return
 	end
-	local file = current_file(root)
+	local file, is_diffview = current_file(root)
 	if not file then
 		return
 	end
 	local line = math.max(vim.api.nvim_win_get_cursor(0)[1], 1)
+	local side = M.diff_side(0) or (is_diffview and "old" or "new")
 	local annotations = vim.tbl_filter(function(item)
-		return not line_matches(item, file, line)
+		return not review_context.item_matches(item, file, line, side)
 	end, read_annotations(root))
 	write_annotations(root, annotations)
 	M.refresh_all()
@@ -285,9 +370,7 @@ function M.delete_all()
 end
 
 local function format_item(item)
-	local end_line = item.end_line or item.line
-	local range = item.line == end_line and tostring(item.line) or string.format("%d-%d", item.line, end_line)
-	return string.format("%s:%s: %s", item.file, range, item.text)
+	return review_context.format_item(item)
 end
 
 local function copy_items(items)
@@ -306,34 +389,12 @@ function M.prompt_for_items(items)
 		return nil
 	end
 
-	local lines = { "Annotations:", "" }
-	for _, item in ipairs(items) do
-		table.insert(lines, "- " .. format_item(item))
-	end
-	table.insert(lines, "")
-	table.insert(lines, post_instruction)
-	return table.concat(lines, "\n")
+	return review_context.prompt_for_items(items, post_instruction)
 end
 
-local function ask_items(items)
+local function ask_items(items, root)
 	local prompt = M.prompt_for_items(items)
 	if not prompt then
-		return
-	end
-
-	local ok, opencode = pcall(require, "opencode")
-	if not ok then
-		require("config.opencode_http").append_prompt(prompt, {
-			title = "Annotate",
-			success = "Sent " .. #items .. " annotation(s) to OpenCode",
-			fallback_clipboard = true,
-		})
-		return
-	end
-
-	local ask_ok = pcall(opencode.prompt, prompt:gsub("%s+$", ""))
-	if ask_ok then
-		notify("Sent " .. #items .. " annotation(s) to OpenCode")
 		return
 	end
 
@@ -341,6 +402,7 @@ local function ask_items(items)
 		title = "Annotate",
 		success = "Sent " .. #items .. " annotation(s) to OpenCode",
 		fallback_clipboard = true,
+		dir = root or (items[1] and items[1].root),
 	})
 end
 
@@ -349,13 +411,14 @@ function M.copy_current()
 	if not root then
 		return
 	end
-	local file = current_file(root)
+	local file, is_diffview = current_file(root)
 	if not file then
 		return
 	end
 	local line = math.max(vim.api.nvim_win_get_cursor(0)[1], 1)
+	local side = M.diff_side(0) or (is_diffview and "old" or "new")
 	local items = vim.tbl_filter(function(item)
-		return line_matches(item, file, line)
+		return review_context.item_matches(item, file, line, side)
 	end, active_annotations(read_annotations(root)))
 	copy_items(items)
 end
@@ -373,15 +436,16 @@ function M.ask_current()
 	if not root then
 		return
 	end
-	local file = current_file(root)
+	local file, is_diffview = current_file(root)
 	if not file then
 		return
 	end
 	local line = math.max(vim.api.nvim_win_get_cursor(0)[1], 1)
+	local side = M.diff_side(0) or (is_diffview and "old" or "new")
 	local items = vim.tbl_filter(function(item)
-		return line_matches(item, file, line)
+		return review_context.item_matches(item, file, line, side)
 	end, active_annotations(read_annotations(root)))
-	ask_items(items)
+	ask_items(items, root)
 end
 
 function M.ask_all()
@@ -389,7 +453,7 @@ function M.ask_all()
 	if not root then
 		return
 	end
-	ask_items(active_annotations(read_annotations(root)))
+	ask_items(active_annotations(read_annotations(root)), root)
 end
 
 function M.qflist()
@@ -540,11 +604,11 @@ function M.list()
 	map("a", function()
 		local item = selected_panel_item(bufnr)
 		if item then
-			ask_items({ item })
+			ask_items({ item }, item.root)
 		end
 	end, "Ask OpenCode")
 	map("A", function()
-		ask_items(items)
+		ask_items(items, root)
 	end, "Ask OpenCode about all")
 	map("?", function()
 		notify("Keys: <CR>/o open, e edit, d delete, c copy, a ask, A ask all, q close")
@@ -556,13 +620,14 @@ local function jump(direction)
 	if not root then
 		return
 	end
-	local file = current_file(root)
+	local file, is_diffview = current_file(root)
 	if not file then
 		return
 	end
 	local line = math.max(vim.api.nvim_win_get_cursor(0)[1], 1)
+	local side = M.diff_side(0) or (is_diffview and "old" or "new")
 	local matches = vim.tbl_filter(function(item)
-		return item.file == file
+		return item.file == file and (not item.side or item.side == side)
 	end, read_annotations(root))
 	table.sort(matches, function(a, b)
 		return (a.line or 1) < (b.line or 1)
@@ -600,6 +665,12 @@ function M.setup()
 		callback = function(args)
 			M.refresh_buffer(args.buf)
 		end,
+	})
+	vim.api.nvim_create_autocmd("User", {
+		group = vim.api.nvim_create_augroup("repo_annotations_external", { clear = true }),
+		pattern = "NvimMiniExternalFilesChanged",
+		callback = M.refresh_all,
+		desc = "Refresh annotations after external agent edits",
 	})
 
 	vim.api.nvim_create_user_command("Annotate", function(opts)

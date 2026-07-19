@@ -401,13 +401,30 @@ local function ask_via_http_visual()
 	end)
 end
 
-local function run_prompt_via_http(name)
+local function run_prompt_via_http(name, opts)
+	opts = opts or {}
 	return function()
 		local bufname = vim.api.nvim_buf_get_name(0)
 		local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
 		local file_ctx = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
 			and ("[file: " .. filepath .. "]\n")
 			or ""
+
+		local selection_ctx = ""
+		if opts.with_selection then
+			local start_pos = vim.fn.getpos("'<")
+			local end_pos = vim.fn.getpos("'>")
+			local sl, el = start_pos[2], end_pos[2]
+			if sl > 0 and el > 0 then
+				if sl > el then
+					sl, el = el, sl
+				end
+				local lines = vim.api.nvim_buf_get_lines(0, sl - 1, el, false)
+				if #lines > 0 then
+					selection_ctx = "```\n" .. table.concat(lines, "\n") .. "\n```\n"
+				end
+			end
+		end
 
 		local ok, config = pcall(function()
 			return require("opencode.config").opts
@@ -418,18 +435,12 @@ local function run_prompt_via_http(name)
 
 		local http = require("config.opencode_http")
 		local function send(final_text)
-			http.append_prompt(file_ctx .. final_text, {
-				title = "opencode",
-				success = "Sent to OpenCode",
-				fallback_clipboard = false,
-				on_success = function()
-					http.publish_command("prompt.submit", function(send_ok, out)
-						if not send_ok then
-							vim.notify("OpenCode submit failed: " .. (out or ""), vim.log.levels.WARN, { title = "opencode" })
-						end
-					end)
-				end,
-			})
+			http.send_with_model(
+				file_ctx .. selection_ctx .. final_text,
+				opencode_ask_model.provider,
+				opencode_ask_model.model,
+				{ title = "opencode", success = "Sent to OpenCode" }
+			)
 		end
 
 		if type(prompt) == "table" and prompt.ask then
@@ -672,49 +683,97 @@ return {
 		{
 			"<leader>aoe",
 			run_prompt_via_http("explain"),
-			mode = { "n", "x" },
+			mode = "n",
+			desc = "Explain (opencode)",
+		},
+		{
+			"<leader>aoe",
+			run_prompt_via_http("explain", { with_selection = true }),
+			mode = "x",
 			desc = "Explain (opencode)",
 		},
 		{
 			"<leader>aof",
 			run_prompt_via_http("fix"),
-			mode = { "n", "x" },
+			mode = "n",
+			desc = "Fix diagnostics (opencode)",
+		},
+		{
+			"<leader>aof",
+			run_prompt_via_http("fix", { with_selection = true }),
+			mode = "x",
 			desc = "Fix diagnostics (opencode)",
 		},
 		{
 			"<leader>aor",
 			run_prompt_via_http("review"),
-			mode = { "n", "x" },
+			mode = "n",
+			desc = "Review (opencode)",
+		},
+		{
+			"<leader>aor",
+			run_prompt_via_http("review", { with_selection = true }),
+			mode = "x",
 			desc = "Review (opencode)",
 		},
 		{
 			"<leader>aot",
 			run_prompt_via_http("test"),
-			mode = { "n", "x" },
+			mode = "n",
+			desc = "Add tests (opencode)",
+		},
+		{
+			"<leader>aot",
+			run_prompt_via_http("test", { with_selection = true }),
+			mode = "x",
 			desc = "Add tests (opencode)",
 		},
 		{
 			"<leader>aod",
 			run_prompt_via_http("document"),
-			mode = { "n", "x" },
+			mode = "n",
+			desc = "Document (opencode)",
+		},
+		{
+			"<leader>aod",
+			run_prompt_via_http("document", { with_selection = true }),
+			mode = "x",
 			desc = "Document (opencode)",
 		},
 		{
 			"<leader>aoo",
 			run_prompt_via_http("optimize"),
-			mode = { "n", "x" },
+			mode = "n",
+			desc = "Optimize (opencode)",
+		},
+		{
+			"<leader>aoo",
+			run_prompt_via_http("optimize", { with_selection = true }),
+			mode = "x",
 			desc = "Optimize (opencode)",
 		},
 		{
 			"<leader>aoi",
 			run_prompt_via_http("implement"),
-			mode = { "n", "x" },
+			mode = "n",
+			desc = "Implement (opencode)",
+		},
+		{
+			"<leader>aoi",
+			run_prompt_via_http("implement", { with_selection = true }),
+			mode = "x",
 			desc = "Implement (opencode)",
 		},
 		{
 			"<leader>aoE",
 			run_prompt_via_http("diagnostics"),
-			mode = { "n", "x" },
+			mode = "n",
+			desc = "Explain diagnostics (opencode)",
+		},
+		{
+			"<leader>aoE",
+			run_prompt_via_http("diagnostics", { with_selection = true }),
+			mode = "x",
 			desc = "Explain diagnostics (opencode)",
 		},
 			-- Session and agent controls

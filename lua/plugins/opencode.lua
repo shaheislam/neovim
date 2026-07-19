@@ -28,7 +28,9 @@ end
 local function opencode_env_prefix()
 	-- The dotfiles opencode shim reroutes `attach` through tmux when $TMUX is set.
 	-- This terminal already owns the split, so bypass that wrapper and run ocv directly.
-	local base = "OPENCODE_TMUX_WRAPPER_ACTIVE=1 OPENCODE_SERVER_USERNAME=" .. vim.fn.shellescape(opencode_username)
+	-- OPENTUI_GRAPHICS=0: suppress Kitty graphics probing which segfaults in nvim :terminal.
+	local base = "OPENCODE_TMUX_WRAPPER_ACTIVE=1 OPENTUI_GRAPHICS=0 OPENCODE_SERVER_USERNAME="
+		.. vim.fn.shellescape(opencode_username)
 	local password = opencode_password()
 	if not password or password == "" then
 		return base .. " "

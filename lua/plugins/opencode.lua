@@ -42,7 +42,7 @@ end
 
 local function opencode_command()
 	return opencode_env_prefix()
-		.. "opencode attach http://127.0.0.1:"
+		.. "ocv attach http://127.0.0.1:"
 		.. opencode_port
 		.. " --dir "
 		.. vim.fn.shellescape(vim.fn.getcwd())

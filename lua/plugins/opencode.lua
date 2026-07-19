@@ -148,7 +148,6 @@ local function kickstart_opencode_service()
 	vim.fn.jobstart({
 		"launchctl",
 		"kickstart",
-		"-k",
 		"gui/" .. vim.fn.system({ "id", "-u" }):gsub("%s+", "") .. "/" .. opencode_service,
 	}, {
 		stdout_buffered = true,
@@ -398,7 +397,15 @@ local function send_visual_selection()
 		return
 	end
 
-	require("config.opencode_http").append_prompt(table.concat(lines, "\n"), {
+	local bufname = vim.api.nvim_buf_get_name(0)
+	-- Strip diffview:// scheme and git-hash prefix (e.g. "abc123:path/to/file")
+	local filepath = bufname:gsub("^diffview://", ""):gsub("^[a-f0-9]+:", "")
+	filepath = vim.fn.fnamemodify(filepath, ":.")
+	local header = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
+		and ("[file: " .. filepath .. ", lines " .. start_line .. "-" .. end_line .. "]\n")
+		or ""
+
+	require("config.opencode_http").append_prompt(header .. table.concat(lines, "\n"), {
 		title = "opencode",
 		success = "Sent selection to OpenCode",
 		fallback_clipboard = true,

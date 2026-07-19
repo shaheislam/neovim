@@ -1,0 +1,4 @@
+{
+  "model": "anthropic/claude-fable-5",
+  "$schema": "https://opencode.ai/config.json"
+}

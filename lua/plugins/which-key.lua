@@ -119,10 +119,8 @@ return {
 				{ "<leader>LP", desc = "Run Conftest" },
 
 				-- Session management
-				{ "<leader>sl", desc = "List Sessions" },
-				{ "<leader>sn", desc = "New Session" },
-				{ "<leader>su", desc = "Update Session" },
-				{ "<leader>sd", desc = "Delete Session" },
+				{ "<leader>so", desc = "Toggle Project Session" },
+				{ "<leader>sX", desc = "Delete Project Session" },
 
 				-- Quickfix specific
 				{ "<leader>qq", desc = "Toggle Quickfix" },

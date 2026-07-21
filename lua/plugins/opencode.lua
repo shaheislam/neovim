@@ -501,7 +501,7 @@ local function send_visual_selection()
 		and ("[file: " .. filepath .. ", lines " .. start_line .. "-" .. end_line .. "]\n")
 		or ""
 
-	require("config.opencode_http").append_prompt(header .. table.concat(lines, "\n"), {
+	require("config.opencode_tmux").append_prompt(header .. table.concat(lines, "\n"), {
 		title = "opencode",
 		success = "Sent selection to OpenCode",
 		fallback_clipboard = true,

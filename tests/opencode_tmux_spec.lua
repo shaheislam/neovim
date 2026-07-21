@@ -60,6 +60,7 @@ local function reset_scenario(overrides)
 	scenario = {
 		display = "%1\t@1\n",
 		panes = "%1\t100\t" .. root .. "\n%2\t200\t" .. root .. "\n",
+		titles = { ["%2"] = "OC | Visible root\n" },
 		commands = { ["300"] = "/dotfiles/scripts/bin/oc attach http://127.0.0.1:4096\n" },
 		parents = { ["300"] = "200\n" },
 		load_code = 0,
@@ -101,7 +102,12 @@ vim.system = function(args, opts)
 	table.insert(calls, { args = vim.deepcopy(args), stdin = opts and opts.stdin })
 	local result = { code = 0, stdout = "", stderr = "" }
 	if args[1] == "tmux" and args[2] == "display-message" then
-		result.stdout = scenario.display
+		if args[6] == "#{pane_title}" then
+			result.stdout = scenario.titles[args[5]] or ""
+			result.code = result.stdout == "" and 1 or 0
+		else
+			result.stdout = scenario.display
+		end
 	elseif args[1] == "tmux" and args[2] == "list-panes" then
 		result.stdout = scenario.panes
 	elseif args[1] == "tmux" and args[2] == "load-buffer" then
@@ -123,6 +129,11 @@ vim.system = function(args, opts)
 end
 
 local tmux = require("config.opencode_tmux")
+eq(tmux.resolve_attach(), {
+	pane = "%2",
+	cwd = root,
+	title = "OC | Visible root",
+}, "same-window resolver exposes the validated OpenCode attachment")
 tmux.append_prompt("first\nsecond", { dir = root, fallback_clipboard = true })
 
 local load_call
@@ -154,6 +165,23 @@ write_record("pane-2.pid", valid_record("%2", "300", root .. "/state/.."))
 reset_scenario({ panes = "%1\t100\t" .. root .. "\n%2\t200\t" .. root .. "/state/..\n" })
 eq(tmux.append_prompt("canonical paths", { dir = root }), true, "equivalent canonical project paths are accepted")
 eq(#calls_for("paste-buffer"), 1, "canonical project match reaches the target pane")
+
+local adjacent_root = root .. "/adjacent"
+assert(vim.fn.mkdir(adjacent_root, "p") == 1, "failed to create adjacent project")
+clear_records()
+write_record("pane-2.pid", valid_record("%2", "300", adjacent_root))
+reset_scenario({ panes = "%1\t100\t" .. root .. "\n%2\t200\t" .. adjacent_root .. "\n" })
+eq(tmux.resolve_attach(), {
+	pane = "%2",
+	cwd = adjacent_root,
+	title = "OC | Visible root",
+}, "resolver follows the validated adjacent OpenCode cwd")
+eq(
+	tmux.append_prompt("cross-project append", { dir = root, fallback_clipboard = true }),
+	false,
+	"append-only delivery remains constrained to the Neovim project"
+)
+eq(#calls_for("paste-buffer"), 0, "cross-project append never pastes into the adjacent pane")
 
 local function expect_rejected(label, records, overrides)
 	clear_records()

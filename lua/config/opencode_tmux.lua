@@ -6,6 +6,10 @@ local function trim(value)
 	return (value or ""):gsub("^%s+", ""):gsub("%s+$", "")
 end
 
+local function trim_line_ending(value)
+	return (value or ""):gsub("\r?\n$", "")
+end
+
 local function canonical(path)
 	if type(path) ~= "string" or path == "" then
 		return nil
@@ -150,7 +154,10 @@ local function pid_belongs_to_pane(pid, pane_pid)
 	return false
 end
 
-local function resolve_target(project)
+function M.resolve_attach()
+	if vim.fn.executable("tmux") ~= 1 then
+		return nil
+	end
 	local window = source_window()
 	if not window then
 		return nil
@@ -163,12 +170,14 @@ local function resolve_target(project)
 	local candidates = {}
 	for _, record in ipairs(attach_records()) do
 		local pane = panes[record.pane]
+		local record_cwd = canonical(record.cwd)
+		local pane_cwd = pane and canonical(pane.cwd) or nil
 		if
 			pane
 			and record.pane:match("^%%%d+$")
 			and record.pid:match("^%d+$")
-			and canonical(record.cwd) == project
-			and canonical(pane.cwd) == project
+			and record_cwd
+			and record_cwd == pane_cwd
 			and command_is_opencode(record.command)
 		then
 			local live = run({ "ps", "-o", "command=", "-p", record.pid })
@@ -177,14 +186,20 @@ local function resolve_target(project)
 				and command_is_opencode(trim(live.stdout))
 				and pid_belongs_to_pane(record.pid, pane.pid)
 			then
-				table.insert(candidates, record.pane)
+				table.insert(candidates, { pane = record.pane, cwd = record_cwd })
 			end
 		end
 	end
 	if #candidates ~= 1 then
 		return nil
 	end
-	return candidates[1]
+	local candidate = candidates[1]
+	local title = run({ "tmux", "display-message", "-p", "-t", candidate.pane, "#{pane_title}" })
+	if title.code ~= 0 then
+		return nil
+	end
+	candidate.title = trim_line_ending(title.stdout)
+	return candidate
 end
 
 local function notify(message, level, title)
@@ -211,8 +226,8 @@ function M.append_prompt(text, opts)
 	end
 
 	local project = canonical(opts.dir or vim.fn.getcwd())
-	local pane = project and resolve_target(project) or nil
-	if not pane then
+	local target = project and M.resolve_attach() or nil
+	if not target or target.cwd ~= project then
 		return fail_closed(text, opts, "No unique same-window OpenCode pane found")
 	end
 
@@ -222,7 +237,7 @@ function M.append_prompt(text, opts)
 		run({ "tmux", "delete-buffer", "-b", buffer })
 		return fail_closed(text, opts, "Could not load the OpenCode tmux buffer")
 	end
-	local pasted = run({ "tmux", "paste-buffer", "-p", "-d", "-b", buffer, "-t", pane })
+	local pasted = run({ "tmux", "paste-buffer", "-p", "-d", "-b", buffer, "-t", target.pane })
 	if pasted.code ~= 0 then
 		run({ "tmux", "delete-buffer", "-b", buffer })
 		return fail_closed(text, opts, "Could not paste into the OpenCode pane")

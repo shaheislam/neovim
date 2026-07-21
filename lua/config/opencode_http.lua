@@ -376,6 +376,54 @@ function M.get_models(callback)
   end)
 end
 
+local function is_json_null(value)
+  return value == nil or value == vim.NIL
+end
+
+local function canonical(path)
+  if type(path) ~= "string" or path == "" then
+    return nil
+  end
+  local absolute = vim.fn.fnamemodify(path, ":p")
+  local resolved = vim.uv.fs_realpath(absolute) or vim.fn.resolve(absolute)
+  if resolved ~= "/" then
+    resolved = resolved:gsub("/+$", "")
+  end
+  return resolved
+end
+
+local function pane_title_for_session(title)
+  if type(title) ~= "string" or title == "" or title:find("[\128-\255]") then
+    return nil
+  end
+  if #title > 40 then
+    title = title:sub(1, 37) .. "..."
+  end
+  return "OC | " .. title
+end
+
+local function valid_root_session(session, directory)
+  return type(session) == "table"
+    and type(session.id) == "string"
+    and session.id:match("^[%w_-]+$") ~= nil
+    and type(session.title) == "string"
+    and type(session.directory) == "string"
+    and canonical(session.directory) == directory
+    and is_json_null(session.parentID)
+    and is_json_null(session.parent_id)
+    and is_json_null(session.archived)
+    and type(session.time) == "table"
+    and is_json_null(session.time.archived)
+end
+
+local function same_attach(left, right)
+  return type(left) == "table"
+    and type(right) == "table"
+    and left.pane == right.pane
+    and left.cwd == right.cwd
+    and left.title == right.title
+end
+
 function M.send_with_model(text, provider_id, model_id, opts)
   opts = opts or {}
   if not text or text == "" then
@@ -383,25 +431,56 @@ function M.send_with_model(text, provider_id, model_id, opts)
     return
   end
 
-  M.get("/session", function(ok, output)
+  local tmux = require("config.opencode_tmux")
+  local target = tmux.resolve_attach()
+  if
+    type(target) ~= "table"
+    or type(target.pane) ~= "string"
+    or type(target.cwd) ~= "string"
+    or type(target.title) ~= "string"
+  then
+    notify("No unique same-window OpenCode pane found", vim.log.levels.ERROR, opts.title)
+    return
+  end
+  if target.title == "OpenCode" or not pane_title_for_session(target.title:match("^OC | (.*)$")) then
+    notify("The visible OpenCode session cannot be identified safely", vim.log.levels.ERROR, opts.title)
+    return
+  end
+
+  M.get("/session?roots=true&limit=1000", function(ok, output)
     if not ok then
       notify("Could not list OpenCode sessions", vim.log.levels.ERROR, opts.title)
       return
     end
 
     local parse_ok, sessions = pcall(vim.json.decode, output)
-    if not parse_ok or not sessions or #sessions == 0 then
-      notify("No OpenCode sessions available", vim.log.levels.ERROR, opts.title)
+    if not parse_ok or type(sessions) ~= "table" or not vim.islist(sessions) then
+      notify("Could not parse OpenCode sessions", vim.log.levels.ERROR, opts.title)
+      return
+    end
+    if #sessions >= 1000 then
+      notify("OpenCode session list is saturated", vim.log.levels.ERROR, opts.title)
       return
     end
 
-    table.sort(sessions, function(a, b)
-      local ta = (a.time and a.time.updated) or 0
-      local tb = (b.time and b.time.updated) or 0
-      return ta > tb
-    end)
+    local matches = {}
+    for _, session in ipairs(sessions) do
+      if valid_root_session(session, target.cwd) and pane_title_for_session(session.title) == target.title then
+        table.insert(matches, session)
+      end
+    end
+    if #matches ~= 1 then
+      notify("Could not uniquely identify the visible OpenCode session", vim.log.levels.ERROR, opts.title)
+      return
+    end
 
-    local session_id = sessions[1].id
+    local current_target = tmux.resolve_attach()
+    if not same_attach(target, current_target) then
+      notify("The visible OpenCode session changed before submission", vim.log.levels.ERROR, opts.title)
+      return
+    end
+
+    local session_id = matches[1].id
     local body = {
       model = { providerID = provider_id, modelID = model_id },
       parts = { { type = "text", text = text } },
@@ -416,8 +495,8 @@ function M.send_with_model(text, provider_id, model_id, opts)
       local message = (post_output or ""):gsub("^%s+", ""):gsub("%s+$", "")
       if message == "" then message = "Could not send to OpenCode" end
       notify(message, vim.log.levels.ERROR, opts.title)
-    end, { dir = opts.dir })
-  end)
+    end, { dir = target.cwd })
+  end, { dir = target.cwd })
 end
 
 return M

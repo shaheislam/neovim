@@ -1,5 +1,8 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
+-- Headless -l runs before LazyVim's deferred autocmd loading.
+require("config.autocmds")
+
 local function eq(actual, expected, message)
 	assert(vim.deep_equal(actual, expected), message or (vim.inspect(actual) .. " ~= " .. vim.inspect(expected)))
 end

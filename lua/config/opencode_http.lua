@@ -407,7 +407,7 @@ function M.send_with_model(text, provider_id, model_id, opts)
       parts = { { type = "text", text = text } },
     }
 
-    M.post("/session/" .. session_id .. "/message", body, function(post_ok, post_output)
+    M.post("/session/" .. session_id .. "/prompt_async", body, function(post_ok, post_output)
       if post_ok then
         notify(opts.success or "Sent to OpenCode", vim.log.levels.INFO, opts.title)
         if opts.on_success then opts.on_success() end

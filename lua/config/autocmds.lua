@@ -89,21 +89,38 @@ vim.api.nvim_create_autocmd("BufWritePre", {
 -- File Management
 -- ============================================================================
 
+local function auto_save_buffer(buf)
+  if
+    not vim.api.nvim_buf_is_valid(buf)
+    or not vim.api.nvim_buf_is_loaded(buf)
+    or not vim.bo[buf].modified
+    or vim.bo[buf].readonly
+    or vim.api.nvim_buf_get_name(buf) == ""
+    or vim.b[buf].agent_plan_disk_conflict
+  then
+    return
+  end
+
+  pcall(vim.api.nvim_buf_call, buf, function()
+    vim.cmd("silent! write")
+  end)
+end
+
 -- Auto-save all buffers when switching away from Neovim
 vim.api.nvim_create_autocmd("FocusLost", {
   group = augroup("auto_save"),
   callback = function()
-    vim.cmd("silent! wa")
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      auto_save_buffer(buf)
+    end
   end,
 })
 
 -- Auto-save buffer when switching to another buffer
 vim.api.nvim_create_autocmd("BufLeave", {
   group = augroup("auto_save_buffer_switch"),
-  callback = function()
-    if vim.bo.modified and not vim.bo.readonly and vim.fn.expand("%") ~= "" then
-      vim.cmd("silent! write")
-    end
+  callback = function(event)
+    auto_save_buffer(event.buf)
   end,
 })
 

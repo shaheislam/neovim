@@ -99,6 +99,26 @@ function M.post(path, body, callback, opts)
   vim.fn.chanclose(job, "stdin")
 end
 
+function M.prompt_async(session_id, text, opts, callback)
+  opts = opts or {}
+  callback = callback or function() end
+  if type(session_id) ~= "string" or not session_id:match("^[%w_-]+$") then
+    callback(false, "Invalid OpenCode session ID")
+    return
+  end
+  if type(text) ~= "string" or text == "" then
+    callback(false, "Missing OpenCode prompt text")
+    return
+  end
+
+  M.post(
+    "/session/" .. session_id .. "/prompt_async",
+    { parts = { { type = "text", text = text } } },
+    callback,
+    { dir = opts.dir }
+  )
+end
+
 function M.get(path, callback, opts)
   if vim.fn.executable("curl") ~= 1 then
     callback(false, "curl is required to talk to OpenCode")

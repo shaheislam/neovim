@@ -21,9 +21,9 @@ Global rules for `~/neovim`. Read any deeper `AGENTS.md` in the directory you ar
 
 ## Workflow Contract
 
-- Read `.claude/context/workflows.md` before changing AI-tooling workflows.
-- Treat `.plan.md` as the control plane for the current task.
+- `.plan.md` is untracked per-worktree durable state; agents read it for context and mutate it only through the current `planctl` turn guard, never by direct edits.
 - Use `opencode.nvim` as the primary Neovim bridge into OpenCode.
+- Trusted idle handoff stays in the originating tmux window: open Diffview first when appropriate, then open or reuse one `.plan.md` tab and focus it last. With no trusted source pane, do nothing.
 - Treat diagnostics, quickfix, and git diff as the review plane before handoff.
 
 ## Beads

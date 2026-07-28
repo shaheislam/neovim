@@ -3,6 +3,12 @@
 return {
   "mikavilpas/yazi.nvim",
   event = "VeryLazy",
+  -- Upstream vendors yazi-rs/plugins as the yazi-plugin/yazi-plugins submodule,
+  -- used only by its own yazi-side plugin tests. Recursing into it makes
+  -- `git checkout --recurse-submodules` abort ("could not reset submodule
+  -- index"), which updates the worktree but leaves HEAD pinned, so every update
+  -- reports ~34 phantom local changes. Nothing under lua/ references it.
+  submodules = false,
   init = function()
     -- Suppress "Invalid buffer id" errors from yazi's netrw hijacking race condition
     local original_buf_delete = vim.api.nvim_buf_delete

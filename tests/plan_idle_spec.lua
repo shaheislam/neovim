@@ -204,8 +204,75 @@ assert_status(handoff.plan, "opened", "plan_focused")
 idle.open_diff = original_open_diff
 idle.open_plan = original_open_plan
 
+-- Pane registration: @nvim_project is stamped once from the launch directory
+-- and never follows DirChanged, and VimLeavePre clears every option
+-- synchronously so a pane cannot advertise an editor it no longer runs.
+local subdir = root .. "/nested"
+assert(vim.fn.mkdir(subdir, "p") == 1, "failed to create nested directory")
+
+local original_jobstart = vim.fn.jobstart
+local original_system_fn = vim.fn.system
+local original_pane_env = vim.env.TMUX_PANE
+local original_cwd = vim.fn.getcwd()
+local pane_options = {}
+local unset_calls = {}
+
+vim.env.TMUX_PANE = "%5"
+vim.fn.jobstart = function(args)
+	if type(args) == "table" and args[1] == "tmux" and args[2] == "set-option" then
+		pane_options[args[#args - 1]] = args[#args]
+	end
+	return 0
+end
+vim.fn.system = function(args)
+	if type(args) ~= "table" or args[1] ~= "tmux" then
+		return ""
+	end
+	if args[2] == "show-option" then
+		return (pane_options[args[#args]] or "") .. "\n"
+	end
+	if args[2] == "set-option" and vim.list_contains(args, "-u") then
+		table.insert(unset_calls, args[#args])
+		pane_options[args[#args]] = nil
+	end
+	return ""
+end
+
+if vim.v.servername == "" then
+	pcall(vim.fn.serverstart)
+end
+idle._registered_project = nil
+vim.cmd("cd " .. vim.fn.fnameescape(root))
+vim.api.nvim_exec_autocmds("DirChanged", { modeline = false })
+eq(pane_options["@nvim_project"], root, "launch directory is stamped as the owning project")
+eq(pane_options["@nvim_cwd"], root, "cwd option tracks the launch directory")
+
+vim.cmd("cd " .. vim.fn.fnameescape(subdir))
+vim.api.nvim_exec_autocmds("DirChanged", { modeline = false })
+eq(pane_options["@nvim_cwd"], subdir, "cwd option follows DirChanged")
+eq(pane_options["@nvim_project"], root, "project stamp is immutable across DirChanged")
+
+-- A stamp already applied by the handoff script wins over the launch cwd.
+idle._registered_project = nil
+pane_options["@nvim_project"] = root
+vim.api.nvim_exec_autocmds("DirChanged", { modeline = false })
+eq(pane_options["@nvim_project"], root, "an existing project stamp is never overwritten")
+
+vim.api.nvim_exec_autocmds("VimLeavePre", { modeline = false })
+table.sort(unset_calls)
+eq(unset_calls, { "@nvim_cwd", "@nvim_project", "@nvim_server" }, "exit clears every pane option synchronously")
+eq(pane_options["@nvim_server"], nil, "server option does not survive exit")
+eq(pane_options["@nvim_project"], nil, "project option does not survive exit")
+
+vim.cmd("cd " .. vim.fn.fnameescape(original_cwd))
+vim.fn.jobstart = original_jobstart
+vim.fn.system = original_system_fn
+vim.env.TMUX_PANE = original_pane_env
+idle._registered_project = nil
+
 assert(vim.fn.delete(root, "rf") == 0, "failed to remove temporary project")
 
+print("PASS pane registration stamps an immutable project and clears on exit")
 print("PASS exact normal-mode handoff gate")
 print("PASS reusable plan tab and disk conflict handling")
 print("PASS conflicted plan autosave guards and resolution")

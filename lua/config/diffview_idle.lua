@@ -3,6 +3,7 @@ local M = {}
 local return_target = require("config.return_target")
 local pane_option = "@nvim_server"
 local cwd_option = "@nvim_cwd"
+local project_option = "@nvim_project"
 local handoff_project_option = "@agent_handoff_project"
 local handoff_base_option = "@agent_handoff_base"
 local handoff_open_diff_option = "@agent_handoff_open_diff"
@@ -23,6 +24,14 @@ local function tmux_set(option, value)
 	vim.fn.jobstart({ "tmux", "set-option", "-p", "-t", pane, option, value }, { detach = true })
 end
 
+local function tmux_get(option)
+	local pane = vim.env.TMUX_PANE
+	if not pane or pane == "" or vim.fn.executable("tmux") ~= 1 then
+		return ""
+	end
+	return vim.trim(vim.fn.system({ "tmux", "show-option", "-p", "-v", "-t", pane, option }))
+end
+
 local function register_server()
 	if not vim.env.TMUX_PANE or vim.env.TMUX_PANE == "" then
 		return
@@ -37,6 +46,20 @@ local function register_server()
 
 	tmux_set(pane_option, vim.v.servername)
 	tmux_set(cwd_option, vim.fn.getcwd())
+
+	-- The owning project is stamped once and never follows DirChanged. Matching
+	-- on @nvim_cwd alone loses this editor the moment the user opens a file in
+	-- a subdirectory, which makes every later handoff split a duplicate pane.
+	-- A stamp already applied by the handoff script always wins.
+	if M._registered_project == nil then
+		local existing = tmux_get(project_option)
+		if existing ~= "" then
+			M._registered_project = existing
+		else
+			M._registered_project = vim.fn.getcwd()
+			tmux_set(project_option, M._registered_project)
+		end
+	end
 end
 
 local function unregister_server()
@@ -45,16 +68,13 @@ local function unregister_server()
 		return
 	end
 
-	vim.fn.jobstart({ "tmux", "set-option", "-p", "-u", "-t", pane, pane_option }, { detach = true })
-	vim.fn.jobstart({ "tmux", "set-option", "-p", "-u", "-t", pane, cwd_option }, { detach = true })
-end
-
-local function tmux_get(option)
-	local pane = vim.env.TMUX_PANE
-	if not pane or pane == "" or vim.fn.executable("tmux") ~= 1 then
-		return ""
+	-- Synchronous on purpose: a detached job started at VimLeavePre is not
+	-- guaranteed to run before the process exits, which strands the pane
+	-- advertising a live editor long after it has fallen back to a shell.
+	for _, option in ipairs({ pane_option, cwd_option, project_option }) do
+		vim.fn.system({ "tmux", "set-option", "-p", "-u", "-t", pane, option })
 	end
-	return vim.trim(vim.fn.system({ "tmux", "show-option", "-p", "-v", "-t", pane, option }))
+	M._registered_project = nil
 end
 
 local function tmux_unset(option)
@@ -136,6 +156,26 @@ local function tmux_value(pane, format)
 	return vim.trim(vim.fn.system({ "tmux", "display-message", "-p", "-t", pane, format }))
 end
 
+local function tmux_server_pid()
+	if vim.fn.executable("tmux") ~= 1 then
+		return ""
+	end
+	local value = vim.trim(vim.fn.system({ "tmux", "display-message", "-p", "#{pid}" }))
+	return value:match("^%d+$") and value or ""
+end
+
+-- Ownership is proven by the same verifier the handoff scripts use, so a
+-- recycled pane that happens to share the window and directory cannot route a
+-- human's plan save into an unrelated session.
+local function source_pane_is_owned(pane, project_dir, session)
+	local script = vim.env.OPENCODE_DIFFVIEW_REVIEW_SCRIPT
+		or ((vim.env.HOME or "") .. "/dotfiles/scripts/opencode/diffview-review.sh")
+	local ok, completed = pcall(function()
+		return vim.system({ script, "verify-pane", pane, project_dir, session }, { text = true }):wait()
+	end)
+	return ok and completed ~= nil and completed.code == 0
+end
+
 local function plan_route(project_dir)
 	local current_pane = vim.env.TMUX_PANE
 	if not pane_key(current_pane) or vim.fn.executable("tmux") ~= 1 then
@@ -176,6 +216,14 @@ local function plan_route(project_dir)
 		return nil
 	end
 	if canonical(tmux_value(source_pane, "#{pane_current_path}")) ~= project_dir then
+		return nil
+	end
+	-- Pane IDs are unique only within one tmux server lifetime, so a route
+	-- written by a previous generation names unrelated content.
+	if type(route.serverPid) ~= "string" or route.serverPid == "" or route.serverPid ~= tmux_server_pid() then
+		return nil
+	end
+	if not source_pane_is_owned(source_pane, project_dir, route.sessionID) then
 		return nil
 	end
 	return route

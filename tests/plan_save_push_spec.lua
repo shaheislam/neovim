@@ -22,27 +22,38 @@ local plan_buf = vim.api.nvim_get_current_buf()
 local original_tmux_pane = vim.env.TMUX_PANE
 local original_state_home = vim.env.XDG_STATE_HOME
 local original_system = vim.fn.system
+local original_vim_system = vim.system
 local original_http = package.loaded["config.opencode_http"]
 local state_home = root .. "/state"
 local route_dir = state_home .. "/opencode/plan-routes"
 local route_path = route_dir .. "/pane-1.json"
 local source_window = "@1"
+local server_pid = "855"
+local pane_is_owned = true
+local verify_calls = {}
 local prompt_succeeds = true
 local prompt_calls = {}
+
+local function write_route(fields)
+	local route = { version = 1, sessionID = "ses_live", pane = "%1", directory = root, serverPid = "855" }
+	for key, value in pairs(fields or {}) do
+		-- false is the "omit this key" sentinel; assigning nil in a table
+		-- literal would simply never reach this loop.
+		route[key] = value ~= false and value or nil
+	end
+	assert(vim.fn.writefile({ vim.json.encode(route) }, route_path) == 0, "failed to write plan route")
+end
 
 assert(vim.fn.mkdir(route_dir, "p") == 1, "failed to create plan route directory")
 vim.env.TMUX_PANE = "%2"
 vim.env.XDG_STATE_HOME = state_home
-assert(
-	vim.fn.writefile(
-		{ vim.json.encode({ version = 1, sessionID = "ses_live", pane = "%1", directory = root }) },
-		route_path
-	) == 0,
-	"failed to write plan route"
-)
+write_route()
 vim.fn.system = function(args)
 	if args[2] == "show-option" and args[#args] == "@agent_source_pane" then
 		return "%1\n"
+	end
+	if args[2] == "display-message" and args[#args] == "#{pid}" then
+		return server_pid .. "\n"
 	end
 	if args[2] == "display-message" and args[#args] == "#{pane_id}" then
 		return args[5] .. "\n"
@@ -54,6 +65,21 @@ vim.fn.system = function(args)
 		return root .. "\n"
 	end
 	return ""
+end
+vim.system = function(args)
+	if args[2] == "verify-pane" then
+		table.insert(verify_calls, { pane = args[3], project = args[4], session = args[5] })
+		return {
+			wait = function()
+				return { code = pane_is_owned and 0 or 1, stdout = "", stderr = "" }
+			end,
+		}
+	end
+	return {
+		wait = function()
+			return { code = 0, stdout = "", stderr = "" }
+		end,
+	}
 end
 package.loaded["config.opencode_http"] = {
 	prompt_async = function(session_id, text, opts, callback)
@@ -87,21 +113,46 @@ vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "wrong window" })
 vim.cmd("write")
 eq(#prompt_calls, 3, "cross-window route fails closed")
 source_window = "@1"
-assert(
-	vim.fn.writefile(
-		{ vim.json.encode({ version = 1, sessionID = "ses_live", pane = "%1", directory = root .. "/other" }) },
-		route_path
-	) == 0,
-	"failed to write mismatched route"
-)
+write_route({ directory = root .. "/other" })
 vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "wrong project" })
 vim.cmd("write")
 eq(#prompt_calls, 3, "wrong-project route fails closed")
+
+-- Pane IDs are reused across tmux server restarts, so a route from a previous
+-- generation must never deliver a human save into an unrelated session.
+write_route()
+server_pid = "999"
+vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "stale generation" })
+vim.cmd("write")
+eq(#prompt_calls, 3, "stale-generation route fails closed")
+server_pid = "855"
+
+write_route({ serverPid = false })
+vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "legacy route" })
+vim.cmd("write")
+eq(#prompt_calls, 3, "route without a tmux generation fails closed")
+
+-- Matching window and directory are not ownership: the shared verifier decides.
+write_route()
+pane_is_owned = false
+verify_calls = {}
+vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "unowned pane" })
+vim.cmd("write")
+eq(#prompt_calls, 3, "unverified source pane fails closed")
+eq(#verify_calls, 1, "route validation consults the shared verifier")
+eq(verify_calls[1], { pane = "%1", project = root, session = "ses_live" }, "verifier receives the routed identity")
+
+pane_is_owned = true
+vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "owned again" })
+vim.cmd("write")
+eq(#prompt_calls, 4, "a re-proven pane resumes notification")
+
 assert(vim.fn.delete(route_path) == 0, "failed to remove plan route")
 vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "missing route" })
 vim.cmd("write")
-eq(#prompt_calls, 3, "missing route fails closed")
+eq(#prompt_calls, 4, "missing route fails closed")
 
+vim.system = original_vim_system
 vim.fn.system = original_system
 vim.env.TMUX_PANE = original_tmux_pane
 vim.env.XDG_STATE_HOME = original_state_home

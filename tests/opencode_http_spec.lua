@@ -183,6 +183,7 @@ assert(
 )
 
 local original_http_module = package.loaded["config.opencode_http"]
+local original_nui_input = package.loaded["nui.input"]
 local original_input = vim.ui.input
 local mapping_calls = {}
 package.loaded["config.opencode_http"] = {
@@ -190,25 +191,47 @@ package.loaded["config.opencode_http"] = {
 		table.insert(mapping_calls, { text = text, provider = provider, model = model, opts = opts })
 	end,
 }
-vim.ui.input = function(_, callback)
-	callback("what does this do")
+vim.ui.input = function()
+	error("<leader>aoa must use the modal NUI prompt instead of vim.ui.input")
+end
+local modal_submit
+package.loaded["nui.input"] = function(_, opts)
+	modal_submit = opts.on_submit
+	return {
+		map = function() end,
+		mount = function() end,
+		unmount = function() end,
+	}
 end
 
 local plugin_specs = dofile("lua/plugins/opencode.lua")
 local ask
+local ask_visual
 for _, key in ipairs(plugin_specs[1].keys) do
 	if key[1] == "<leader>aoa" and key.mode == "n" then
 		ask = key[2]
-		break
+	elseif key[1] == "<leader>aoa" and key.mode == "x" then
+		ask_visual = key[2]
 	end
 end
 assert(ask, "normal <leader>aoa mapping is present")
+assert(ask_visual, "visual <leader>aoa mapping is present")
 
 local original_buffer = vim.api.nvim_get_current_buf()
 local ask_buffer = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(ask_buffer)
 vim.api.nvim_buf_set_name(ask_buffer, "diffview://deadbeef:lua/example.lua")
 ask()
+assert(type(modal_submit) == "function", "normal <leader>aoa exposes the NUI prompt submit callback")
+modal_submit("what does this do")
+
+vim.api.nvim_buf_set_lines(ask_buffer, 0, -1, false, { "local answer = 42" })
+vim.fn.setpos("'<", { 0, 1, 1, 0 })
+vim.fn.setpos("'>", { 0, 1, 17, 0 })
+ask_visual()
+assert(type(modal_submit) == "function", "visual <leader>aoa exposes the NUI prompt submit callback")
+modal_submit("why")
+
 eq(mapping_calls, {
 	{
 		text = "[file: lua/example.lua]\nwhat does this do",
@@ -216,11 +239,18 @@ eq(mapping_calls, {
 		model = "claude-sonnet-5",
 		opts = { title = "opencode", success = "Sent to OpenCode" },
 	},
-}, "normal <leader>aoa delegates its exact prompt to targeted model submission")
+	{
+		text = "[file: lua/example.lua, lines 1-1]\nlocal answer = 42\nwhy",
+		provider = "anthropic",
+		model = "claude-sonnet-5",
+		opts = { title = "opencode", success = "Sent to OpenCode" },
+	},
+}, "normal and visual <leader>aoa prompts delegate their exact context to targeted model submission")
 
 vim.api.nvim_set_current_buf(original_buffer)
 vim.api.nvim_buf_delete(ask_buffer, { force = true })
 vim.ui.input = original_input
+package.loaded["nui.input"] = original_nui_input
 package.loaded["config.opencode_http"] = original_http_module
 http.get = original_get
 http.post = original_post
@@ -230,4 +260,4 @@ assert(vim.fn.delete(sandbox, "rf") == 0, "failed to remove temporary project")
 
 print("PASS visible same-window OpenCode model submission")
 print("PASS OpenCode visible-session fail-closed routing")
-print("PASS <leader>aoa targeted transport wiring")
+print("PASS normal and visual <leader>aoa modal prompt transport wiring")

@@ -51,6 +51,23 @@ local function opencode_command()
 		.. vim.fn.shellescape(vim.fn.getcwd())
 end
 
+local function pick_file(action)
+	require("fzf-lua").files({
+		actions = {
+			["default"] = function(selected, fzf_opts)
+				if not selected or #selected == 0 then
+					return
+				end
+				local file = require("fzf-lua.path").entry_to_file(selected[1], fzf_opts)
+				local filepath = file and file.path
+				if filepath and filepath ~= "" then
+					action(vim.fn.fnamemodify(filepath, ":."))
+				end
+			end,
+		},
+	})
+end
+
 local function get_opencode_terminal()
 	local cmd = opencode_command()
 	if opencode_terminal and opencode_terminal_cmd == cmd then
@@ -66,6 +83,17 @@ local function get_opencode_terminal()
 		display_name = "OpenCode",
 		hidden = true,
 		close_on_exit = false,
+		on_create = function(term)
+			vim.keymap.set("t", "<leader>ff", function()
+				pick_file(function(filepath)
+					require("config.opencode_http").append_prompt(filepath .. " ", {
+						title = "opencode",
+						success = "Sent path to OpenCode",
+						fallback_clipboard = true,
+					})
+				end)
+			end, { buffer = term.bufnr, desc = "Pick file into opencode prompt" })
+		end,
 		on_exit = function(_, _, exit_code)
 			if exit_code ~= 0 then
 				vim.notify("OpenCode terminal exited with code " .. exit_code, vim.log.levels.ERROR, { title = "opencode" })
@@ -108,12 +136,18 @@ local function check_opencode_ready(callback)
 	end
 end
 
+local function resolve_opencode_terminal_size(term)
+	return type(term.size) == "function" and term.size() or term.size
+end
+
 local function start_opencode_terminal()
-	get_opencode_terminal():open()
+	local term = get_opencode_terminal()
+	term:open(resolve_opencode_terminal_size(term))
 end
 
 local function toggle_opencode_terminal()
-	get_opencode_terminal():toggle()
+	local term = get_opencode_terminal()
+	term:toggle(resolve_opencode_terminal_size(term))
 end
 
 local function close_opencode_terminal()
@@ -322,6 +356,57 @@ local function strip_vcs_prefix(bufname)
 		:gsub("^%.git/[a-f0-9]+/", "")
 end
 
+local function open_ask_prompt(on_submit)
+	local Input = require("nui.input")
+	local input
+	input = Input({
+		relative = "editor",
+		position = {
+			row = "90%",
+			col = "50%",
+		},
+		size = {
+			width = math.min(70, math.max(20, vim.o.columns - 4)),
+		},
+		border = {
+			style = "rounded",
+			text = {
+				top = " Ask OpenCode ",
+				top_align = "center",
+			},
+		},
+		win_options = {
+			winhighlight = "Normal:Normal,FloatBorder:FloatBorder",
+		},
+	}, {
+		prompt = "> ",
+		on_submit = on_submit,
+	})
+
+	local function close()
+		input:unmount()
+	end
+
+	input:map("n", "<Esc>", close, { noremap = true, nowait = true, desc = "Close opencode prompt" })
+	input:map("n", "q", close, { noremap = true, nowait = true, desc = "Close opencode prompt" })
+	input:map("n", "<leader>ff", function()
+		pick_file(function(filepath)
+			vim.schedule(function()
+				if not vim.api.nvim_buf_is_valid(input.bufnr) or not vim.api.nvim_win_is_valid(input.winid) then
+					return
+				end
+				local line = vim.api.nvim_buf_get_lines(input.bufnr, 0, 1, false)[1] or ""
+				local separator = line:match("%s$") and "" or " "
+				vim.api.nvim_buf_set_text(input.bufnr, 0, #line, 0, #line, { separator .. filepath .. " " })
+				vim.api.nvim_set_current_win(input.winid)
+				vim.cmd("startinsert!")
+			end)
+		end)
+	end, { noremap = true, nowait = true, desc = "Pick file into opencode prompt" })
+
+	input:mount()
+end
+
 local function ask_via_http(opts)
 	opts = opts or {}
 	return function()
@@ -331,7 +416,7 @@ local function ask_via_http(opts)
 			and ("[file: " .. filepath .. "]\n")
 			or ""
 
-		vim.ui.input({ prompt = "Ask OpenCode: " }, function(input)
+		open_ask_prompt(function(input)
 			if not input or input == "" then
 				return
 			end
@@ -389,7 +474,7 @@ local function ask_via_http_visual()
 		or ""
 	local selection_text = header .. table.concat(lines, "\n") .. "\n"
 
-	vim.ui.input({ prompt = "Ask OpenCode: " }, function(input)
+	open_ask_prompt(function(input)
 		if not input or input == "" then
 			return
 		end
@@ -399,6 +484,25 @@ local function ask_via_http_visual()
 			success = "Sent to OpenCode",
 		})
 	end)
+end
+
+local function pick_file_into_ask_prompt()
+	pick_file(function(filepath)
+		vim.fn.feedkeys(filepath .. " ", "n")
+	end)
+end
+
+-- Lets <leader>ff open an fzf-lua file picker while inside opencode's "Ask OpenCode: "
+-- cmdline input() prompt, feeding the picked path back into the still-open prompt.
+-- Falls through as literal text in every other cmdline context.
+local function setup_ask_prompt_file_picker()
+	vim.keymap.set("c", "<leader>ff", function()
+		if vim.fn.getcmdtype() == "@" and vim.fn.getcmdprompt() == "Ask OpenCode: " then
+			vim.schedule(pick_file_into_ask_prompt)
+			return ""
+		end
+		return (vim.g.mapleader or "\\") .. "ff"
+	end, { expr = true, desc = "Pick file into opencode prompt" })
 end
 
 local function run_prompt_via_http(name, opts)
@@ -514,6 +618,7 @@ return {
 		version = "*",
 		dependencies = {
 			"akinsho/toggleterm.nvim",
+			"MunifTanjim/nui.nvim",
 		},
 		cmd = { "Opencode" },
 		init = apply_opencode_opts,
@@ -860,6 +965,7 @@ return {
 		config = function()
 			apply_opencode_opts()
 			patch_opencode_server_disconnect()
+			setup_ask_prompt_file_picker()
 
 			-- Required for auto-reload when opencode edits files
 			vim.o.autoread = true

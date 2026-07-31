@@ -21,7 +21,7 @@ Global rules for `~/neovim`. Read any deeper `AGENTS.md` in the directory you ar
 
 ## Workflow Contract
 
-- `.plan.md` is untracked per-worktree durable state; agents read it for context and mutate it only through the current `planctl` turn guard, never by direct edits.
+- `.plan.md` is an untracked per-worktree markdown document maintained by hand; agents read it for context and edit it directly when asked. There is no coordinator or turn guard.
 - Use `opencode.nvim` as the primary Neovim bridge into OpenCode.
 - Trusted idle handoff stays in the originating tmux window: open Diffview first when appropriate, then open or reuse one `.plan.md` tab and focus it last. With no trusted source pane, do nothing.
 - `config.diffview_idle` stamps `@nvim_project` once from the launch directory and never updates it on `DirChanged`; `@nvim_cwd` keeps following the cwd for other consumers. Matching on `@nvim_cwd` alone loses this editor as soon as a file is opened in a subdirectory, which makes every later handoff split a duplicate pane. `VimLeavePre` clears `@nvim_server`, `@nvim_cwd`, and `@nvim_project` synchronously, because a detached job is not guaranteed to run before exit and leaves the pane advertising an editor it no longer runs.

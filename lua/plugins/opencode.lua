@@ -192,14 +192,14 @@ local function kickstart_opencode_service()
 	})
 end
 
-local function resolve_opencode_port(callback)
+local function resolve_opencode_url(callback)
 	local kicked = false
 	local deadline = vim.uv.now() + opencode_startup_timeout
 
 	local function poll()
 		check_opencode_ready(function(ready)
 			if ready then
-				callback(opencode_port)
+				callback("http://127.0.0.1:" .. opencode_port)
 				return
 			end
 
@@ -228,7 +228,7 @@ end
 local function opencode_opts()
 	return {
 		server = {
-			port = resolve_opencode_port,
+			url = resolve_opencode_url,
 			username = opencode_username,
 			password = opencode_password(),
 			start = start_opencode_terminal,
@@ -260,7 +260,7 @@ end
 
 local function with_opencode_ready(action, on_error)
 	local ok, ready = pcall(function()
-		return require("opencode.server").get()
+		return require("opencode.server.discovery").get()
 	end)
 
 	if not ok then
@@ -306,45 +306,22 @@ local function prompt_text(value)
 	return nil
 end
 
-local function submit_prompt(text, server, context)
-	text = (text or ""):gsub("%s+$", "")
-	if text == "" then
-		context:clear()
-		return
-	end
-
-	require("opencode.api.prompt").prompt(text, server, context):catch(notify_opencode_error)
-end
-
-local function append_prompt(text, server, context)
-	text = (text or ""):gsub("%s+$", "")
-	if text == "" then
-		context:clear()
-		return
-	end
-
-	require("opencode.api.prompt").prompt(text .. " ", server, context):catch(notify_opencode_error)
-end
-
-local function ask_with_context(prefix, submit)
+local function ask_with_context(prefix)
 	return function()
-		local context = require("opencode.context").new()
 		with_opencode_ready(function(server)
+			local context = require("opencode.context").new(server)
 			require("opencode.ui.ask")
-				.ask(prefix, server, context)
+				.ask(prefix, context)
 				:next(function(input)
-					if submit then
-						submit_prompt(input, server, context)
-					else
-						append_prompt(input, server, context)
+					local text = (input or ""):gsub("%s+$", "")
+					if text == "" then
+						context:clear()
+						return
 					end
+
+					require("opencode.api.prompt").prompt(text .. " ", context):catch(notify_opencode_error)
 				end)
-				:catch(function(err)
-					context:resume()
-					notify_opencode_error(err)
-				end)
-		end, function()
-			context:clear()
+				:catch(notify_opencode_error)
 		end)
 	end
 end
@@ -356,7 +333,8 @@ local function strip_vcs_prefix(bufname)
 		:gsub("^%.git/[a-f0-9]+/", "")
 end
 
-local function open_ask_prompt(on_submit)
+local function open_ask_prompt(opts)
+	opts = opts or {}
 	local Input = require("nui.input")
 	local input
 	input = Input({
@@ -380,7 +358,9 @@ local function open_ask_prompt(on_submit)
 		},
 	}, {
 		prompt = "> ",
-		on_submit = on_submit,
+		default_value = opts.default_value or "",
+		on_submit = opts.on_submit,
+		on_close = opts.on_close,
 	})
 
 	local function close()
@@ -405,6 +385,32 @@ local function open_ask_prompt(on_submit)
 	end, { noremap = true, nowait = true, desc = "Pick file into opencode prompt" })
 
 	input:mount()
+	if opts.opencode_completion then
+		vim.bo[input.bufnr].filetype = "opencode_ask"
+		pcall(vim.lsp.start, require("opencode.ui.ask.cmp"), { bufnr = input.bufnr })
+	end
+
+	return input
+end
+
+local function setup_opencode_prompt_input()
+	local ui = require("opencode.promise.ui")
+	if ui._nvim_mini_nui_input then
+		return
+	end
+
+	ui.input = function(opts)
+		opts = opts or {}
+		return require("opencode.promise").new(function(resolve, reject)
+			open_ask_prompt({
+				default_value = opts.default,
+				on_submit = resolve,
+				on_close = reject,
+				opencode_completion = true,
+			})
+		end)
+	end
+	ui._nvim_mini_nui_input = true
 end
 
 local function ask_via_http(opts)
@@ -416,37 +422,39 @@ local function ask_via_http(opts)
 			and ("[file: " .. filepath .. "]\n")
 			or ""
 
-		open_ask_prompt(function(input)
-			if not input or input == "" then
-				return
-			end
-			local http = require("config.opencode_http")
-			local text = file_ctx .. input
+		open_ask_prompt({
+			on_submit = function(input)
+				if not input or input == "" then
+					return
+				end
+				local http = require("config.opencode_http")
+				local text = file_ctx .. input
 
-			if opts.model then
-				http.send_with_model(text, opts.model.provider, opts.model.model, {
-					title = "opencode",
-					success = "Sent to OpenCode",
-				})
-			else
-				http.append_prompt(text, {
-					title = "opencode",
-					success = "Sent to OpenCode",
-					fallback_clipboard = false,
-					on_success = function()
-						http.publish_command("prompt.submit", function(ok, out)
-							if not ok then
-								vim.notify(
-									"OpenCode submit failed: " .. (out or ""),
-									vim.log.levels.WARN,
-									{ title = "opencode" }
-								)
-							end
-						end)
-					end,
-				})
-			end
-		end)
+				if opts.model then
+					http.send_with_model(text, opts.model.provider, opts.model.model, {
+						title = "opencode",
+						success = "Sent to OpenCode",
+					})
+				else
+					http.append_prompt(text, {
+						title = "opencode",
+						success = "Sent to OpenCode",
+						fallback_clipboard = false,
+						on_success = function()
+							http.publish_command("prompt.submit", function(ok, out)
+								if not ok then
+									vim.notify(
+										"OpenCode submit failed: " .. (out or ""),
+										vim.log.levels.WARN,
+										{ title = "opencode" }
+									)
+								end
+							end)
+						end,
+					})
+				end
+			end,
+		})
 	end
 end
 
@@ -474,35 +482,18 @@ local function ask_via_http_visual()
 		or ""
 	local selection_text = header .. table.concat(lines, "\n") .. "\n"
 
-	open_ask_prompt(function(input)
-		if not input or input == "" then
-			return
-		end
-		local http = require("config.opencode_http")
-		http.send_with_model(selection_text .. input, opencode_ask_model.provider, opencode_ask_model.model, {
-			title = "opencode",
-			success = "Sent to OpenCode",
-		})
-	end)
-end
-
-local function pick_file_into_ask_prompt()
-	pick_file(function(filepath)
-		vim.fn.feedkeys(filepath .. " ", "n")
-	end)
-end
-
--- Lets <leader>ff open an fzf-lua file picker while inside opencode's "Ask OpenCode: "
--- cmdline input() prompt, feeding the picked path back into the still-open prompt.
--- Falls through as literal text in every other cmdline context.
-local function setup_ask_prompt_file_picker()
-	vim.keymap.set("c", "<leader>ff", function()
-		if vim.fn.getcmdtype() == "@" and vim.fn.getcmdprompt() == "Ask OpenCode: " then
-			vim.schedule(pick_file_into_ask_prompt)
-			return ""
-		end
-		return (vim.g.mapleader or "\\") .. "ff"
-	end, { expr = true, desc = "Pick file into opencode prompt" })
+	open_ask_prompt({
+		on_submit = function(input)
+			if not input or input == "" then
+				return
+			end
+			local http = require("config.opencode_http")
+			http.send_with_model(selection_text .. input, opencode_ask_model.provider, opencode_ask_model.model, {
+				title = "opencode",
+				success = "Sent to OpenCode",
+			})
+		end,
+	})
 end
 
 local function run_prompt_via_http(name, opts)
@@ -548,12 +539,14 @@ local function run_prompt_via_http(name, opts)
 		end
 
 		if type(prompt) == "table" and prompt.ask then
-			vim.ui.input({ prompt = text }, function(input)
-				if not input or input == "" then
-					return
-				end
-				send(text .. input)
-			end)
+			open_ask_prompt({
+				on_submit = function(input)
+					if not input or input == "" then
+						return
+					end
+					send(text .. input)
+				end,
+			})
 		else
 			send(text)
 		end
@@ -965,7 +958,7 @@ return {
 		config = function()
 			apply_opencode_opts()
 			patch_opencode_server_disconnect()
-			setup_ask_prompt_file_picker()
+			setup_opencode_prompt_input()
 
 			-- Required for auto-reload when opencode edits files
 			vim.o.autoread = true

@@ -77,6 +77,24 @@ eq(
 
 plugin_specs[1].init()
 assert(type(vim.g.opencode_opts.server.start) == "function", "server.start is wired to start_opencode_terminal")
+assert(type(vim.g.opencode_opts.server.url) == "function", "server.url resolves the launchd-managed OpenCode endpoint")
+eq(vim.g.opencode_opts.server.port, nil, "the obsolete server.port option is not configured")
+local original_jobstart = vim.fn.jobstart
+local original_url_schedule = vim.schedule
+local resolved_url
+vim.fn.jobstart = function(_, opts)
+	opts.on_exit(1, 0)
+	return 1
+end
+vim.schedule = function(callback)
+	callback()
+end
+vim.g.opencode_opts.server.url(function(url)
+	resolved_url = url
+end)
+vim.fn.jobstart = original_jobstart
+vim.schedule = original_url_schedule
+eq(resolved_url, "http://127.0.0.1:4096", "server.url resolves the configured launchd endpoint after readiness succeeds")
 vim.o.columns = 90
 vim.g.opencode_opts.server.start()
 eq(
@@ -87,65 +105,111 @@ eq(
 
 print("PASS opencode terminal resize-on-reopen always resolves a fresh explicit size")
 
--- ===== Section 2: <leader>ff fzf-lua picker inside the "Ask OpenCode: " prompt =====
+-- ===== Section 2: current OpenCode API mocks and prompt adapter setup =====
 
 package.loaded["opencode.server"] = {
 	disconnect = function(_) end,
 }
 
-eq(vim.fn.getcmdtype(), "", "sanity check: not inside any cmdline context before config() runs")
-eq(vim.fn.maparg("<leader>ff", "c"), "", "sanity check: no pre-existing <leader>ff cmdline mapping before config() runs")
+local function promise_new(executor)
+	local promise = {
+		status = "pending",
+		next_callbacks = {},
+		catch_callbacks = {},
+	}
+
+	local function resolve(value)
+		if promise.status ~= "pending" then
+			return
+		end
+		promise.status = "fulfilled"
+		promise.value = value
+		for _, callback in ipairs(promise.next_callbacks) do
+			callback(value)
+		end
+	end
+
+	local function reject(reason)
+		if promise.status ~= "pending" then
+			return
+		end
+		promise.status = "rejected"
+		promise.value = reason
+		for _, callback in ipairs(promise.catch_callbacks) do
+			callback(reason)
+		end
+	end
+
+	function promise:next(callback)
+		if self.status == "fulfilled" then
+			callback(self.value)
+		elseif self.status == "pending" then
+			table.insert(self.next_callbacks, callback)
+		end
+		return self
+	end
+
+	function promise:catch(callback)
+		if self.status == "rejected" then
+			callback(self.value)
+		elseif self.status == "pending" then
+			table.insert(self.catch_callbacks, callback)
+		end
+		return self
+	end
+
+	executor(resolve, reject)
+	return promise
+end
+
+local Promise = {}
+Promise.new = promise_new
+Promise.resolve = function(value)
+	return promise_new(function(resolve)
+		resolve(value)
+	end)
+end
+Promise.reject = function(reason)
+	return promise_new(function(_, reject)
+		reject(reason)
+	end)
+end
+
+local server = { id = "server" }
+local discovery_calls = 0
+package.loaded["opencode.promise"] = Promise
+package.loaded["opencode.promise.ui"] = {
+	input = function()
+		error("opencode.promise.ui.input must be replaced with the NUI adapter")
+	end,
+}
+local native_plugin_input = package.loaded["opencode.promise.ui"].input
+package.loaded["opencode.server.discovery"] = {
+	get = function()
+		discovery_calls = discovery_calls + 1
+		return Promise.resolve(server)
+	end,
+}
 
 plugin_specs[1].config()
 
-local mapping = vim.fn.maparg("<leader>ff", "c", false, true)
-assert(type(mapping.callback) == "function", "<leader>ff is registered in cmdline mode with a Lua callback")
-assert(mapping.expr == 1, "<leader>ff is registered as an expr mapping so the fallback branch can pass through as text")
-
--- Outside the "Ask OpenCode: " prompt: must fall through as literal leader text,
--- not swallow the key or trigger the picker.
-local scheduled = {}
-local original_schedule = vim.schedule
-vim.schedule = function(fn)
-	table.insert(scheduled, fn)
-end
-
-local fallback_result = mapping.callback()
-vim.schedule = original_schedule
-
-eq(scheduled, {}, "outside the Ask OpenCode prompt, the picker must not be scheduled")
 eq(
-	fallback_result,
-	(vim.g.mapleader or "\\") .. "ff",
-	"outside the Ask OpenCode prompt, <leader>ff returns the literal key sequence as command-line text"
+	vim.fn.maparg("<leader>ff", "c"),
+	"",
+	"config does not install the obsolete global command-line picker workaround"
 )
 
--- Inside the "Ask OpenCode: " prompt: must consume the key and defer to the picker.
-local original_getcmdtype = vim.fn.getcmdtype
-local original_getcmdprompt = vim.fn.getcmdprompt
-vim.fn.getcmdtype = function()
-	return "@"
-end
-vim.fn.getcmdprompt = function()
-	return "Ask OpenCode: "
-end
+local promise_ui = package.loaded["opencode.promise.ui"]
+local adapted_input = promise_ui.input
+assert(type(adapted_input) == "function", "config replaces opencode.promise.ui.input with a NUI adapter")
+assert(adapted_input ~= native_plugin_input, "the plugin Promise input function is replaced")
+plugin_specs[1].config()
+eq(promise_ui.input, adapted_input, "config is idempotent and does not wrap the Promise input adapter twice")
 
-scheduled = {}
-vim.schedule = function(fn)
-	table.insert(scheduled, fn)
-end
-local guarded_result = mapping.callback()
-vim.schedule = original_schedule
-vim.fn.getcmdtype = original_getcmdtype
-vim.fn.getcmdprompt = original_getcmdprompt
+print("PASS opencode config installs one plugin-local NUI input adapter and no global cmdline workaround")
 
-eq(guarded_result, "", "inside the Ask OpenCode prompt, <leader>ff is fully consumed (returns empty expr result)")
-eq(#scheduled, 1, "inside the Ask OpenCode prompt, exactly one picker call is scheduled")
+-- ===== Section 3: <leader>ff fzf-lua picker inside the OCV terminal composer =====
 
-print("PASS <leader>ff falls through as literal text outside the Ask OpenCode prompt")
-
--- Run the scheduled picker call with fzf-lua mocked, and verify the selection action
--- feeds the clean picked path (plus a trailing space) back via noremap feedkeys.
 local recorded_files_opts
 package.loaded["fzf-lua"] = {
 	files = function(opts)
@@ -157,30 +221,6 @@ package.loaded["fzf-lua.path"] = {
 		return { path = vim.fn.getcwd() .. "/" .. entry }
 	end,
 }
-
-scheduled[1]()
-
-assert(type(recorded_files_opts) == "table", "the deferred call opens the fzf-lua files picker")
-assert(type(recorded_files_opts.actions.default) == "function", "the picker has a custom default action")
-
-local fed = {}
-local original_feedkeys = vim.fn.feedkeys
-vim.fn.feedkeys = function(keys, mode)
-	table.insert(fed, { keys = keys, mode = mode })
-end
-recorded_files_opts.actions.default({ "lua/plugins/opencode.lua" }, {})
-vim.fn.feedkeys = original_feedkeys
-
-eq(
-	fed,
-	{ { keys = "lua/plugins/opencode.lua ", mode = "n" } },
-	"selecting a file feeds its clean path plus a trailing space back into the still-open prompt, unescaped and unmapped"
-)
-
-print("PASS <leader>ff inside the Ask OpenCode prompt opens an fzf-lua picker wired to feed the pick back via feedkeys")
-
--- ===== Section 3: <leader>ff fzf-lua picker inside the OCV terminal composer =====
-
 assert(type(opencode_terminal_opts.on_create) == "function", "the OpenCode terminal configures a one-time on_create hook")
 
 local terminal_buf = vim.api.nvim_create_buf(false, true)
@@ -219,7 +259,7 @@ vim.api.nvim_buf_delete(terminal_buf, { force = true })
 
 print("PASS <leader>ff in the OCV terminal opens fzf-lua and appends the picked path to its live composer")
 
--- ===== Section 4: modal NUI prompt for <leader>aoa =====
+-- ===== Section 4: shared modal NUI prompt =====
 
 local ask_mapping
 for _, key in ipairs(plugin_specs[1].keys) do
@@ -238,6 +278,7 @@ end
 local modal_buf = vim.api.nvim_create_buf(false, true)
 local modal_maps = {}
 local modal
+local modals = {}
 package.loaded["nui.input"] = function(popup_opts, input_opts)
 	modal = {
 		bufnr = modal_buf,
@@ -258,6 +299,7 @@ package.loaded["nui.input"] = function(popup_opts, input_opts)
 	function modal:unmount()
 		self.unmounted = true
 	end
+	table.insert(modals, modal)
 	return modal
 end
 
@@ -287,6 +329,7 @@ modal_map("n", "<leader>ff").callback()
 assert(type(recorded_files_opts) == "table", "Normal-mode <leader>ff opens the fzf-lua files picker")
 
 local modal_scheduled = {}
+local original_schedule = vim.schedule
 vim.schedule = function(fn)
 	table.insert(modal_scheduled, fn)
 end
@@ -305,7 +348,140 @@ assert(modal.unmounted, "Normal-mode <Esc> unmounts the modal prompt")
 
 vim.ui.input = original_input
 vim.api.nvim_set_current_buf(source_buf)
-vim.api.nvim_buf_delete(modal_buf, { force = true })
 vim.api.nvim_buf_delete(source_buf, { force = true })
 
 print("PASS <leader>aoa opens a modal NUI prompt with Normal-mode <leader>ff file insertion")
+
+-- ===== Section 5: plugin-owned asks use the shared NUI prompt =====
+
+local lsp_starts = {}
+local original_lsp_start = vim.lsp.start
+vim.lsp.start = function(config, opts)
+	table.insert(lsp_starts, { config = config, opts = opts })
+	return 1
+end
+package.loaded["opencode.ui.ask.cmp"] = { name = "opencode_ask_cmp" }
+
+local resolved_input
+local rejected_input = false
+local adapted_promise = promise_ui.input({ default = "@buffer: " })
+adapted_promise:next(function(value)
+	resolved_input = value
+end):catch(function()
+	rejected_input = true
+end)
+
+modal = modals[#modals]
+eq(modal.input_opts.default_value, "@buffer: ", "the adapter forwards opencode.nvim's default prompt text")
+eq(vim.bo[modal.bufnr].filetype, "opencode_ask", "the adapter marks the prompt for OpenCode completion")
+eq(#lsp_starts, 1, "the adapter starts OpenCode completion exactly once for the prompt")
+eq(lsp_starts[1].opts.bufnr, modal.bufnr, "completion is attached to the NUI prompt buffer")
+modal.input_opts.on_submit("@buffer: explain this")
+eq(resolved_input, "@buffer: explain this", "submitting the NUI prompt resolves the plugin Promise")
+assert(not rejected_input, "submitting the NUI prompt does not reject the plugin Promise")
+
+local cancelled = false
+promise_ui.input({ default = "@visible: " }):catch(function()
+	cancelled = true
+end)
+modal = modals[#modals]
+modal.input_opts.on_close()
+assert(cancelled, "closing the NUI prompt rejects the plugin Promise")
+
+local contexts = {}
+local prompted = {}
+package.loaded["opencode.context"] = {
+	new = function(context_server)
+		local context = {
+			server = context_server,
+			clear_count = 0,
+			resume_count = 0,
+		}
+		function context:clear()
+			self.clear_count = self.clear_count + 1
+		end
+		function context:resume()
+			self.resume_count = self.resume_count + 1
+		end
+		table.insert(contexts, context)
+		return context
+	end,
+}
+package.loaded["opencode.ui.ask"] = {
+	ask = function(default, context)
+		assert(context.server == server, "ask receives the context constructed for the discovered server")
+		return promise_ui.input({ default = default })
+	end,
+}
+package.loaded["opencode.api.prompt"] = {
+	prompt = function(text, context)
+		table.insert(prompted, { text = text, context = context })
+		return Promise.resolve()
+	end,
+}
+
+local function key_callback(lhs, mode)
+	for _, key in ipairs(plugin_specs[1].keys) do
+		if key[1] == lhs and mode_includes(key.mode, mode) then
+			return key[2]
+		end
+	end
+end
+
+local original_defer_fn = vim.defer_fn
+vim.defer_fn = function(callback)
+	callback()
+end
+
+for _, expected in ipairs({
+	{ lhs = "<leader>aoB", prefix = "@buffer: " },
+	{ lhs = "<leader>aoV", prefix = "@visible: " },
+	{ lhs = "<leader>aoQ", prefix = "@quickfix: " },
+}) do
+	local callback = key_callback(expected.lhs, "n")
+	assert(callback, expected.lhs .. " mapping is present")
+	callback()
+	modal = modals[#modals]
+	eq(modal.input_opts.default_value, expected.prefix, expected.lhs .. " pre-fills its context placeholder")
+	modal.input_opts.on_submit(expected.prefix .. "question")
+	eq(prompted[#prompted].text, expected.prefix .. "question ", expected.lhs .. " appends without submitting")
+	eq(prompted[#prompted].context.server, server, expected.lhs .. " uses the discovered server context")
+end
+
+vim.defer_fn = original_defer_fn
+eq(discovery_calls, 3, "each context ask resolves the server through opencode.server.discovery")
+vim.lsp.start = original_lsp_start
+
+print("PASS plugin-owned context asks use discovery, current APIs, and the shared NUI prompt")
+
+-- ===== Section 6: custom ask=true named prompts use NUI =====
+
+local original_config = package.loaded["opencode.config"]
+local original_http = package.loaded["config.opencode_http"]
+local custom_prompt_calls = {}
+package.loaded["opencode.config"] = {
+	opts = {
+		prompts = {
+			explain = { prompt = "Explain: ", ask = true },
+		},
+	},
+}
+package.loaded["config.opencode_http"] = {
+	send_with_model = function(text, provider, model, opts)
+		table.insert(custom_prompt_calls, { text = text, provider = provider, model = model, opts = opts })
+	end,
+}
+
+local explain = key_callback("<leader>aoe", "n")
+assert(explain, "normal <leader>aoe mapping is present")
+explain()
+modal = modals[#modals]
+eq(modal.input_opts.default_value, "", "custom ask=true prompts open an empty shared NUI input")
+modal.input_opts.on_submit("focus on errors")
+eq(custom_prompt_calls[1].text, "Explain: focus on errors", "custom ask input is combined with its prompt template")
+
+package.loaded["opencode.config"] = original_config
+package.loaded["config.opencode_http"] = original_http
+vim.api.nvim_buf_delete(modal_buf, { force = true })
+
+print("PASS custom ask=true named prompts use the shared NUI prompt")

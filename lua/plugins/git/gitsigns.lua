@@ -358,7 +358,19 @@ return {
 					local bufnr = args.buf
 
 					vim.keymap.set("n", "d", function()
-						local sha = vim.api.nvim_get_current_line():match("^(%x+)")
+						-- Continuation/summary lines in the blame gutter carry no SHA text,
+						-- so walk upward to the nearest header line that has one.
+						local lnum = vim.api.nvim_win_get_cursor(0)[1]
+						local lines = vim.api.nvim_buf_get_lines(bufnr, 0, lnum, false)
+						-- Header lines are prefixed with a graph glyph (e.g. "┍ 46ca134e ..."),
+						-- so skip the first token before matching the SHA.
+						local sha
+						for i = #lines, 1, -1 do
+							sha = lines[i]:match("^%S+%s+(%x%x%x%x%x%x%x+)%s")
+							if sha then
+								break
+							end
+						end
 						if not sha then
 							vim.notify("No commit on this line", vim.log.levels.WARN)
 							return

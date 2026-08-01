@@ -357,6 +357,18 @@ return {
 				vim.schedule(function()
 					local bufnr = args.buf
 
+					-- Dim the current-commit highlight (gitsigns reuses 'CursorLine', which is
+					-- too bright against a transparent Normal bg) inside the blame view only.
+					for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+						local wh = vim.wo[win].winhighlight
+						local override = "CursorLine:GitSignsBlameCurrentCommit"
+						if wh == "" then
+							vim.wo[win].winhighlight = override
+						elseif not wh:find(override, 1, true) then
+							vim.wo[win].winhighlight = wh .. "," .. override
+						end
+					end
+
 					vim.keymap.set("n", "d", function()
 						-- Continuation/summary lines in the blame gutter carry no SHA text,
 						-- so walk upward to the nearest header line that has one.
@@ -400,6 +412,10 @@ return {
 		vim.api.nvim_set_hl(0, "GitSignsDeleteInline", { fg = "#f7768e", bg = "#2d202a" })
 		vim.api.nvim_set_hl(0, "GitSignsDeleteLnInline", { fg = "#f7768e", bg = "#2d202a" })
 
+		-- Dimmer stand-in for 'CursorLine' in the gitsigns full blame view, since the
+		-- theme's CursorLine is too bright against a transparent Normal background.
+		vim.api.nvim_set_hl(0, "GitSignsBlameCurrentCommit", { bg = "#2a2530" })
+
 		-- Set staged signs highlights - muted but distinct colors
 		vim.api.nvim_set_hl(0, "GitSignsStagedAdd", { fg = "#73c991", bold = true }) -- Soft mint green for staged adds
 		vim.api.nvim_set_hl(0, "GitSignsStagedChange", { fg = "#e0af68", bold = true }) -- Soft amber for staged changes
@@ -420,6 +436,8 @@ return {
 				vim.api.nvim_set_hl(0, "GitSignsAddLnInline", { fg = "#9ece6a", bg = "#1f2231" })
 				vim.api.nvim_set_hl(0, "GitSignsDeleteInline", { fg = "#f7768e", bg = "#2d202a" })
 				vim.api.nvim_set_hl(0, "GitSignsDeleteLnInline", { fg = "#f7768e", bg = "#2d202a" })
+
+				vim.api.nvim_set_hl(0, "GitSignsBlameCurrentCommit", { bg = "#2a2530" })
 
 				-- Staged signs highlights
 				vim.api.nvim_set_hl(0, "GitSignsStagedAdd", { fg = "#73c991", bold = true })

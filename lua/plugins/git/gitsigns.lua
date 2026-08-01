@@ -391,6 +391,8 @@ return {
 						show_single_commit_info(sha)
 					end, { buffer = bufnr, desc = "Open in DiffView" })
 
+					vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = bufnr, desc = "Close blame buffer" })
+
 					for _, lhs in ipairs({ "s", "S", "e" }) do
 						pcall(vim.keymap.del, "n", lhs, { buffer = bufnr })
 					end

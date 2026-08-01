@@ -51,23 +51,6 @@ local function opencode_command()
 		.. vim.fn.shellescape(vim.fn.getcwd())
 end
 
-local function pick_file(action)
-	require("fzf-lua").files({
-		actions = {
-			["default"] = function(selected, fzf_opts)
-				if not selected or #selected == 0 then
-					return
-				end
-				local file = require("fzf-lua.path").entry_to_file(selected[1], fzf_opts)
-				local filepath = file and file.path
-				if filepath and filepath ~= "" then
-					action(vim.fn.fnamemodify(filepath, ":."))
-				end
-			end,
-		},
-	})
-end
-
 local function get_opencode_terminal()
 	local cmd = opencode_command()
 	if opencode_terminal and opencode_terminal_cmd == cmd then
@@ -84,15 +67,28 @@ local function get_opencode_terminal()
 		hidden = true,
 		close_on_exit = false,
 		on_create = function(term)
-			vim.keymap.set("t", "<leader>ff", function()
-				pick_file(function(filepath)
-					require("config.opencode_http").append_prompt(filepath .. " ", {
+			local function restore_terminal()
+				local wins = vim.fn.win_findbuf(term.bufnr)
+				if wins[1] and vim.api.nvim_win_is_valid(wins[1]) then
+					vim.api.nvim_set_current_win(wins[1])
+					vim.cmd("startinsert")
+				end
+			end
+			require("config.fzf_prompt").bind(term.bufnr, {
+				mode = "t",
+				source = function()
+					return require("config.return_target").last()
+				end,
+				insert = function(text)
+					require("config.opencode_http").append_prompt(text, {
 						title = "opencode",
-						success = "Sent path to OpenCode",
+						success = "Sent picker selection to OpenCode",
 						fallback_clipboard = true,
 					})
-				end)
-			end, { buffer = term.bufnr, desc = "Pick file into opencode prompt" })
+					restore_terminal()
+				end,
+				restore = restore_terminal,
+			})
 		end,
 		on_exit = function(_, _, exit_code)
 			if exit_code ~= 0 then
@@ -335,6 +331,8 @@ end
 
 local function open_ask_prompt(opts)
 	opts = opts or {}
+	local return_target = require("config.return_target")
+	local source = return_target.capture({ force = true }) or return_target.last()
 	local Input = require("nui.input")
 	local input
 	input = Input({
@@ -369,22 +367,30 @@ local function open_ask_prompt(opts)
 
 	input:map("n", "<Esc>", close, { noremap = true, nowait = true, desc = "Close opencode prompt" })
 	input:map("n", "q", close, { noremap = true, nowait = true, desc = "Close opencode prompt" })
-	input:map("n", "<leader>ff", function()
-		pick_file(function(filepath)
+
+	input:mount()
+	require("config.fzf_prompt").bind(input.bufnr, {
+		mode = "n",
+		source = source,
+		insert = function(text)
 			vim.schedule(function()
 				if not vim.api.nvim_buf_is_valid(input.bufnr) or not vim.api.nvim_win_is_valid(input.winid) then
 					return
 				end
 				local line = vim.api.nvim_buf_get_lines(input.bufnr, 0, 1, false)[1] or ""
 				local separator = line:match("%s$") and "" or " "
-				vim.api.nvim_buf_set_text(input.bufnr, 0, #line, 0, #line, { separator .. filepath .. " " })
+				vim.api.nvim_buf_set_text(input.bufnr, 0, #line, 0, #line, { separator .. text })
 				vim.api.nvim_set_current_win(input.winid)
 				vim.cmd("startinsert!")
 			end)
-		end)
-	end, { noremap = true, nowait = true, desc = "Pick file into opencode prompt" })
-
-	input:mount()
+		end,
+		restore = function()
+			if vim.api.nvim_win_is_valid(input.winid) then
+				vim.api.nvim_set_current_win(input.winid)
+				vim.cmd("startinsert!")
+			end
+		end,
+	})
 	if opts.opencode_completion then
 		vim.bo[input.bufnr].filetype = "opencode_ask"
 		pcall(vim.lsp.start, require("opencode.ui.ask.cmp"), { bufnr = input.bufnr })

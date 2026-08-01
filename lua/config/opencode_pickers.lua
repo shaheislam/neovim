@@ -121,6 +121,32 @@ local function item_payload(item)
 	return header .. "\n" .. item.text
 end
 
+local function prompt_payload(item)
+	return item_payload(item):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "") .. " "
+end
+
+local function prompt_lifecycle(prompt, cleanup)
+	local stage = { completed = false, transitioned = false }
+	local function on_close()
+		if cleanup then
+			pcall(cleanup)
+		end
+		vim.schedule(function()
+			if not stage.completed and not stage.transitioned and prompt and prompt.owner and prompt.owner.restore then
+				prompt.owner.restore()
+			end
+		end)
+	end
+	return stage, on_close
+end
+
+local function restore_prompt(opts)
+	local owner = opts and opts.prompt and opts.prompt.owner
+	if owner and owner.restore then
+		owner.restore()
+	end
+end
+
 local function item_reference(item)
 	return table.concat({
 		"OpenCode reference",
@@ -831,6 +857,7 @@ local function open_message_picker(items, scope, opts)
 	local label = opts.label or scopes[scope] or scopes.all
 	if #items == 0 then
 		vim.notify("No OpenCode " .. label:lower() .. " found", vim.log.levels.WARN, { title = "opencode" })
+		restore_prompt(opts)
 		return
 	end
 
@@ -840,6 +867,7 @@ local function open_message_picker(items, scope, opts)
 	local ok_mkdir = pcall(vim.fn.mkdir, preview_dir, "p")
 	if not ok_mkdir then
 		vim.notify("Could not create OpenCode preview directory", vim.log.levels.ERROR, { title = "opencode" })
+		restore_prompt(opts)
 		return
 	end
 	for idx, item in ipairs(items) do
@@ -868,6 +896,7 @@ local function open_message_picker(items, scope, opts)
 		if not ok_write then
 			vim.notify("Could not write OpenCode preview", vim.log.levels.ERROR, { title = "opencode" })
 			vim.fn.delete(preview_dir, "rf")
+			restore_prompt(opts)
 			return
 		end
 	end
@@ -875,15 +904,25 @@ local function open_message_picker(items, scope, opts)
 	local function first_item(selected)
 		return selected_items(selected, entry_map)[1]
 	end
+	local stage, on_close = prompt_lifecycle(opts.prompt, function()
+		vim.fn.delete(preview_dir, "rf")
+	end)
+
+	local function transition(callback)
+		stage.transitioned = true
+		vim.schedule(callback)
+	end
+
+	local function launch_scope(new_scope)
+		if opts.all_sessions then
+			M.all_sessions(new_scope, { prompt = opts.prompt })
+		else
+			M.messages(new_scope, { session = opts.session, prompt = opts.prompt })
+		end
+	end
 
 	local function reopen(new_scope)
-		vim.schedule(function()
-			if opts.all_sessions then
-				M.all_sessions(new_scope)
-			else
-				M.messages(new_scope, { session = opts.session })
-			end
-		end)
+		transition(function() launch_scope(new_scope) end)
 	end
 
 	local function pick_scope()
@@ -895,16 +934,19 @@ local function open_message_picker(items, scope, opts)
 			scope_map[entry] = scope_name
 		end
 
+		local scope_stage, scope_close = prompt_lifecycle(opts.prompt)
 		fzf.fzf_exec(scope_entries, {
 			prompt = "OpenCode Scope> ",
+			winopts = { on_close = scope_close },
 			fzf_opts = { ["--header"] = "Enter: reopen picker with selected scope" },
 			actions = {
-				["default"] = function(selected)
+				["enter"] = function(selected)
 					local utils = require("fzf-lua.utils")
 					local key = selected and selected[1] and utils.strip_ansi_coloring(selected[1])
 					local new_scope = key and scope_map[key]
 					if new_scope then
-						reopen(new_scope)
+						scope_stage.transitioned = true
+						vim.schedule(function() launch_scope(new_scope) end)
 					end
 				end,
 			},
@@ -983,6 +1025,31 @@ local function open_message_picker(items, scope, opts)
 			end)
 		end,
 	}
+	if opts.prompt then
+		actions = {
+			["enter"] = function(selected)
+				local item = first_item(selected)
+				if not item then return end
+				stage.completed = true
+				opts.prompt.owner.insert(prompt_payload(item))
+			end,
+			["alt-s"] = function()
+				transition(pick_scope)
+			end,
+			["ctrl-s"] = function()
+				transition(function() M.sessions(scope, { prompt = opts.prompt }) end)
+			end,
+			["ctrl-r"] = function()
+				transition(function()
+					if opts.all_sessions then
+						M.all_sessions(scope, { refresh = true, prompt = opts.prompt })
+					else
+						M.messages(scope, { session = opts.session, refresh = true, prompt = opts.prompt })
+					end
+				end)
+			end,
+		}
+	end
 
 	local scope_actions = {
 		["alt-a"] = "all",
@@ -1002,13 +1069,13 @@ local function open_message_picker(items, scope, opts)
 		prompt = "OpenCode " .. label .. "> ",
 		preview = preview_command(preview_dir),
 		winopts = {
-			on_close = function()
-				vim.fn.delete(preview_dir, "rf")
-			end,
+			on_close = on_close,
 		},
 		fzf_opts = {
 			["--multi"] = true,
-			["--header"] = "Enter: transcript | A-l: transcript+live | C-l: live | C-f: forkpane | C-w: gwtfork | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview",
+			["--header"] = opts.prompt
+					and "Enter: insert | A-s: scopes | A-a/p/m/r/t/o: scope | C-s: sessions | C-r: refresh | C-/: preview"
+				or "Enter: transcript | A-l: transcript+live | C-l: live | C-f: forkpane | C-w: gwtfork | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview",
 		},
 		actions = actions,
 	})
@@ -1023,9 +1090,14 @@ function M.messages(scope, opts)
 		api.messages(session.id, function(messages, err)
 			if not messages then
 				api.notify_error(err)
+				restore_prompt(opts)
 				return
 			end
-			open_message_picker(build_items(session, messages, scope), scope, { session = session })
+			open_message_picker(
+				build_items(session, messages, scope),
+				scope,
+				vim.tbl_extend("force", opts, { session = session })
+			)
 		end, { refresh = opts.refresh })
 	end
 
@@ -1037,6 +1109,7 @@ function M.messages(scope, opts)
 	api.latest_session(function(session, err)
 		if not session then
 			api.notify_error(err)
+			restore_prompt(opts)
 			return
 		end
 		fetch_for_session(session)
@@ -1050,10 +1123,12 @@ function M.all_sessions(scope, opts)
 	api.sessions(function(sessions, err)
 		if not sessions then
 			api.notify_error(err)
+			restore_prompt(opts)
 			return
 		end
 		if #sessions == 0 then
 			vim.notify("No OpenCode sessions found", vim.log.levels.WARN, { title = "opencode" })
+			restore_prompt(opts)
 			return
 		end
 
@@ -1069,7 +1144,10 @@ function M.all_sessions(scope, opts)
 					open_message_picker(
 						all_items,
 						scope,
-						{ label = "All sessions " .. (scopes[scope] or scopes.all), all_sessions = true }
+						vim.tbl_extend("force", opts, {
+							label = "All sessions " .. (scopes[scope] or scopes.all),
+							all_sessions = true,
+						})
 					)
 				end
 			end, { refresh = opts.refresh })
@@ -1077,16 +1155,19 @@ function M.all_sessions(scope, opts)
 	end, { refresh = opts.refresh })
 end
 
-function M.sessions(scope)
+function M.sessions(scope, opts)
 	scope = scope or "all"
+	opts = opts or {}
 	local api = require("config.opencode_messages")
 	api.sessions(function(sessions, err)
 		if not sessions then
 			api.notify_error(err)
+			restore_prompt(opts)
 			return
 		end
 		if #sessions == 0 then
 			vim.notify("No OpenCode sessions found", vim.log.levels.WARN, { title = "opencode" })
+			restore_prompt(opts)
 			return
 		end
 
@@ -1107,53 +1188,72 @@ function M.sessions(scope)
 			vim.fn.writefile(session_preview_lines(session), ("%s/%04d.md"):format(preview_dir, idx))
 		end
 
+		local stage, on_close = prompt_lifecycle(opts.prompt, function()
+			vim.fn.delete(preview_dir, "rf")
+		end)
+		local actions = {
+			["default"] = function(selected)
+				local item = selected_items(selected, entry_map)[1]
+				if not item then
+					return
+				end
+				vim.schedule(function()
+					M.messages(scope, { session = item })
+				end)
+			end,
+			["ctrl-o"] = function(selected)
+				local item = selected_items(selected, entry_map)[1]
+				if item then
+					switch_tui_session({ session = item })
+				end
+			end,
+		}
+		if opts.prompt then
+			actions = {
+				["enter"] = function(selected)
+					local item = selected_items(selected, entry_map)[1]
+					if not item then return end
+					stage.transitioned = true
+					vim.schedule(function()
+						M.messages(scope, { session = item, prompt = opts.prompt })
+					end)
+				end,
+			}
+		end
+
 		fzf.fzf_exec(entries, {
 			prompt = "OpenCode Sessions> ",
 			preview = preview_command(preview_dir),
 			winopts = {
-				on_close = function()
-					vim.fn.delete(preview_dir, "rf")
-				end,
+				on_close = on_close,
 			},
-			fzf_opts = { ["--header"] = "Enter: search selected session | C-o: switch live pane" },
-			actions = {
-				["default"] = function(selected)
-					local item = selected_items(selected, entry_map)[1]
-					if not item then
-						return
-					end
-					vim.schedule(function()
-						M.messages(scope, { session = item })
-					end)
-				end,
-				["ctrl-o"] = function(selected)
-					local item = selected_items(selected, entry_map)[1]
-					if item then
-						switch_tui_session({ session = item })
-					end
-				end,
+			fzf_opts = {
+				["--header"] = opts.prompt
+					and "Enter: browse selected session | C-/: preview"
+					or "Enter: search selected session | C-o: switch live pane",
 			},
+			actions = actions,
 		})
-	end)
+	end, { refresh = opts.refresh })
 end
 
-function M.all()
-	M.messages("all")
+function M.all(opts)
+	M.messages("all", opts)
 end
-function M.prompts()
-	M.messages("prompts")
+function M.prompts(opts)
+	M.messages("prompts", opts)
 end
-function M.assistant()
-	M.messages("assistant")
+function M.assistant(opts)
+	M.messages("assistant", opts)
 end
-function M.reasoning()
-	M.messages("reasoning")
+function M.reasoning(opts)
+	M.messages("reasoning", opts)
 end
-function M.tools()
-	M.messages("tools")
+function M.tools(opts)
+	M.messages("tools", opts)
 end
-function M.tool_output()
-	M.messages("tool_output")
+function M.tool_output(opts)
+	M.messages("tool_output", opts)
 end
 
 -- ============================================================

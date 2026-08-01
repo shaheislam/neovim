@@ -208,35 +208,23 @@ eq(promise_ui.input, adapted_input, "config is idempotent and does not wrap the 
 
 print("PASS opencode config installs one plugin-local NUI input adapter and no global cmdline workaround")
 
--- ===== Section 3: <leader>ff fzf-lua picker inside the OCV terminal composer =====
+-- ===== Section 3: shared picker catalog inside the OCV terminal composer =====
 
-local recorded_files_opts
-package.loaded["fzf-lua"] = {
-	files = function(opts)
-		recorded_files_opts = opts
+local prompt_bindings = {}
+package.loaded["config.fzf_prompt"] = {
+	bind = function(buf, owner)
+		table.insert(prompt_bindings, { buf = buf, owner = owner })
 	end,
 }
-package.loaded["fzf-lua.path"] = {
-	entry_to_file = function(entry, _)
-		return { path = vim.fn.getcwd() .. "/" .. entry }
-	end,
-}
+
 assert(type(opencode_terminal_opts.on_create) == "function", "the OpenCode terminal configures a one-time on_create hook")
 
 local terminal_buf = vim.api.nvim_create_buf(false, true)
 opencode_terminal_opts.on_create({ bufnr = terminal_buf })
 
-local terminal_mapping
-vim.api.nvim_buf_call(terminal_buf, function()
-	terminal_mapping = vim.fn.maparg("<leader>ff", "t", false, true)
-end)
-assert(type(terminal_mapping.callback) == "function", "<leader>ff is registered in terminal mode with a Lua callback")
-eq(terminal_mapping.buffer, 1, "the OCV picker mapping is local to the OpenCode terminal buffer")
-eq(terminal_mapping.desc, "Pick file into opencode prompt", "the OCV picker mapping has a discoverable description")
-
-recorded_files_opts = nil
-terminal_mapping.callback()
-assert(type(recorded_files_opts) == "table", "the OCV terminal mapping opens the fzf-lua files picker")
+eq(#prompt_bindings, 1, "the OCV composer binds the shared prompt picker catalog")
+eq(prompt_bindings[1].buf, terminal_buf, "the OCV picker catalog is local to its terminal buffer")
+eq(prompt_bindings[1].owner.mode, "t", "the OCV picker catalog uses terminal-mode mappings")
 
 local appended
 package.loaded["config.opencode_http"] = {
@@ -245,19 +233,19 @@ package.loaded["config.opencode_http"] = {
 	end,
 }
 
-recorded_files_opts.actions.default({ "lua/plugins/opencode.lua" }, {})
+prompt_bindings[1].owner.insert("main abc123 lua/plugins/opencode.lua ")
 eq(appended, {
-	text = "lua/plugins/opencode.lua ",
+	text = "main abc123 lua/plugins/opencode.lua ",
 	opts = {
 		title = "opencode",
-		success = "Sent path to OpenCode",
+		success = "Sent picker selection to OpenCode",
 		fallback_clipboard = true,
 	},
-}, "selecting a file appends its clean path to the live OCV composer through the HTTP bridge")
+}, "the shared picker sink appends arbitrary selections to the live OCV composer through the HTTP bridge")
 
 vim.api.nvim_buf_delete(terminal_buf, { force = true })
 
-print("PASS <leader>ff in the OCV terminal opens fzf-lua and appends the picked path to its live composer")
+print("PASS the OCV terminal binds the shared picker catalog and appends its selections")
 
 -- ===== Section 4: shared modal NUI prompt =====
 
@@ -320,27 +308,25 @@ eq(modal.popup_opts.relative, "editor", "the modal prompt is positioned relative
 eq(modal.popup_opts.position.row, "90%", "the modal prompt is positioned near the bottom of the editor")
 eq(modal.popup_opts.position.col, "50%", "the modal prompt remains horizontally centered")
 eq(modal.popup_opts.border.style, "rounded", "the modal prompt uses the existing rounded-float visual language")
-assert(modal_map("n", "<leader>ff"), "the modal prompt exposes the file picker only in Normal mode")
 assert(modal_map("n", "<Esc>"), "the modal prompt can be closed from Normal mode with <Esc>")
 assert(modal_map("n", "q"), "the modal prompt can be closed from Normal mode with q")
-
-recorded_files_opts = nil
-modal_map("n", "<leader>ff").callback()
-assert(type(recorded_files_opts) == "table", "Normal-mode <leader>ff opens the fzf-lua files picker")
+eq(#prompt_bindings, 2, "the NUI prompt binds the shared prompt picker catalog")
+eq(prompt_bindings[2].buf, modal_buf, "the NUI picker catalog is local to its prompt buffer")
+eq(prompt_bindings[2].owner.mode, "n", "the NUI picker catalog is available only from Normal mode")
 
 local modal_scheduled = {}
 local original_schedule = vim.schedule
 vim.schedule = function(fn)
 	table.insert(modal_scheduled, fn)
 end
-recorded_files_opts.actions.default({ "lua/plugins/opencode.lua" }, {})
+prompt_bindings[2].owner.insert("main abc123 lua/plugins/opencode.lua ")
 vim.schedule = original_schedule
-eq(#modal_scheduled, 1, "the picked path is deferred until fzf-lua restores the modal prompt window")
+eq(#modal_scheduled, 1, "the picker selection is deferred until fzf-lua restores the modal prompt window")
 modal_scheduled[1]()
 eq(
 	vim.api.nvim_buf_get_lines(modal_buf, 0, 1, false)[1],
-	"> explain this lua/plugins/opencode.lua ",
-	"the picked project-relative path is appended to the modal prompt"
+	"> explain this main abc123 lua/plugins/opencode.lua ",
+	"arbitrary picker output is appended to the modal prompt"
 )
 
 modal_map("n", "<Esc>").callback()
@@ -350,7 +336,7 @@ vim.ui.input = original_input
 vim.api.nvim_set_current_buf(source_buf)
 vim.api.nvim_buf_delete(source_buf, { force = true })
 
-print("PASS <leader>aoa opens a modal NUI prompt with Normal-mode <leader>ff file insertion")
+print("PASS <leader>aoa opens a modal NUI prompt with the shared Normal-mode picker catalog")
 
 -- ===== Section 5: plugin-owned asks use the shared NUI prompt =====
 

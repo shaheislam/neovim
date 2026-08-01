@@ -2346,6 +2346,12 @@ return {
 				if type(fn) == "function" and not name:match("^_") then
 					original_fns[name] = fn
 					fzf[name] = function(picker_opts, ...)
+						-- Internal probe calls (_start=false) resolve the picker's command/opts
+						-- without starting fzf; forward them untouched so callers relying on
+						-- fzf-lua's multi-return contract (e.g. config.fzf_prompt) aren't broken.
+						if type(picker_opts) == "table" and picker_opts._start == false then
+							return original_fns[name](picker_opts, ...)
+						end
 						original_bufnr = vim.api.nvim_get_current_buf()
 						-- Capture CWD at picker open time (before any directory changes)
 						local picker_cwd = (type(picker_opts) == "table" and picker_opts.cwd) or vim.fn.getcwd()
@@ -2894,118 +2900,7 @@ return {
 			{
 				"<leader>fz",
 				function()
-					local fzf = require("fzf-lua")
-
-					-- Create custom builtin menu including neoclip
-					fzf.fzf_exec(function(cb)
-						-- Add standard fzf-lua builtins
-						local builtins = {
-							"files",
-							"git_files",
-							"grep",
-							"live_grep",
-							"grep_cword",
-							"grep_cWORD",
-							"buffers",
-							"tabs",
-							"lines",
-							"blines",
-							"tags",
-							"btags",
-							"marks",
-							"jumps",
-							"changes",
-							"registers",
-							"keymaps",
-							"commands",
-							"command_history",
-							"help_tags",
-							"man_pages",
-							"colorschemes",
-							"git_commits",
-							"git_bcommits",
-							"git_branches",
-							"git_status",
-							"git_stash",
-							"lsp_references",
-							"lsp_definitions",
-							"lsp_declarations",
-							"lsp_typedefs",
-							"lsp_implementations",
-							"lsp_document_symbols",
-							"lsp_workspace_symbols",
-							"diagnostics_document",
-							"diagnostics_workspace",
-							"oldfiles",
-							"quickfix",
-							"loclist",
-						}
-
-						for _, builtin in ipairs(builtins) do
-							cb(builtin)
-						end
-
-						-- Add neoclip as a custom entry
-						cb("yank_history")
-
-						local opencode_builtins = {
-							"opencode_messages",
-							"opencode_prompts",
-							"opencode_assistant",
-							"opencode_reasoning",
-							"opencode_tools",
-							"opencode_tool_output",
-							"opencode_sessions",
-							"opencode_all_sessions",
-						}
-						for _, builtin in ipairs(opencode_builtins) do
-							cb(builtin)
-						end
-
-						cb(nil) -- Signal completion
-					end, {
-						prompt = "FZF-Lua Builtins> ",
-						actions = {
-							["default"] = function(selected)
-								if not selected or #selected == 0 then
-									return
-								end
-								local choice = selected[1]
-
-								-- Handle neoclip specially
-								if choice == "yank_history" then
-									vim.schedule(function()
-										require("neoclip.fzf")()
-									end)
-								elseif choice:match("^opencode_") then
-									local pickers = require("config.opencode_pickers")
-									local opencode_actions = {
-										opencode_messages = pickers.all,
-										opencode_prompts = pickers.prompts,
-										opencode_assistant = pickers.assistant,
-										opencode_reasoning = pickers.reasoning,
-										opencode_tools = pickers.tools,
-										opencode_tool_output = pickers.tool_output,
-										opencode_sessions = function()
-											pickers.sessions("all")
-										end,
-										opencode_all_sessions = function()
-											pickers.all_sessions("all")
-										end,
-									}
-									local action = opencode_actions[choice]
-									if action then
-										vim.schedule(action)
-									end
-								else
-									-- Launch standard builtin
-									vim.schedule(function()
-										fzf[choice]()
-									end)
-								end
-							end,
-						},
-					})
+					require("config.fzf_prompt").open_menu()
 				end,
 				desc = "FZF-Lua Builtin Pickers",
 			},

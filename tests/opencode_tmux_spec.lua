@@ -309,15 +309,15 @@ vim.fn.setpos("'<", { selection_buffer, 1, 1, 0 })
 vim.fn.setpos("'>", { selection_buffer, 2, 6, 0 })
 send_selection()
 
-eq(#tmux_prompt_calls, 1, "<leader>aoS delegates to the pane-targeted tmux transport")
-eq(#http_prompt_calls, 0, "<leader>aoS never uses broadcast HTTP append")
+eq(#http_prompt_calls, 1, "<leader>aoS delegates to the broadcast HTTP transport")
+eq(#tmux_prompt_calls, 0, "<leader>aoS never uses the pane-targeted tmux transport")
 eq(
-	tmux_prompt_calls[1].text,
+	http_prompt_calls[1].text,
 	"[file: lua/example.lua, lines 1-2]\nfirst\nsecond",
 	"Diffview selection keeps its file and line context"
 )
 eq(
-	tmux_prompt_calls[1].opts,
+	http_prompt_calls[1].opts,
 	{ title = "opencode", success = "Sent selection to OpenCode", fallback_clipboard = true },
 	"selection keeps its existing delivery options"
 )
@@ -337,4 +337,4 @@ assert(vim.fn.delete(root, "rf") == 0, "failed to remove temporary state")
 print("PASS same-window OpenCode tmux prompt append")
 print("PASS OpenCode attach record trust boundary")
 print("PASS OpenCode tmux failure fallback")
-print("PASS <leader>aoS targeted transport wiring")
+print("PASS <leader>aoS broadcast transport wiring")

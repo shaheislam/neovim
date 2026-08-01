@@ -433,17 +433,20 @@ function M.send_with_model(text, provider_id, model_id, opts)
 
   local tmux = require("config.opencode_tmux")
   local target = tmux.resolve_attach()
-  if
-    type(target) ~= "table"
-    or type(target.pane) ~= "string"
-    or type(target.cwd) ~= "string"
-    or type(target.title) ~= "string"
-  then
-    notify("No unique same-window OpenCode pane found", vim.log.levels.ERROR, opts.title)
-    return
-  end
-  if target.title == "OpenCode" or not pane_title_for_session(target.title:match("^OC | (.*)$")) then
-    notify("The visible OpenCode session cannot be identified safely", vim.log.levels.ERROR, opts.title)
+  -- A same-window tmux OpenCode pane is only registered when OpenCode runs
+  -- directly in a tmux pane. opencode.nvim deliberately skips that
+  -- registration when it runs OpenCode nested in its own terminal, so fall
+  -- back to matching by directory alone in that case.
+  local pane_identified = type(target) == "table"
+    and type(target.pane) == "string"
+    and type(target.cwd) == "string"
+    and type(target.title) == "string"
+    and target.title ~= "OpenCode"
+    and pane_title_for_session(target.title:match("^OC | (.*)$")) ~= nil
+
+  local dir = pane_identified and target.cwd or canonical(vim.fn.getcwd())
+  if not dir then
+    notify("Could not resolve the OpenCode project directory", vim.log.levels.ERROR, opts.title)
     return
   end
 
@@ -465,19 +468,26 @@ function M.send_with_model(text, provider_id, model_id, opts)
 
     local matches = {}
     for _, session in ipairs(sessions) do
-      if valid_root_session(session, target.cwd) and pane_title_for_session(session.title) == target.title then
+      if
+        valid_root_session(session, dir)
+        and (not pane_identified or pane_title_for_session(session.title) == target.title)
+      then
         table.insert(matches, session)
       end
     end
     if #matches ~= 1 then
-      notify("Could not uniquely identify the visible OpenCode session", vim.log.levels.ERROR, opts.title)
+      local message = pane_identified and "Could not uniquely identify the visible OpenCode session"
+        or ("Could not uniquely identify the OpenCode session for " .. dir)
+      notify(message, vim.log.levels.ERROR, opts.title)
       return
     end
 
-    local current_target = tmux.resolve_attach()
-    if not same_attach(target, current_target) then
-      notify("The visible OpenCode session changed before submission", vim.log.levels.ERROR, opts.title)
-      return
+    if pane_identified then
+      local current_target = tmux.resolve_attach()
+      if not same_attach(target, current_target) then
+        notify("The visible OpenCode session changed before submission", vim.log.levels.ERROR, opts.title)
+        return
+      end
     end
 
     local session_id = matches[1].id
@@ -495,8 +505,8 @@ function M.send_with_model(text, provider_id, model_id, opts)
       local message = (post_output or ""):gsub("^%s+", ""):gsub("%s+$", "")
       if message == "" then message = "Could not send to OpenCode" end
       notify(message, vim.log.levels.ERROR, opts.title)
-    end, { dir = target.cwd })
-  end, { dir = target.cwd })
+    end, { dir = dir })
+  end, { dir = dir })
 end
 
 return M

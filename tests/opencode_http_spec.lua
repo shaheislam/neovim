@@ -118,6 +118,29 @@ eq(request.post.opts, { dir = attach_cwd }, "routes the prompt through the adjac
 eq(notifications[#notifications].message, "Prompt accepted", "reports acceptance only after targeted submission")
 eq(resolve_calls, 2, "revalidates the attachment immediately before submission")
 
+local original_getcwd = vim.fn.getcwd
+vim.fn.getcwd = function()
+	return equivalent_cwd
+end
+reset({ resolve_results = {} })
+send()
+eq(request.get, {
+	path = "/session?roots=true&limit=1000",
+	opts = { dir = attach_cwd },
+}, "falls back to the current directory when no tmux attach is registered")
+eq(
+	request.post.path,
+	"/session/ses_visible/prompt_async",
+	"submits to the sole root session for the current directory"
+)
+eq(
+	notifications[#notifications].message,
+	"Prompt accepted",
+	"reports success via the no-attach directory fallback"
+)
+eq(resolve_calls, 1, "does not revalidate a pane that was never identified")
+vim.fn.getcwd = original_getcwd
+
 local function expect_rejected(label, opts)
 	reset(opts)
 	send()

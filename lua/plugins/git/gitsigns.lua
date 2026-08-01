@@ -347,6 +347,39 @@ return {
 			end,
 		})
 
+		-- Full blame view (<leader>hv) opens plain vimdiff-style actions on 'd'/'s'/'S'/'e'.
+		-- Override to route through DiffView instead, since that's the canonical diff/commit
+		-- view elsewhere in this config; reblame ('r'/'R') is left untouched.
+		vim.api.nvim_create_autocmd("FileType", {
+			pattern = "gitsigns-blame",
+			group = vim.api.nvim_create_augroup("GitsignsBlameDiffviewOverride", { clear = true }),
+			callback = function(args)
+				vim.schedule(function()
+					local bufnr = args.buf
+
+					vim.keymap.set("n", "d", function()
+						local sha = vim.api.nvim_get_current_line():match("^(%x+)")
+						if not sha then
+							vim.notify("No commit on this line", vim.log.levels.WARN)
+							return
+						end
+						vim.cmd("DiffviewOpen " .. sha .. "^!")
+						show_single_commit_info(sha)
+					end, { buffer = bufnr, desc = "Open in DiffView" })
+
+					for _, lhs in ipairs({ "s", "S", "e" }) do
+						pcall(vim.keymap.del, "n", lhs, { buffer = bufnr })
+					end
+
+					-- Rebuild the <CR> popup menu without the removed show-commit entries
+					pcall(vim.cmd, "silent! aunmenu ]GitsignsBlame")
+					vim.cmd([[nmenu <silent> ]GitsignsBlame.Reblame\ at\ commit r]])
+					vim.cmd([[nmenu <silent> ]GitsignsBlame.Reblame\ at\ commit\ parent R]])
+					vim.cmd([[nmenu <silent> ]GitsignsBlame.Open\ in\ DiffView d]])
+				end)
+			end,
+		})
+
 		-- Set word diff highlights
 		vim.api.nvim_set_hl(0, "GitSignsChangeInline", { fg = "#ffdb69", bg = "#3a3a2a" })
 		vim.api.nvim_set_hl(0, "GitSignsChangeLnInline", { fg = "#ffdb69", bg = "#3a3a2a" })

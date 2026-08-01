@@ -204,6 +204,9 @@ package.loaded["config.aws_profiles"] = {
 		local profile, account_id = display_row:match("^(.-)  •  (.-)  •  ")
 		return { profile = profile, account_id = account_id }
 	end,
+	combined = function(entry)
+		return ("%s (%s)"):format(entry.profile, entry.account_id)
+	end,
 }
 
 inserted = {}
@@ -219,6 +222,20 @@ eq(
 )
 aws_call.opts.actions.enter({ "prod  •  325875666703  •  AWSAdministratorAccess" })
 eq(inserted, { "325875666703 " }, "selecting an AWS account inserts its account id")
+
+inserted = {}
+aws_call.opts.actions["alt-y"]({ "prod  •  325875666703  •  AWSAdministratorAccess" })
+eq(inserted, { "prod " }, "alt-y inserts the AWS account's profile name")
+
+inserted = {}
+aws_call.opts.actions["alt-b"]({ "prod  •  325875666703  •  AWSAdministratorAccess" })
+eq(inserted, { "prod (325875666703) " }, "alt-b inserts the combined profile name and account id")
+
+eq(
+	aws_call.opts.fzf_opts["--header"],
+	":: enter insert account id  ::  alt-y insert profile name  ::  alt-b insert both",
+	"the prompt-mode AWS picker's header documents all three insertion actions"
+)
 
 vim.schedule = original_schedule
 vim.api.nvim_get_current_win = original_get_current_win

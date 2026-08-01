@@ -109,6 +109,17 @@ eq(name_decoded.profile, "prod", "yank_profile_name returns the decoded profile"
 eq(vim.fn.getreg("+"), "prod", "the alt action yanks the profile name to the + register")
 eq(notified[#notified].msg, "Yanked profile name: prod", "the alt action notifies with the profile name")
 
+eq(
+	aws_profiles.combined({ profile = "prod", account_id = "325875666703" }),
+	"prod (325875666703)",
+	"combined() formats the profile name with the account id in parentheses"
+)
+
+local both_decoded = aws_profiles.yank_both(row)
+eq(both_decoded.profile, "prod", "yank_both returns the decoded profile")
+eq(vim.fn.getreg("+"), "prod (325875666703)", "the combined action yanks 'profile (account_id)' to the + register")
+eq(notified[#notified].msg, "Yanked account: prod (325875666703)", "the combined action notifies with the combined value")
+
 vim.fn.setreg("+", original_reg)
 vim.notify = original_notify
 

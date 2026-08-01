@@ -2524,7 +2524,7 @@ return {
 					require("fzf-lua").fzf_exec(rows, {
 						prompt = "AWS Accounts> ",
 						fzf_opts = {
-							["--header"] = ":: enter yank account id  ::  alt-y yank profile name",
+							["--header"] = ":: enter yank account id  ::  alt-y yank profile name  ::  alt-b yank both",
 						},
 						actions = {
 							["default"] = function(selected)
@@ -2534,6 +2534,10 @@ return {
 							["alt-y"] = function(selected)
 								local entry = selected and selected[1]
 								if entry then aws_profiles.yank_profile_name(entry) end
+							end,
+							["alt-b"] = function(selected)
+								local entry = selected and selected[1]
+								if entry then aws_profiles.yank_both(entry) end
 							end,
 						},
 					})

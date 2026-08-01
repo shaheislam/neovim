@@ -89,4 +89,16 @@ function M.yank_profile_name(display_row)
 	return decoded
 end
 
+function M.combined(entry)
+	return ("%s (%s)"):format(entry.profile or "", entry.account_id or "")
+end
+
+function M.yank_both(display_row)
+	local decoded = M.decode_row(display_row)
+	local value = M.combined(decoded)
+	vim.fn.setreg("+", value)
+	vim.notify(("Yanked account: %s"):format(value), vim.log.levels.INFO)
+	return decoded
+end
+
 return M

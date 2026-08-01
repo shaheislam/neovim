@@ -55,6 +55,8 @@ local catalog = {
 	{ name = "dap_variables", key = "<leader>fdv", desc = "Find DAP variables", kind = "display", dap = true },
 	{ name = "dap_frames", key = "<leader>fdf", desc = "Find DAP frames", kind = "display", dap = true },
 
+	{ name = "aws_accounts", key = "<leader>fa", desc = "Find AWS accounts", kind = "aws_account", custom = true },
+
 	{ name = "opencode_messages", desc = "OpenCode messages", custom = true },
 	{ name = "opencode_prompts", desc = "OpenCode prompts", custom = true },
 	{ name = "opencode_assistant", desc = "OpenCode assistant output", custom = true },
@@ -76,8 +78,8 @@ local normal_builtins = {
 	"man_pages", "colorschemes", "git_commits", "git_bcommits", "git_branches", "git_status", "git_stash",
 	"lsp_references", "lsp_definitions", "lsp_declarations", "lsp_typedefs", "lsp_implementations",
 	"lsp_document_symbols", "lsp_workspace_symbols", "diagnostics_document", "diagnostics_workspace", "oldfiles", "quickfix",
-	"loclist", "yank_history", "opencode_messages", "opencode_prompts", "opencode_assistant", "opencode_reasoning",
-	"opencode_tools", "opencode_tool_output", "opencode_sessions", "opencode_all_sessions",
+	"loclist", "yank_history", "aws_accounts", "opencode_messages", "opencode_prompts", "opencode_assistant",
+	"opencode_reasoning", "opencode_tools", "opencode_tool_output", "opencode_sessions", "opencode_all_sessions",
 }
 
 local function trim(value)
@@ -151,6 +153,9 @@ local function entry_value(item, entry, opts)
 	elseif item.kind == "zoxide" then
 		local value = clean(entry)
 		return value:match("^%S+%s+(.+)$") or value
+	elseif item.kind == "aws_account" then
+		local decoded = require("config.aws_profiles").decode_row(entry)
+		return decoded.account_id ~= "" and decoded.account_id or nil
 	end
 	local value = clean(entry)
 	return value ~= "" and value or nil
@@ -313,6 +318,19 @@ local function launch_yanks(owner)
 	})
 end
 
+local function launch_aws_accounts(owner)
+	restore_source(owner)
+	local aws_profiles = require("config.aws_profiles")
+	local profiles = aws_profiles.profiles()
+	local rows = vim.tbl_map(aws_profiles.row, profiles)
+	local stage, on_close = lifecycle(owner)
+	require("fzf-lua").fzf_exec(rows, {
+		prompt = "AWS Accounts> ",
+		winopts = { on_close = on_close },
+		actions = { enter = insert_action(by_name.aws_accounts, owner, stage) },
+	})
+end
+
 local function launch_opencode(item, owner)
 	restore_source(owner)
 	local pickers = require("config.opencode_pickers")
@@ -340,6 +358,8 @@ function M.launch(name, owner)
 		launch_projects(owner)
 	elseif item.name == "yank_history" then
 		launch_yanks(owner)
+	elseif item.name == "aws_accounts" then
+		launch_aws_accounts(owner)
 	elseif item.name:match("^opencode_") then
 		launch_opencode(item, owner)
 	else
@@ -375,6 +395,28 @@ local function open_normal_menu()
 				vim.schedule(function()
 					if choice == "yank_history" then
 						require("neoclip.fzf")()
+					elseif choice == "aws_accounts" then
+						local aws_profiles = require("config.aws_profiles")
+						local profiles = aws_profiles.profiles()
+						local rows = vim.tbl_map(aws_profiles.row, profiles)
+						fzf.fzf_exec(rows, {
+							prompt = "AWS Accounts> ",
+							fzf_opts = {
+								["--header"] = ":: enter yank account id  ::  alt-y yank profile name",
+							},
+							actions = {
+								["default"] = function(selected)
+									if selected and selected[1] then
+										aws_profiles.yank_account_id(selected[1])
+									end
+								end,
+								["alt-y"] = function(selected)
+									if selected and selected[1] then
+										aws_profiles.yank_profile_name(selected[1])
+									end
+								end,
+							},
+						})
 					elseif choice:match("^opencode_") then
 						local pickers = require("config.opencode_pickers")
 						local actions = {

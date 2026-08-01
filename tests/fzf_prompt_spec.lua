@@ -123,6 +123,7 @@ for _, expected in ipairs({
 	"command_history",
 	"lsp_references",
 	"tags",
+	"aws_accounts",
 }) do
 	contains(names, expected, "prompt catalog includes " .. expected)
 end
@@ -188,6 +189,36 @@ eq(
 	"register pickers insert the actual flattened register contents"
 )
 vim.fn.setreg("z", original_register)
+
+package.loaded["config.aws_profiles"] = {
+	profiles = function()
+		return {
+			{ profile = "labs", account_id = "154805902702", role = "AWSAdministratorAccess" },
+			{ profile = "prod", account_id = "325875666703", role = "AWSAdministratorAccess" },
+		}
+	end,
+	row = function(entry)
+		return ("%s  •  %s  •  %s"):format(entry.profile, entry.account_id, entry.role or "")
+	end,
+	decode_row = function(display_row)
+		local profile, account_id = display_row:match("^(.-)  •  (.-)  •  ")
+		return { profile = profile, account_id = account_id }
+	end,
+}
+
+inserted = {}
+scheduled = {}
+picker_calls = {}
+prompt.launch("aws_accounts", owner)
+local aws_call = picker_calls[#picker_calls]
+eq(aws_call.name, "fzf_exec", "aws_accounts launches a custom fzf_exec picker, not a public fzf-lua provider")
+eq(
+	aws_call.entries,
+	{ "labs  •  154805902702  •  AWSAdministratorAccess", "prod  •  325875666703  •  AWSAdministratorAccess" },
+	"aws_accounts rows are built from the parsed profiles"
+)
+aws_call.opts.actions.enter({ "prod  •  325875666703  •  AWSAdministratorAccess" })
+eq(inserted, { "325875666703 " }, "selecting an AWS account inserts its account id")
 
 vim.schedule = original_schedule
 vim.api.nvim_get_current_win = original_get_current_win

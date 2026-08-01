@@ -2514,6 +2514,33 @@ return {
 				desc = "Grep visual selection",
 			},
 
+			-- AWS SSO account picker
+			{
+				"<leader>fa",
+				function()
+					local aws_profiles = require("config.aws_profiles")
+					local profiles = aws_profiles.profiles()
+					local rows = vim.tbl_map(aws_profiles.row, profiles)
+					require("fzf-lua").fzf_exec(rows, {
+						prompt = "AWS Accounts> ",
+						fzf_opts = {
+							["--header"] = ":: enter yank account id  ::  alt-y yank profile name",
+						},
+						actions = {
+							["default"] = function(selected)
+								local entry = selected and selected[1]
+								if entry then aws_profiles.yank_account_id(entry) end
+							end,
+							["alt-y"] = function(selected)
+								local entry = selected and selected[1]
+								if entry then aws_profiles.yank_profile_name(entry) end
+							end,
+						},
+					})
+				end,
+				desc = "Find AWS accounts",
+			},
+
 			-- Git pickers
 			{
 				"<leader>gg",

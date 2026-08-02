@@ -39,6 +39,7 @@ end
 -- side effects, for callers (e.g. the opencode.nvim Server patch below) that
 -- already surface success/failure themselves through their own Promise
 -- chains; without it they'd double-notify.
+-- opts.notify_success = false suppresses only successful-delivery notices.
 local function deliver(text, opts, submit, allow_empty)
 	opts = opts or {}
 	if type(text) ~= "string" or (text == "" and not allow_empty) then
@@ -60,7 +61,7 @@ local function deliver(text, opts, submit, allow_empty)
 		dir = opts.dir,
 		submit = submit,
 		on_success = function()
-			if not opts.silent then
+			if not opts.silent and opts.notify_success ~= false then
 				notify(opts.success or "Sent text to OpenCode", vim.log.levels.INFO, opts.title)
 			end
 			if opts.on_success then

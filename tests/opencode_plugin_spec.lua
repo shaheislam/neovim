@@ -510,7 +510,7 @@ prompt_bindings[1].owner.insert("main abc123 lua/plugins/opencode.lua ")
 assert(appended, "the shared picker sink appends selections through the local composer facade")
 eq(appended.text, "main abc123 lua/plugins/opencode.lua ", "the picker selection text is forwarded unchanged")
 eq(appended.opts.title, "opencode", "the picker append keeps its title")
-eq(appended.opts.success, "Sent picker selection to OpenCode", "the picker append keeps its success message")
+eq(appended.opts.notify_success, false, "the picker append suppresses its success notification")
 eq(appended.opts.fallback_clipboard, true, "the picker append keeps its clipboard fallback")
 assert(type(appended.opts.dir) == "string" and appended.opts.dir ~= "", "the picker append pins its owning project directory")
 

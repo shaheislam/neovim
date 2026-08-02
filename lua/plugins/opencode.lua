@@ -115,7 +115,7 @@ local function bind_opencode_terminal_picker(term, dir)
 		insert = function(text)
 			require("config.opencode_prompt").append(text, {
 				title = "opencode",
-				success = "Sent picker selection to OpenCode",
+				notify_success = false,
 				fallback_clipboard = true,
 				dir = dir,
 			})

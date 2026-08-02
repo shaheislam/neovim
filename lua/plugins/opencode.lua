@@ -133,6 +133,10 @@ local function check_opencode_ready(callback)
 end
 
 local function start_opencode_terminal(dir)
+	terminal_adapter.start(dir)
+end
+
+local function open_opencode_terminal(dir)
 	terminal_adapter.open(dir)
 end
 
@@ -199,7 +203,6 @@ local function patch_opencode_server_prompt_delivery()
 				on_success = resolve,
 				on_error = reject,
 			})
-			pcall(terminal_adapter.focus, project_root())
 		end)
 	end
 
@@ -501,15 +504,16 @@ local function submit_prompt_locally(text, opts)
 		fallback_clipboard = false,
 		dir = opts.dir,
 	})
-	pcall(terminal_adapter.focus, opts.dir or project_root())
 end
 
 local function ask_locally()
 	return function()
 		local bufname = vim.api.nvim_buf_get_name(0)
 		local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
+		local line_number = vim.api.nvim_win_get_cursor(0)[1]
+		local line = vim.api.nvim_buf_get_lines(0, line_number - 1, line_number, false)[1] or ""
 		local file_ctx = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
-			and ("[file: " .. filepath .. "]\n")
+			and ("[file: " .. filepath .. ", line " .. line_number .. "]\n" .. line .. "\n")
 			or ""
 
 		open_ask_prompt({
@@ -641,7 +645,6 @@ local function send_visual_selection()
 		success = "Sent selection to OpenCode",
 		fallback_clipboard = true,
 	})
-	pcall(terminal_adapter.focus, project_root())
 end
 
 return {
@@ -689,8 +692,14 @@ return {
 			{
 				"<leader>aos",
 				ask_locally(),
-				mode = { "n", "x" },
+				mode = "n",
 				desc = "Ask opencode (append to prompt)",
+			},
+			{
+				"<leader>aos",
+				ask_locally_visual,
+				mode = "x",
+				desc = "Ask opencode (append selection to prompt)",
 			},
 			{
 				"<leader>aoS",
@@ -1010,7 +1019,7 @@ return {
 				vim.api.nvim_create_autocmd("VimEnter", {
 					once = true,
 					callback = function()
-						vim.defer_fn(start_opencode_terminal, 0)
+						vim.defer_fn(open_opencode_terminal, 0)
 					end,
 				})
 			end

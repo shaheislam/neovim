@@ -397,46 +397,35 @@ local function ensure_live(dir, term)
 	return term
 end
 
-local function ensure_spawned(term, size)
+local function ensure_spawned(term)
 	if terminal_live(term) then
 		return
 	end
 	term._nvim_mini_ready = false
-	term:open(size)
+	term:spawn()
 	start_ready_timeout(term)
 end
 
-function M.open(dir)
-	dir = dir or opts.project_root()
+function M.start(dir)
+	dir = opts.project_root(dir)
 	local term = ensure_live(dir, M.get_terminal(dir))
+	ensure_spawned(term)
+	return term
+end
+
+function M.open(dir)
+	local term = M.start(dir)
 	term:open(resolve_size(term))
 	return term
 end
 
 function M.toggle(dir)
-	dir = dir or opts.project_root()
-	local term = ensure_live(dir, M.get_terminal(dir))
-	term:toggle(resolve_size(term))
-	return term
-end
-
--- Focuses the OpenCode terminal window, opening it first only if it isn't
--- already open (unlike M.open, a bare term:open() on an already-open
--- ToggleTerm terminal isn't guaranteed idempotent and can rearrange splits).
--- Called synchronously right after a composer send is dispatched rather
--- than from that send's async success callback, so a slow/cold terminal
--- spawn can never yank focus away seconds after the user has moved on.
-function M.focus(dir)
-	dir = dir or opts.project_root()
+	dir = opts.project_root(dir)
 	local term = ensure_live(dir, M.get_terminal(dir))
 	if not term:is_open() then
-		term:open(resolve_size(term))
+		ensure_spawned(term)
 	end
-	local wins = vim.fn.win_findbuf(term.bufnr)
-	if wins[1] and vim.api.nvim_win_is_valid(wins[1]) then
-		vim.api.nvim_set_current_win(wins[1])
-		vim.cmd("startinsert")
-	end
+	term:toggle(resolve_size(term))
 	return term
 end
 
@@ -452,17 +441,13 @@ end
 -- owned by this Neovim process. Never broadcasts.
 function M.send(text, send_opts)
 	send_opts = send_opts or {}
-	local dir = opts.project_root(send_opts.dir)
-	local ok, term = pcall(M.get_terminal, dir)
+	local ok, term = pcall(M.start, send_opts.dir)
 	if not ok or not term then
 		if send_opts.on_failure then
 			send_opts.on_failure("Could not create the OpenCode terminal")
 		end
 		return
 	end
-	term = ensure_live(dir, term)
-
-	ensure_spawned(term, resolve_size(term))
 	local payload
 	if text == "" then
 		payload = send_opts.submit and "\r" or ""

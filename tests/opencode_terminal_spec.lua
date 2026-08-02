@@ -26,6 +26,7 @@ local function make_terminal(term)
 	end
 
 	function term:spawn()
+		self.__spawn_count = (self.__spawn_count or 0) + 1
 		registry[self.id] = self
 		if self.on_create then
 			self:on_create()
@@ -184,6 +185,7 @@ setup_adapter()
 local split_dir = "/tmp/opencode-terminal-spec/project-d"
 sent_payloads = {}
 local split_result
+local split_win = vim.api.nvim_get_current_win()
 terminal_adapter.send("hello", {
 	dir = split_dir,
 	on_success = function()
@@ -195,6 +197,9 @@ terminal_adapter.send("hello", {
 })
 
 local split_term = terminal_adapter.get_terminal(split_dir)
+eq(split_term.__spawn_count, 1, "a cold send spawns the terminal process exactly once")
+assert(not split_term:is_open(), "a cold send leaves the spawned terminal UI closed")
+eq(vim.api.nvim_get_current_win(), split_win, "a cold send does not change the current Neovim window")
 split_term.__alive = true
 eq(split_result, nil, "the request stays queued until the terminal is marked ready")
 
@@ -346,49 +351,33 @@ eq(sent_payloads[3].payload, "\r", "submit-only with no text sends just a carria
 
 print("PASS exact PTY payload bytes match bracketed-paste and submit conventions")
 
--- ===== Section 10: M.focus opens/reuses the terminal and moves current-window focus =====
+-- ===== Section 10: hidden start and explicit visibility share one terminal =====
 
 setup_adapter()
-local focus_dir = "/tmp/opencode-terminal-spec/project-focus"
-local scratch_win = vim.api.nvim_get_current_win()
+local visibility_dir = "/tmp/opencode-terminal-spec/project-visibility"
+local editor_win = vim.api.nvim_get_current_win()
+local hidden_term = terminal_adapter.start(visibility_dir)
 
-local focus_term = terminal_adapter.get_terminal(focus_dir)
-focus_term.__alive = true
+eq(hidden_term.__spawn_count, 1, "start() spawns a cold terminal exactly once")
+assert(not hidden_term:is_open(), "start() keeps the terminal UI hidden")
+eq(vim.api.nvim_get_current_win(), editor_win, "start() leaves editor focus unchanged")
+assert(registry[hidden_term.id] == hidden_term, "start() registers the hidden terminal")
 
--- The shared fake's term:open() only flips a flag; it never displays a real
--- window. Wrap it locally (this instance only) so focus() has a genuine
--- window to find, without changing the fake other sections depend on.
-local original_focus_open = focus_term.open
-function focus_term:open(size)
-	original_focus_open(self, size)
-	if not vim.fn.win_findbuf(self.bufnr)[1] then
-		vim.cmd("botright vsplit")
-		vim.api.nvim_win_set_buf(0, self.bufnr)
-	end
-end
+hidden_term.__alive = true
+eq(terminal_adapter.start(visibility_dir), hidden_term, "repeated start() reuses the live hidden terminal")
+eq(hidden_term.__spawn_count, 1, "repeated start() does not spawn another process")
 
-assert(not focus_term:is_open(), "the focus-test terminal starts closed")
-terminal_adapter.focus(focus_dir)
-local focus_win = vim.fn.win_findbuf(focus_term.bufnr)[1]
-assert(focus_win, "focus() opens a real window for a terminal that wasn't visible yet")
-eq(vim.api.nvim_get_current_win(), focus_win, "focus() moves current-window focus onto the terminal's window")
+eq(terminal_adapter.open(visibility_dir), hidden_term, "open() displays the existing hidden terminal")
+assert(hidden_term:is_open(), "open() makes the terminal visible")
+eq(hidden_term.__last_open_size, 42, "open() still resolves the configured split size")
 
--- Calling focus() again on an already-open terminal must not create a
--- duplicate/rearranged window or replace the terminal instance.
-vim.api.nvim_set_current_win(scratch_win)
-terminal_adapter.focus(focus_dir)
-eq(
-	terminal_adapter.get_terminal(focus_dir),
-	focus_term,
-	"a second focus() call on an already-open terminal reuses the same instance"
-)
-eq(
-	vim.api.nvim_get_current_win(),
-	vim.fn.win_findbuf(focus_term.bufnr)[1],
-	"a second focus() call still lands on the terminal's existing window"
-)
+eq(terminal_adapter.toggle(visibility_dir), hidden_term, "toggle() reuses the visible terminal")
+assert(not hidden_term:is_open(), "toggle() closes a visible terminal")
+eq(terminal_adapter.toggle(visibility_dir), hidden_term, "toggle() reopens the same hidden terminal")
+assert(hidden_term:is_open(), "toggle() explicitly reveals a hidden terminal")
+eq(hidden_term.__spawn_count, 1, "manual visibility changes never spawn a duplicate process")
 
-print("PASS focus() opens an unopened terminal once and reuses an already-open one without rearranging splits")
+print("PASS hidden start and explicit open/toggle reuse one terminal without changing focus autonomously")
 
 for _, term in pairs(registry) do
 	pcall(function()

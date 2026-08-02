@@ -27,6 +27,14 @@ package.loaded["toggleterm.terminal"] = {
 		new = function(_, term)
 			opencode_terminal_opts = term
 			term.__is_open = false
+			term.__alive = false
+			term.is_open = function(self)
+				return self.__is_open
+			end
+			term.spawn = function(self)
+				table.insert(recorded_terminal_calls, { action = "spawn" })
+				self.__alive = true
+			end
 			term.open = function(self, size)
 				table.insert(recorded_terminal_calls, { action = "open", size = size })
 				self.__is_open = true
@@ -49,6 +57,12 @@ package.loaded["toggleterm.terminal"] = {
 }
 
 local plugin_specs = dofile("lua/plugins/opencode.lua")
+local terminal_adapter = require("config.opencode_terminal")
+terminal_adapter.__set_test_hooks({
+	terminal_live = function(term)
+		return term.__alive == true
+	end,
+})
 
 local toggle_terminal
 for _, key in ipairs(plugin_specs[1].keys) do
@@ -61,16 +75,17 @@ assert(toggle_terminal, "<leader>aoc toggle mapping is present")
 
 vim.o.columns = 200
 toggle_terminal() -- starts closed -> opens
-eq(#recorded_terminal_calls, 1, "first <leader>aoc press performs exactly one terminal action")
-eq(recorded_terminal_calls[1], { action = "open_via_toggle", size = 100 }, "first open resolves a fresh explicit size (50%% of columns), not toggleterm's global/persisted default")
+eq(#recorded_terminal_calls, 2, "first <leader>aoc press spawns once and performs one visible terminal action")
+eq(recorded_terminal_calls[1], { action = "spawn" }, "first manual open starts the terminal process")
+eq(recorded_terminal_calls[2], { action = "open_via_toggle", size = 100 }, "first open resolves a fresh explicit size (50%% of columns), not toggleterm's global/persisted default")
 
 toggle_terminal() -- closes
-eq(recorded_terminal_calls[2], { action = "close" }, "second press closes")
+eq(recorded_terminal_calls[3], { action = "close" }, "second press closes")
 
 vim.o.columns = 140 -- simulate the user resizing Neovim while opencode was closed
 toggle_terminal() -- reopens
 eq(
-	recorded_terminal_calls[3],
+	recorded_terminal_calls[4],
 	{ action = "open_via_toggle", size = 70 },
 	"reopening after a close recomputes size fresh from the current column count instead of reusing a stale/persisted width"
 )
@@ -95,13 +110,13 @@ end)
 vim.fn.jobstart = original_jobstart
 vim.schedule = original_url_schedule
 eq(resolved_url, "http://127.0.0.1:4096", "server.url resolves the configured launchd endpoint after readiness succeeds")
-vim.o.columns = 90
-vim.g.opencode_opts.server.start()
+vim.g.opencode_opts.server.start("/tmp/opencode-plugin-spec/server-start")
 eq(
-	recorded_terminal_calls[4],
-	{ action = "open", size = 45 },
-	"server.start (used by opencode.nvim's own startup path) resolves a fresh explicit size the same way as the toggle mapping"
+	recorded_terminal_calls[5],
+	{ action = "spawn" },
+	"server.start (used by opencode.nvim discovery) starts the terminal without opening a split"
 )
+eq(#recorded_terminal_calls, 5, "server.start performs no visible terminal action")
 
 print("PASS opencode terminal resize-on-reopen always resolves a fresh explicit size")
 
@@ -485,14 +500,14 @@ vim.lsp.start = original_lsp_start
 
 print("PASS plugin-owned context asks use discovery, current APIs, and the shared NUI prompt")
 
--- ===== Section 6: local prompt routing uses append_and_submit + terminal focus =====
+-- ===== Section 6: local prompt routing uses append_and_submit without terminal focus =====
 
 local original_config = package.loaded["opencode.config"]
 local original_prompt = package.loaded["config.opencode_prompt"]
 local terminal_module = require("config.opencode_terminal")
 local original_focus = terminal_module.focus
 local local_prompt_calls = {}
-local focus_calls = {}
+local visibility_calls = {}
 
 package.loaded["opencode.config"] = {
 	opts = {
@@ -521,7 +536,7 @@ package.loaded["config.opencode_prompt"] = {
 	set_sink = function() end,
 }
 terminal_module.focus = function(dir)
-	table.insert(focus_calls, dir)
+	table.insert(visibility_calls, { action = "focus", dir = dir })
 	return true
 end
 
@@ -540,12 +555,12 @@ local function last_local_prompt(label, expected_text)
 		fallback_clipboard = false,
 		dir = nil,
 	}, label .. " preserves exact local facade options")
-	eq(focus_calls[#focus_calls], "/Users/shaheislam/neovim", label .. " focuses the local OpenCode terminal")
+	eq(#visibility_calls, 0, label .. " does not reveal or focus the local OpenCode terminal")
 end
 
 local function reset_local_prompt_calls()
 	local_prompt_calls = {}
-	focus_calls = {}
+	visibility_calls = {}
 end
 
 local ask_calls_before = #modals
@@ -558,24 +573,51 @@ assert(key_callback("<leader>aoM", "n") == nil, "obsolete <leader>aoM mapping is
 local ask_buffer = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(ask_buffer)
 vim.api.nvim_buf_set_name(ask_buffer, "diffview://deadbeef:lua/example.lua")
+vim.api.nvim_buf_set_lines(ask_buffer, 0, -1, false, { "local answer = 42", "return answer" })
+vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
 reset_local_prompt_calls()
 ask_normal()
 modal = modals[#modals]
 assert(#modals == ask_calls_before + 1, "normal <leader>aoa reuses the shared modal NUI prompt")
 modal.input_opts.on_submit("what does this do")
-last_local_prompt("normal <leader>aoa", "[file: lua/example.lua]\nwhat does this do")
+last_local_prompt("normal <leader>aoa", "[file: lua/example.lua, line 2]\nreturn answer\nwhat does this do")
 
-vim.api.nvim_buf_set_lines(ask_buffer, 0, -1, false, { "local answer = 42" })
 vim.api.nvim_set_current_buf(ask_buffer)
 vim.fn.setpos("'<", { 0, 1, 1, 0 })
-vim.fn.setpos("'>", { 0, 1, 17, 0 })
+vim.fn.setpos("'>", { 0, 2, 13, 0 })
 
 reset_local_prompt_calls()
 ask_visual()
 modal = modals[#modals]
 modal.input_opts.on_submit("why")
-last_local_prompt("visual <leader>aoa", "[file: lua/example.lua, lines 1-1]\nlocal answer = 42\nwhy")
+last_local_prompt("visual <leader>aoa", "[file: lua/example.lua, lines 1-2]\nlocal answer = 42\nreturn answer\nwhy")
+
+local ask_submit_normal = key_callback("<leader>aos", "n")
+local ask_submit_visual = key_callback("<leader>aos", "x")
+assert(ask_submit_normal, "normal <leader>aos mapping is present")
+assert(ask_submit_visual, "visual <leader>aos mapping is present")
+
+reset_local_prompt_calls()
+vim.api.nvim_set_current_buf(ask_buffer)
+vim.api.nvim_win_set_cursor(0, { 2, 0 })
+ask_submit_normal()
+modal = modals[#modals]
+modal.input_opts.on_submit("explain")
+last_local_prompt("normal <leader>aos", "[file: lua/example.lua, line 2]\nreturn answer\nexplain")
+
+reset_local_prompt_calls()
+vim.api.nvim_set_current_buf(ask_buffer)
+ask_submit_visual()
+modal = modals[#modals]
+modal.input_opts.on_submit("explain")
+last_local_prompt(
+	"visual <leader>aos",
+	"[file: lua/example.lua, lines 1-2]\nlocal answer = 42\nreturn answer\nexplain"
+)
+
+vim.api.nvim_set_current_buf(ask_buffer)
+vim.fn.setpos("'>", { 0, 1, 17, 0 })
 
 local named_expectations = {
 	{ lhs = "<leader>aof", mode = "n", text = "[file: lua/example.lua]\nFix diagnostics" },

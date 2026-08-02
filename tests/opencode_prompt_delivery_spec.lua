@@ -94,16 +94,15 @@ package.loaded["config.opencode_prompt"] = {
 	end,
 }
 
--- The tui_append_prompt patch now focuses the terminal synchronously as it
--- dispatches, independent of the mocked facade's async on_success/on_error.
--- Without this mock, requiring the real config.opencode_terminal here would
--- attempt real ToggleTerm/ Terminal:new() setup during this headless test.
-local terminal_focus_calls = {}
+-- Keep a sentinel for the removed focus API so a future send-driven visibility
+-- regression is observable even though the production adapter no longer
+-- exports it. The remaining methods avoid real ToggleTerm setup in this test.
+local terminal_visibility_calls = {}
 package.loaded["config.opencode_terminal"] = {
 	setup = function() end,
 	send = function() end,
 	focus = function(dir)
-		table.insert(terminal_focus_calls, dir)
+		table.insert(terminal_visibility_calls, { action = "focus", dir = dir })
 	end,
 }
 
@@ -124,9 +123,9 @@ end)
 
 local facade = package.loaded["config.opencode_prompt"]
 eq(
-	#terminal_focus_calls,
-	1,
-	"tui_append_prompt focuses the terminal synchronously as it dispatches, before delivery is confirmed"
+	#terminal_visibility_calls,
+	0,
+	"tui_append_prompt does not reveal or focus the terminal while dispatching"
 )
 assert(facade._last_append, "tui_append_prompt delegates to config.opencode_prompt.append")
 eq(facade._last_append.text, "hello world", "the exact prompt text is forwarded")
@@ -151,7 +150,7 @@ end)
 assert(facade._last_submit, "prompt.submit delegates to config.opencode_prompt.submit")
 eq(facade._last_submit.opts.fallback_clipboard, false, "submit never falls back to the clipboard")
 eq(#original_command_calls, 0, "prompt.submit never reaches the original broadcast implementation")
-eq(#terminal_focus_calls, 1, "prompt.submit does not trigger a second, redundant focus call")
+eq(#terminal_visibility_calls, 0, "prompt.submit does not reveal or focus the terminal")
 
 facade._last_submit.opts.on_success()
 assert(submit_resolved, "a successful submit resolves the Promise")
@@ -182,9 +181,9 @@ facade._last_append.opts.on_error("terminal is gone")
 assert(not failed_resolved, "a failed append never resolves")
 eq(failed_reason, "terminal is gone", "the failure reason is propagated to the caller's catch chain")
 eq(
-	#terminal_focus_calls,
-	2,
-	"tui_append_prompt still focuses the terminal even when delivery later fails"
+	#terminal_visibility_calls,
+	0,
+	"a failed append still does not reveal or focus the terminal"
 )
 
 print("PASS append failures reject the Promise instead of being swallowed")

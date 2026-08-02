@@ -319,7 +319,7 @@ local function opencode_opts(auth)
 		},
 		events = {
 			enabled = true,
-			reload = true,
+			reload = false,
 			permissions = {
 				enabled = true,
 				idle_delay_ms = 1000,

@@ -119,6 +119,7 @@ plugin_specs[1].init()
 assert(type(vim.g.opencode_opts.server.start) == "function", "server.start is wired to start_opencode_terminal")
 assert(type(vim.g.opencode_opts.server.url) == "function", "server.url resolves the launchd-managed OpenCode endpoint")
 eq(vim.g.opencode_opts.server.port, nil, "the obsolete server.port option is not configured")
+eq(vim.g.opencode_opts.events.reload, false, "session-blind SSE reload stays disabled in favor of native targeted batches")
 local original_jobstart = vim.fn.jobstart
 local original_url_schedule = vim.schedule
 local resolved_url

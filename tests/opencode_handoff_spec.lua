@@ -145,6 +145,19 @@ eq(handoffs[1].provenance.kind, "native", "plan records native provenance")
 eq(handoffs[1].provenance.sessionID, "ses_two", "plan provenance records the exact session")
 eq(handoffs[1].provenance.generation, generation, "plan provenance records the exact terminal generation")
 
+vim.bo.modified = true
+eq(batch({ "alpha.txt" }).status, "queued", "a batch received over a modified buffer remains queued")
+assert(vim.wait(1000, function()
+	return #terminal_closes >= 2
+end, 10), "deferred handoff did not reach its safety gate")
+eq(#reloads, 1, "a modified current buffer defers reload and focus work")
+vim.bo.modified = false
+vim.api.nvim_exec_autocmds("BufWritePost", { buffer = 0 })
+assert(vim.wait(1000, function()
+	return #reloads == 2
+end, 10), "deferred handoff did not retry after the editor became safe")
+eq(reloads[2], { root .. "/alpha.txt" }, "retry preserves the deferred path batch")
+
 local route = handoff.resolve_plan_route(handoffs[1].provenance)
 eq(route.sessionID, "ses_two", "a live native plan route resolves to its exact session")
 handoff.unregister_terminal(root, generation)
@@ -159,6 +172,10 @@ local encoded = vim.base64.encode(vim.json.encode({
 local decoded_result = vim.json.decode(handoff.receive_base64(encoded))
 eq(decoded_result.status, "rejected", "the real base64 RPC entrypoint decodes and dispatches its payload")
 eq(decoded_result.reason, "unbound_project", "base64 transport reaches ownership validation")
+
+local oversized_result = vim.json.decode(handoff.receive_base64(string.rep("A", 512 * 1024 + 1)))
+eq(oversized_result.status, "rejected", "oversized RPC payloads are rejected")
+eq(oversized_result.reason, "invalid_encoding", "oversized RPC rejection happens before decoding")
 
 handoff.__reset()
 assert(vim.fn.delete(root, "rf") == 0, "failed to remove temporary project")

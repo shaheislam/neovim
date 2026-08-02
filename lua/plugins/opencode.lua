@@ -482,6 +482,10 @@ local function open_ask_prompt(opts)
 
 	input:map("n", "<Esc>", close, { noremap = true, nowait = true, desc = "Close opencode prompt" })
 	input:map("n", "q", close, { noremap = true, nowait = true, desc = "Close opencode prompt" })
+	-- Plain <leader> (Space) is prompt text in Insert mode, so mirror the
+	-- terminal-mode bridge: exit to Normal mode, then replay Space so it
+	-- recursively resolves as the leader trigger for Normal-mode maps.
+	input:map("i", "<C-Space>", [[<Esc><Space>]], { remap = true, nowait = true, desc = "Start leader from prompt" })
 
 	input:mount()
 	require("config.fzf_prompt").bind(input.bufnr, {

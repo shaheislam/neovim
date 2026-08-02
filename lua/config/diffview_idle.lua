@@ -9,7 +9,8 @@ local handoff_base_option = "@agent_handoff_base"
 local handoff_open_diff_option = "@agent_handoff_open_diff"
 local source_pane_option = "@agent_source_pane"
 local plan_save_prompt = [[HUMAN PLAN SAVE
-The human saved the root .plan.md in the Neovim pane handed off from this OpenCode session. Please re-read .plan.md from disk and continue from the latest human direction. Keep all later agent-authored living-plan updates coordinated through planctl; do not edit .plan.md directly.]]
+The human saved the root .plan.md in the Neovim instance handed off from this OpenCode session. Please re-read .plan.md from disk and continue from the latest human direction. Keep the living plan aligned with the worktree and edit .plan.md directly when later agent-authored updates are needed.]]
+local plan_notifications = {}
 
 local function result(status, reason)
 	return { status = status, reason = reason }
@@ -119,13 +120,21 @@ local function disk_signature(path)
 	return vim.fn.sha256(content)
 end
 
-local function track_plan_buffer(buf, path)
+local function set_plan_provenance(buf, provenance)
+	if provenance ~= nil then
+		vim.b[buf].agent_plan_provenance = vim.deepcopy(provenance)
+	end
+end
+
+local function track_plan_buffer(buf, path, provenance)
 	local signature = disk_signature(path)
 	vim.b[buf].agent_plan_path = path
 	vim.b[buf].agent_plan_disk_baseline = signature
 	vim.b[buf].agent_plan_last_notified = signature
 	vim.b[buf].agent_plan_pending_notification = nil
 	vim.b[buf].agent_plan_disk_conflict = nil
+	plan_notifications[buf] = nil
+	set_plan_provenance(buf, provenance)
 end
 
 local function refresh_plan_baseline(buf)
@@ -229,6 +238,61 @@ local function plan_route(project_dir)
 	return route
 end
 
+local function route_for_plan(buf, project_dir)
+	local provenance = vim.b[buf].agent_plan_provenance
+	if type(provenance) ~= "table" then
+		return nil
+	end
+	if provenance.kind == "native" then
+		local ok, route = pcall(require("config.opencode_handoff").resolve_plan_route, provenance)
+		return ok and route or nil
+	end
+	if provenance.kind == "tmux" then
+		return plan_route(project_dir)
+	end
+	return nil
+end
+
+local dispatch_plan_notification
+
+dispatch_plan_notification = function(buf, signature)
+	if not vim.api.nvim_buf_is_valid(buf) then
+		plan_notifications[buf] = nil
+		return
+	end
+	local path = vim.b[buf].agent_plan_path
+	local project_dir = path and canonical(vim.fn.fnamemodify(path, ":h")) or nil
+	local route = project_dir and route_for_plan(buf, project_dir) or nil
+	if not route then
+		return
+	end
+
+	local notification = plan_notifications[buf] or {}
+	plan_notifications[buf] = notification
+	notification.inflight = signature
+	vim.b[buf].agent_plan_pending_notification = signature
+	require("config.opencode_http").prompt_async(route.sessionID, plan_save_prompt, { dir = project_dir }, function(ok)
+		if not vim.api.nvim_buf_is_valid(buf) then
+			plan_notifications[buf] = nil
+			return
+		end
+		local current = plan_notifications[buf]
+		if not current or current.inflight ~= signature then
+			return
+		end
+		current.inflight = nil
+		vim.b[buf].agent_plan_pending_notification = nil
+		if ok then
+			vim.b[buf].agent_plan_last_notified = signature
+		end
+		local queued = current.queued
+		current.queued = nil
+		if queued and queued ~= vim.b[buf].agent_plan_last_notified then
+			dispatch_plan_notification(buf, queued)
+		end
+	end)
+end
+
 local function notify_plan_save(buf)
 	if not vim.api.nvim_buf_is_valid(buf) then
 		return
@@ -238,31 +302,15 @@ local function notify_plan_save(buf)
 		return
 	end
 	local signature = disk_signature(path)
-	if
-		not signature
-		or signature == vim.b[buf].agent_plan_last_notified
-		or signature == vim.b[buf].agent_plan_pending_notification
-	then
+	if not signature or signature == vim.b[buf].agent_plan_last_notified then
 		return
 	end
-	local project_dir = canonical(vim.fn.fnamemodify(path, ":h"))
-	local route = project_dir and plan_route(project_dir) or nil
-	if not route then
+	local notification = plan_notifications[buf]
+	if notification and notification.inflight then
+		notification.queued = signature ~= notification.inflight and signature or nil
 		return
 	end
-
-	vim.b[buf].agent_plan_pending_notification = signature
-	require("config.opencode_http").prompt_async(route.sessionID, plan_save_prompt, { dir = project_dir }, function(ok)
-		if not vim.api.nvim_buf_is_valid(buf) then
-			return
-		end
-		if vim.b[buf].agent_plan_pending_notification == signature then
-			vim.b[buf].agent_plan_pending_notification = nil
-		end
-		if ok then
-			vim.b[buf].agent_plan_last_notified = signature
-		end
-	end)
+	dispatch_plan_notification(buf, signature)
 end
 
 local function find_plan_buffer(path)
@@ -381,7 +429,7 @@ function M.open_diff(project_dir, base)
 	return result("opened", "diff_opened")
 end
 
-function M.open_plan(project_dir)
+function M.open_plan(project_dir, provenance)
 	if not can_interrupt_editor() then
 		return result("deferred", "editor_not_normal")
 	end
@@ -405,14 +453,16 @@ function M.open_plan(project_dir)
 			return result("refused", "plan_open_failed:" .. tostring(err))
 		end
 		buf = vim.api.nvim_get_current_buf()
-		track_plan_buffer(buf, path)
+		track_plan_buffer(buf, path, provenance)
 	else
 		if not vim.api.nvim_buf_is_loaded(buf) then
 			vim.fn.bufload(buf)
 		end
 		focus_buffer(buf)
 		if vim.b[buf].agent_plan_path ~= path or not vim.b[buf].agent_plan_disk_baseline then
-			track_plan_buffer(buf, path)
+			track_plan_buffer(buf, path, provenance)
+		else
+			set_plan_provenance(buf, provenance)
 		end
 	end
 
@@ -441,14 +491,16 @@ function M.open(project_dir, base)
 	return M.open_diff(project_dir, base)
 end
 
-function M._open_handoff(options)
+function M.open_handoff(options)
 	local diff = result("deferred", "diff_not_requested")
 	if options.open_diff then
 		diff = M.open_diff(options.project_dir, options.base)
 	end
-	local plan = M.open_plan(options.project_dir)
+	local plan = M.open_plan(options.project_dir, options.provenance)
 	return { status = plan.status, reason = plan.reason, diff = diff, plan = plan }
 end
+
+M._open_handoff = M.open_handoff
 
 function M.open_from_tmux()
 	local options = {
@@ -457,11 +509,12 @@ function M.open_from_tmux()
 		open_diff = ({ ["1"] = true, ["true"] = true, ["yes"] = true, ["on"] = true })[
 			tmux_get(handoff_open_diff_option):lower()
 		] == true,
+		provenance = { kind = "tmux" },
 	}
 	tmux_unset(handoff_project_option)
 	tmux_unset(handoff_base_option)
 	tmux_unset(handoff_open_diff_option)
-	return M._open_handoff(options)
+	return M.open_handoff(options)
 end
 
 function M.setup()
@@ -493,6 +546,13 @@ function M.setup()
 			end
 		end,
 		desc = "Resolve agent plan disk baseline after explicit read or write",
+	})
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		group = group,
+		callback = function(event)
+			plan_notifications[event.buf] = nil
+		end,
+		desc = "Forget plan notification state when its buffer is wiped",
 	})
 end
 

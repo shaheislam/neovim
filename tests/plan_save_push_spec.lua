@@ -16,7 +16,7 @@ assert(vim.fn.writefile({ "# Plan", "initial" }, plan_path) == 0, "failed to cre
 
 local idle = require("config.diffview_idle")
 idle.setup()
-eq(idle.open_plan(root).status, "opened", "plan must open before save notification test")
+eq(idle.open_plan(root, { kind = "tmux" }).status, "opened", "plan must open with tmux provenance before save notification test")
 local plan_buf = vim.api.nvim_get_current_buf()
 
 local original_tmux_pane = vim.env.TMUX_PANE
@@ -33,6 +33,8 @@ local pane_is_owned = true
 local verify_calls = {}
 local prompt_succeeds = true
 local prompt_calls = {}
+local complete_prompts_immediately = true
+local prompt_callbacks = {}
 
 local function write_route(fields)
 	local route = { version = 1, sessionID = "ses_live", pane = "%1", directory = root, serverPid = "855" }
@@ -84,7 +86,10 @@ end
 package.loaded["config.opencode_http"] = {
 	prompt_async = function(session_id, text, opts, callback)
 		table.insert(prompt_calls, { session_id = session_id, text = text, dir = opts.dir })
-		callback(prompt_succeeds, prompt_succeeds and "" or "unavailable")
+		table.insert(prompt_callbacks, callback)
+		if complete_prompts_immediately then
+			callback(prompt_succeeds, prompt_succeeds and "" or "unavailable")
+		end
 	end,
 }
 
@@ -95,7 +100,8 @@ eq(prompt_calls[1].session_id, "ses_live", "plan save targets the routed session
 eq(prompt_calls[1].dir, root, "plan save targets the routed project")
 assert(prompt_calls[1].text:find("HUMAN PLAN SAVE", 1, true), "plan prompt is visibly labelled")
 assert(prompt_calls[1].text:find("re-read", 1, true), "plan prompt tells the agent to re-read disk state")
-assert(prompt_calls[1].text:find("planctl", 1, true), "plan prompt preserves planctl-owned agent writes")
+assert(not prompt_calls[1].text:find("planctl", 1, true), "plan prompt removes the obsolete planctl contract")
+assert(prompt_calls[1].text:find("edit .plan.md directly", 1, true), "plan prompt reflects direct living-plan maintenance")
 
 vim.cmd("write")
 eq(#prompt_calls, 1, "unchanged plan save does not notify twice")
@@ -108,15 +114,31 @@ prompt_succeeds = true
 vim.cmd("write")
 eq(#prompt_calls, 3, "failed plan notification remains retryable")
 
+complete_prompts_immediately = false
+vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "single flight one" })
+vim.cmd("write")
+eq(#prompt_calls, 4, "the first delayed plan notification starts immediately")
+vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "single flight two" })
+vim.cmd("write")
+vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "single flight newest" })
+vim.cmd("write")
+eq(#prompt_calls, 4, "new saves coalesce while one notification is in flight")
+prompt_callbacks[4](true, "")
+eq(#prompt_calls, 5, "completion sends exactly one coalesced follow-up")
+prompt_callbacks[5](true, "")
+vim.cmd("write")
+eq(#prompt_calls, 5, "the newest coalesced signature becomes the notified baseline")
+complete_prompts_immediately = true
+
 source_window = "@9"
 vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "wrong window" })
 vim.cmd("write")
-eq(#prompt_calls, 3, "cross-window route fails closed")
+eq(#prompt_calls, 5, "cross-window route fails closed")
 source_window = "@1"
 write_route({ directory = root .. "/other" })
 vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "wrong project" })
 vim.cmd("write")
-eq(#prompt_calls, 3, "wrong-project route fails closed")
+eq(#prompt_calls, 5, "wrong-project route fails closed")
 
 -- Pane IDs are reused across tmux server restarts, so a route from a previous
 -- generation must never deliver a human save into an unrelated session.
@@ -124,13 +146,13 @@ write_route()
 server_pid = "999"
 vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "stale generation" })
 vim.cmd("write")
-eq(#prompt_calls, 3, "stale-generation route fails closed")
+eq(#prompt_calls, 5, "stale-generation route fails closed")
 server_pid = "855"
 
 write_route({ serverPid = false })
 vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "legacy route" })
 vim.cmd("write")
-eq(#prompt_calls, 3, "route without a tmux generation fails closed")
+eq(#prompt_calls, 5, "route without a tmux generation fails closed")
 
 -- Matching window and directory are not ownership: the shared verifier decides.
 write_route()
@@ -138,19 +160,47 @@ pane_is_owned = false
 verify_calls = {}
 vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "unowned pane" })
 vim.cmd("write")
-eq(#prompt_calls, 3, "unverified source pane fails closed")
+eq(#prompt_calls, 5, "unverified source pane fails closed")
 eq(#verify_calls, 1, "route validation consults the shared verifier")
 eq(verify_calls[1], { pane = "%1", project = root, session = "ses_live" }, "verifier receives the routed identity")
 
 pane_is_owned = true
 vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "owned again" })
 vim.cmd("write")
-eq(#prompt_calls, 4, "a re-proven pane resumes notification")
+eq(#prompt_calls, 6, "a re-proven pane resumes notification")
 
 assert(vim.fn.delete(route_path) == 0, "failed to remove plan route")
 vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "missing route" })
 vim.cmd("write")
-eq(#prompt_calls, 4, "missing route fails closed")
+eq(#prompt_calls, 6, "missing route fails closed")
+
+local original_handoff = package.loaded["config.opencode_handoff"]
+local native_live = true
+package.loaded["config.opencode_handoff"] = {
+	resolve_plan_route = function()
+		return native_live and { sessionID = "ses_native", directory = root } or nil
+	end,
+}
+idle.open_plan(root, {
+	kind = "native",
+	project = root,
+	sessionID = "ses_native",
+	generation = "generation_native",
+	routeRevision = 4,
+	routeToken = "route_native",
+})
+vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "native save" })
+vim.cmd("write")
+eq(#prompt_calls, 7, "a live native plan route notifies its exact session")
+eq(prompt_calls[7].session_id, "ses_native", "native save does not use the legacy tmux session")
+
+native_live = false
+verify_calls = {}
+vim.api.nvim_buf_set_lines(plan_buf, -1, -1, false, { "stale native save" })
+vim.cmd("write")
+eq(#prompt_calls, 7, "a stale native plan route fails closed")
+eq(#verify_calls, 0, "a stale native route never falls back to tmux provenance")
+package.loaded["config.opencode_handoff"] = original_handoff
 
 vim.system = original_vim_system
 vim.fn.system = original_system

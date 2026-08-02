@@ -146,7 +146,11 @@ eq(#recorded_terminal_calls, 5, "server.start performs no visible terminal actio
 local first_auth_terminal = opencode_terminal_opts
 eq(first_auth_terminal.display_name, "OpenCode", "the terminal keeps its semantic display name")
 eq(first_auth_terminal.clear_env, false, "the terminal inherits the editor environment")
-eq(first_auth_terminal.env, {
+local first_auth_env = vim.deepcopy(first_auth_terminal.env)
+local first_generation = first_auth_env.OPENCODE_NVIM_GENERATION
+first_auth_env.OPENCODE_NVIM_GENERATION = nil
+assert(type(first_generation) == "string" and first_generation:match("^nvim_"), "the terminal receives a native handoff generation")
+eq(first_auth_env, {
 	OPENCODE_TMUX_WRAPPER_ACTIVE = "1",
 	OPENTUI_GRAPHICS = "0",
 	OPENCODE_SERVER_USERNAME = "opencode-spec-user-1",

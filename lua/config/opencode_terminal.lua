@@ -40,7 +40,17 @@ local defaults = {
 	size = function()
 		return math.floor(vim.o.columns * 0.5)
 	end,
+	generation = function()
+		local entropy = table.concat({
+			tostring(vim.uv.hrtime()),
+			tostring(vim.fn.getpid()),
+			tostring({}),
+		}, ":")
+		return "nvim_" .. vim.fn.sha256(entropy):sub(1, 32)
+	end,
 	on_create = nil,
+	on_start = nil,
+	on_exit = nil,
 }
 
 local opts = vim.deepcopy(defaults)
@@ -243,17 +253,37 @@ local function normalize_dir(dir)
 	return vim.fs.normalize(vim.fn.fnamemodify(dir, ":p"))
 end
 
-local function resolve_launch(dir)
-	local launch = opts.launch(dir)
+local function new_generation()
+	local generation = opts.generation()
+	if type(generation) ~= "string" or not generation:match("^[%w_-]+$") then
+		error("OpenCode terminal generation must contain only letters, digits, underscores, or hyphens")
+	end
+	return generation
+end
+
+local function ensure_rpc_server()
+	if vim.v.servername == "" then
+		pcall(vim.fn.serverstart)
+	end
+	if vim.v.servername == "" then
+		error("OpenCode terminal requires a Neovim RPC server")
+	end
+	return vim.v.servername
+end
+
+local function resolve_launch(dir, generation)
+	local launch = opts.launch(dir, generation)
 	if type(launch) ~= "table" or type(launch.cmd) ~= "string" or launch.cmd == "" then
 		error("OpenCode terminal launch must provide a non-empty cmd")
 	end
 	if launch.env ~= nil and type(launch.env) ~= "table" then
 		error("OpenCode terminal launch env must be a table")
 	end
+	local env = vim.deepcopy(launch.env or {})
+	env.OPENCODE_NVIM_GENERATION = generation
 	return {
 		cmd = launch.cmd,
-		env = vim.deepcopy(launch.env or {}),
+		env = env,
 		clear_env = launch.clear_env == true,
 	}
 end
@@ -335,10 +365,10 @@ local function reconcile(dir, launch)
 	return selected
 end
 
-local function new_terminal(dir, launch)
+local function new_terminal(dir, launch, generation)
 	ensure_toggleterm_loaded()
 	local Terminal = require("toggleterm.terminal").Terminal
-	return Terminal:new({
+	local term = Terminal:new({
 		cmd = launch.cmd,
 		env = vim.deepcopy(launch.env),
 		clear_env = launch.clear_env,
@@ -349,7 +379,7 @@ local function new_terminal(dir, launch)
 		close_on_exit = false,
 		on_create = function(term)
 			if opts.on_create then
-				opts.on_create(term, dir)
+				opts.on_create(term, dir, generation)
 			end
 		end,
 		on_stdout = function(term, _, data)
@@ -366,9 +396,14 @@ local function new_terminal(dir, launch)
 			stop_ready_timer(term)
 			term._nvim_mini_ready = false
 			fail_pending(term, "OpenCode terminal exited")
+			if opts.on_exit then
+				opts.on_exit(term, dir, generation, exit_code)
+			end
 		end,
 		size = opts.size,
 	})
+	term._nvim_mini_generation = generation
+	return term
 end
 
 -- Returns the cached/adopted terminal for `dir` (canonicalized via
@@ -380,8 +415,12 @@ end
 -- must be explicitly replaced rather than reopened.
 function M.get_terminal(dir)
 	dir = opts.project_root(dir)
-	local launch = resolve_launch(dir)
 	local entry = state.by_project[dir]
+	if not entry then
+		entry = { dir = dir, generation = new_generation() }
+		state.by_project[dir] = entry
+	end
+	local launch = resolve_launch(dir, entry.generation)
 
 	if entry and entry.term and launch_matches(entry.launch, launch) then
 		return entry.term
@@ -394,12 +433,10 @@ function M.get_terminal(dir)
 			entry.term:shutdown()
 		end)
 		entry.term = nil
+		entry.generation = new_generation()
+		launch = resolve_launch(dir, entry.generation)
 	end
 
-	if not entry then
-		entry = { dir = dir }
-		state.by_project[dir] = entry
-	end
 	entry.launch = launch
 
 	ensure_toggleterm_loaded()
@@ -407,11 +444,12 @@ function M.get_terminal(dir)
 	local term
 	if adopted then
 		term = adopted
+		term._nvim_mini_generation = entry.generation
 		if not term._nvim_mini_ready then
 			start_adopted_fallback(term)
 		end
 	else
-		term = new_terminal(dir, launch)
+		term = new_terminal(dir, launch, entry.generation)
 	end
 
 	entry.term = term
@@ -434,7 +472,10 @@ local function ensure_live(dir, term)
 		if not entry or not entry.launch then
 			error("OpenCode terminal cache lost its launch snapshot")
 		end
-		term = new_terminal(dir, entry.launch)
+		entry.generation = new_generation()
+		entry.launch = vim.deepcopy(entry.launch)
+		entry.launch.env.OPENCODE_NVIM_GENERATION = entry.generation
+		term = new_terminal(dir, entry.launch, entry.generation)
 		entry.term = term
 	end
 	return term
@@ -451,7 +492,12 @@ end
 
 function M.start(dir)
 	dir = opts.project_root(dir)
+	ensure_rpc_server()
 	local term = ensure_live(dir, M.get_terminal(dir))
+	local entry = state.by_project[dir]
+	if opts.on_start then
+		opts.on_start(term, dir, entry.generation)
+	end
 	ensure_spawned(term)
 	return term
 end
@@ -464,10 +510,7 @@ end
 
 function M.toggle(dir)
 	dir = opts.project_root(dir)
-	local term = ensure_live(dir, M.get_terminal(dir))
-	if not term:is_open() then
-		ensure_spawned(term)
-	end
+	local term = M.start(dir)
 	term:toggle(resolve_size(term))
 	return term
 end
@@ -477,6 +520,24 @@ function M.close(dir)
 	if entry and entry.term then
 		entry.term:close()
 	end
+end
+
+function M.close_generation(dir, generation)
+	dir = opts.project_root(dir)
+	local entry = state.by_project[dir]
+	if not entry or entry.generation ~= generation or not entry.term then
+		return false
+	end
+	if entry.term:is_open() then
+		entry.term:close()
+	end
+	return true
+end
+
+function M.generation_for(dir)
+	dir = opts.project_root(dir)
+	local entry = state.by_project[dir]
+	return entry and entry.generation or nil
 end
 
 -- Sink for config.opencode_prompt: writes raw bytes (bracketed paste, plus a

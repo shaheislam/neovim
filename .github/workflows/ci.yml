@@ -38,5 +38,13 @@ jobs:
           NVIM_APPNAME: nvim-mini
         run: nvim --headless "+checkhealth nvim_mini" +qa
 
+      - name: OpenCode handoff tests
+        run: |
+          nvim --headless -l tests/opencode_handoff_spec.lua
+          nvim --headless -l tests/opencode_terminal_spec.lua
+          nvim --headless -l tests/opencode_plugin_spec.lua
+          nvim --headless -l tests/plan_idle_spec.lua
+          nvim --headless -l tests/plan_save_push_spec.lua
+
       - name: Parley review test
         run: nvim --headless -l tests/parley_review_spec.lua

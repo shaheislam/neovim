@@ -10,13 +10,16 @@ require("config.autocmds.lsp").setup()
 -- Load hot-reload for Claude Code integration
 require("config.hotreload").setup()
 
+-- Register the native OpenCode TUI RPC receiver before a terminal can start.
+require("config.opencode_handoff").setup()
+
 -- Load Claude Code bridge (writes editor state for Claude Code hooks)
 require("config.claude-bridge").setup()
 
 -- Load repo-local annotations (stored in .tmp/annotations.json)
 require("config.annotations").setup()
 
--- Register this pane for automatic OpenCode Diffview review.
+-- Register this pane for deliberate tmux/Claude Diffview review fallback.
 require("config.diffview_idle").setup()
 
 -- Track the last real editing buffer for transient UI close/restore flows

@@ -70,6 +70,25 @@ local function reload_visible_buffers()
   })
 end
 
+local function reload_paths(paths)
+  local seen = {}
+  for _, path in ipairs(paths or {}) do
+    local bufnr = vim.fn.bufnr(path)
+    if bufnr >= 0 and not seen[bufnr] and not should_skip_buffer(bufnr) then
+      seen[bufnr] = true
+      vim.api.nvim_buf_call(bufnr, function()
+        vim.cmd("silent! checktime")
+      end)
+    end
+  end
+
+  vim.api.nvim_exec_autocmds("User", {
+    pattern = "NvimMiniExternalFilesChanged",
+    modeline = false,
+    data = { paths = vim.deepcopy(paths or {}) },
+  })
+end
+
 -- Debounced reload function
 local function debounced_reload()
   if debounce_timer then
@@ -216,6 +235,7 @@ end
 M.watch_directory = watch_directory
 M.unwatch_directory = unwatch_directory
 M.reload_visible_buffers = reload_visible_buffers
+M.reload_paths = reload_paths
 M.get_config = function()
   return vim.deepcopy(config)
 end

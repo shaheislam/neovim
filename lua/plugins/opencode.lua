@@ -128,6 +128,12 @@ terminal_adapter.setup({
 	end,
 	notify_title = "opencode",
 	on_create = bind_opencode_terminal_picker,
+	on_start = function(_, dir, generation)
+		require("config.opencode_handoff").register_terminal(dir, generation)
+	end,
+	on_exit = function(_, dir, generation)
+		require("config.opencode_handoff").unregister_terminal(dir, generation)
+	end,
 })
 
 local function check_opencode_ready(callback)
@@ -1037,12 +1043,6 @@ return {
 				callback = function(args)
 					local event = args.data and args.data.event
 					vim.g.opencode_status = event and event.properties and event.properties.status.type or nil
-				end,
-			})
-			vim.api.nvim_create_autocmd("User", {
-				pattern = "OpencodeEvent:file.edited",
-				callback = function()
-					vim.cmd("checktime")
 				end,
 			})
 			vim.api.nvim_create_autocmd("User", {

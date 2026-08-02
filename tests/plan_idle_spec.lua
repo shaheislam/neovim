@@ -36,6 +36,7 @@ assert(vim.fn.writefile({ "# Plan", "initial" }, plan_path) == 0, "failed to cre
 local idle = require("config.diffview_idle")
 eq(type(idle.open_diff), "function", "open_diff must be exposed")
 eq(type(idle.open_plan), "function", "open_plan must be exposed")
+eq(type(idle.open_handoff), "function", "transport-neutral open_handoff must be exposed")
 
 local original_get_mode = vim.api.nvim_get_mode
 vim.api.nvim_get_mode = function()
@@ -191,12 +192,18 @@ idle.open_diff = function(project_dir, base)
 	table.insert(focus_order, "diff:" .. project_dir .. ":" .. base)
 	return { status = "opened", reason = "diff_opened" }
 end
-idle.open_plan = function(project_dir)
+idle.open_plan = function(project_dir, provenance)
 	table.insert(focus_order, "plan:" .. project_dir)
+	eq(provenance.kind, "native", "combined handoff forwards native plan provenance")
 	return { status = "opened", reason = "plan_focused" }
 end
 
-local handoff = idle._open_handoff({ project_dir = root, base = "abc123", open_diff = true })
+local handoff = idle.open_handoff({
+	project_dir = root,
+	base = "abc123",
+	open_diff = true,
+	provenance = { kind = "native" },
+})
 eq(focus_order, { "diff:" .. root .. ":abc123", "plan:" .. root }, "combined handoff opens Diffview before focusing plan")
 assert_status(handoff.diff, "opened", "diff_opened")
 assert_status(handoff.plan, "opened", "plan_focused")

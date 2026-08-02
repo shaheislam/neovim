@@ -129,6 +129,9 @@ local function setup_adapter(overrides)
 		notify_title = "opencode-test",
 		ready_timeout_ms = 60,
 		adopted_ready_timeout_ms = 30,
+		generation = function()
+			return "test-generation"
+		end,
 	}, overrides or {}))
 end
 
@@ -150,7 +153,7 @@ setup_adapter()
 local dir = "/tmp/opencode-terminal-spec/project-b"
 local cmd = "TESTCMD --dir " .. dir
 local Terminal = require("toggleterm.terminal").Terminal
-local launch_env = { OPENCODE_TEST_REVISION = "1" }
+local launch_env = { OPENCODE_TEST_REVISION = "1", OPENCODE_NVIM_GENERATION = "test-generation" }
 
 local legacy_open = Terminal:new({
 	cmd = cmd,
@@ -267,7 +270,7 @@ local legacy = Terminal:new({
 	dir = adopt_dir,
 	display_name = "OpenCode",
 	hidden = true,
-	env = { OPENCODE_TEST_REVISION = "1" },
+	env = { OPENCODE_TEST_REVISION = "1", OPENCODE_NVIM_GENERATION = "test-generation" },
 	clear_env = false,
 })
 legacy.__alive = true
@@ -405,7 +408,11 @@ table.insert(env_order, "create-new")
 
 assert(env_replacement ~= env_original, "an environment-only revision creates a new terminal generation")
 eq(env_order, { "shutdown-old", "create-new" }, "the stale-auth generation is retired before replacement")
-eq(env_replacement.env, current_env, "the replacement terminal receives the revised environment")
+eq(
+	env_replacement.env,
+	vim.tbl_extend("force", current_env, { OPENCODE_NVIM_GENERATION = env_replacement._nvim_mini_generation }),
+	"the replacement terminal receives the revised environment and generation"
+)
 
 setup_adapter()
 local registry_dir = "/tmp/opencode-terminal-spec/project-registry"
@@ -462,7 +469,11 @@ local reconstruction = terminal_adapter.open(reconstruction_dir)
 
 assert(reconstruction ~= reconstruction_original, "a dead terminal is reconstructed")
 eq(launch_resolutions, 2, "dead reconstruction does not resolve a second launch snapshot within open()")
-eq(reconstruction.env, { OPENCODE_TEST_REVISION = "stable" }, "dead reconstruction reuses the resolved environment")
+eq(
+	reconstruction.env,
+	{ OPENCODE_TEST_REVISION = "stable", OPENCODE_NVIM_GENERATION = reconstruction._nvim_mini_generation },
+	"dead reconstruction reuses the resolved environment"
+)
 
 print("PASS dead-terminal reconstruction reuses the current operation's launch snapshot")
 
@@ -512,6 +523,31 @@ assert(hidden_term:is_open(), "toggle() explicitly reveals a hidden terminal")
 eq(hidden_term.__spawn_count, 1, "manual visibility changes never spawn a duplicate process")
 
 print("PASS hidden start and explicit open/toggle reuse one terminal without changing focus autonomously")
+
+-- ===== Section 13: one stable generation owns start and exit callbacks =====
+
+local started = {}
+local exited = {}
+setup_adapter({
+	on_start = function(_, project, generation)
+		table.insert(started, { project = project, generation = generation })
+	end,
+	on_exit = function(_, project, generation, code)
+		table.insert(exited, { project = project, generation = generation, code = code })
+	end,
+})
+local generation_dir = "/tmp/opencode-terminal-spec/project-generation"
+local generation_term = terminal_adapter.start(generation_dir)
+eq(generation_term.env.OPENCODE_NVIM_GENERATION, "test-generation", "the child TUI receives its stable capability generation")
+eq(started, { { project = generation_dir, generation = "test-generation" } }, "ownership is registered before the TUI starts")
+generation_term.__alive = true
+terminal_adapter.start(generation_dir)
+eq(#started, 2, "reusing a live process reasserts the same ownership binding")
+eq(started[2].generation, "test-generation", "repeated start keeps the generation stable")
+generation_term:on_exit(generation_term.job_id, 0)
+eq(exited, { { project = generation_dir, generation = "test-generation", code = 0 } }, "exit invalidates only the matching generation")
+
+print("PASS terminal generation remains stable and is registered before spawn")
 
 for _, term in pairs(registry) do
 	pcall(function()

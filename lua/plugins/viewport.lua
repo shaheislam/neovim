@@ -55,9 +55,10 @@ return {
       vim.keymap.set('t', '<C-z>', function()
         local win = vim.api.nvim_get_current_win()
         vim.cmd([[stopinsert]])
-        toggle_zoom()
-        -- Deferred so startinsert runs after the mapping stack completes
+        -- stopinsert doesn't synchronously leave Terminal-mode; scheduling
+        -- lets the transition finish before zoom's internal `normal!` runs.
         vim.schedule(function()
+          toggle_zoom()
           if vim.api.nvim_win_is_valid(win) and vim.bo.buftype == 'terminal' then
             vim.cmd('startinsert')
           end

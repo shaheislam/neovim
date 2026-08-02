@@ -102,7 +102,7 @@ local function bind_opencode_terminal_picker(term, dir)
 		end
 	end
 	require("config.fzf_prompt").bind(term.bufnr, {
-		mode = "n",
+		mode = "t",
 		source = function()
 			return require("config.return_target").last()
 		end,
@@ -127,12 +127,16 @@ terminal_adapter.setup({
 		return math.floor(vim.o.columns * 0.5)
 	end,
 	notify_title = "opencode",
-	on_create = bind_opencode_terminal_picker,
+	on_create = function(term, dir, generation)
+		bind_opencode_terminal_picker(term, dir)
+		require("config.opencode_attach_registry").register(term, dir)
+	end,
 	on_start = function(_, dir, generation)
 		require("config.opencode_handoff").register_terminal(dir, generation)
 	end,
 	on_exit = function(_, dir, generation)
 		require("config.opencode_handoff").unregister_terminal(dir, generation)
+		require("config.opencode_attach_registry").unregister()
 	end,
 })
 
@@ -171,7 +175,36 @@ local function start_opencode_terminal(dir)
 end
 
 local function open_opencode_terminal(dir)
+	return terminal_adapter.open(dir)
+end
+
+-- Coordinated worktree-startup layout: editor upper-left, ordinary project
+-- shell lower-left, OCV full-height right, with typing left ready in OCV's
+-- composer. ToggleTerm's real Terminal:open() unconditionally resets its
+-- remembered "origin window" (the window a new split is placed relative to),
+-- so the shell terminal MUST be opened only after focus has been explicitly
+-- restored to the editor window - opening it while OCV is still current
+-- would otherwise split off of OCV instead of the editor. terminal_adapter's
+-- open() is idempotent (see lua/config/opencode_terminal.lua), so the final
+-- re-focus of OCV below does not disturb this placement a second time.
+local function open_worktree_layout(dir)
+	dir = project_root(dir)
+	local editor_win = vim.api.nvim_get_current_win()
+
+	local ocv_term = terminal_adapter.open(dir)
+
+	if vim.api.nvim_win_is_valid(editor_win) then
+		vim.api.nvim_set_current_win(editor_win)
+	end
+
+	require("config.project_terminal").open(dir)
+
 	terminal_adapter.open(dir)
+	if vim.bo.buftype == "terminal" then
+		vim.cmd("startinsert")
+	end
+
+	return ocv_term
 end
 
 do
@@ -1064,14 +1097,35 @@ return {
 
 			-- Worktree launchers (gwtt, worktrunk-open-window.sh) set this to land
 			-- directly in the editor + opencode split instead of a bare buffer.
+			-- NVIM_OPEN_TOGGLETERM additionally opens the ordinary project shell
+			-- alongside it in the coordinated editor+shell+OCV layout; without it,
+			-- OCV-only callers keep their existing bare-split behavior unchanged.
 			if vim.env.NVIM_OPEN_OPENCODE == "1" then
 				vim.api.nvim_create_autocmd("VimEnter", {
 					once = true,
 					callback = function()
-						vim.defer_fn(open_opencode_terminal, 0)
+						vim.defer_fn(function()
+							if vim.env.NVIM_OPEN_TOGGLETERM == "1" then
+								open_worktree_layout()
+							else
+								open_opencode_terminal()
+							end
+						end, 0)
 					end,
 				})
 			end
+
+			vim.api.nvim_create_user_command("OpenCodeFocus", function()
+				local dir = project_root()
+				terminal_adapter.open(dir)
+				if vim.bo.buftype == "terminal" then
+					vim.cmd("startinsert")
+				end
+			end, { force = true, desc = "Focus (or open) this worktree's OpenCode terminal" })
+
+			vim.api.nvim_create_user_command("OpenCodeWorktreeLayout", function()
+				open_worktree_layout()
+			end, { force = true, desc = "Build the coordinated editor+shell+OCV worktree layout" })
 		end,
 	},
 }

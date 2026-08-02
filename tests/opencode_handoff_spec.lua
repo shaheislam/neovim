@@ -26,6 +26,16 @@ assert(vim.uv.fs_symlink(sibling, root .. "/escape"), "failed to create symlink 
 local reloads = {}
 local handoffs = {}
 local terminal_closes = {}
+local binding_changes = 0
+
+local binding_group = vim.api.nvim_create_augroup("opencode_handoff_spec_bindings", { clear = true })
+vim.api.nvim_create_autocmd("User", {
+	group = binding_group,
+	pattern = "OpencodeHandoffEvent:binding_changed",
+	callback = function()
+		binding_changes = binding_changes + 1
+	end,
+})
 
 package.loaded["config.hotreload"] = {
 	reload_paths = function(paths)
@@ -52,6 +62,8 @@ assert(vim.v.servername ~= "", "handoff setup starts an RPC server even outside 
 
 local generation = "gen_0123456789abcdef"
 handoff.register_terminal(root, generation)
+eq(handoff.active_bindings(), {}, "an unbound terminal is not exposed as an active session")
+eq(binding_changes, 0, "registering an unbound generation does not report a binding change")
 
 local rejected = handoff.receive({
 	version = 1,
@@ -82,6 +94,31 @@ local bound = handoff.receive({
 	routeRevision = 1,
 })
 eq(bound.status, "handled", "the lease authenticates first session binding")
+eq(handoff.active_bindings(), {
+	[root] = {
+		project = root,
+		generation = generation,
+		sessionID = "ses_one",
+		routeRevision = 1,
+	},
+}, "the exact live binding is exposed as an immutable snapshot")
+eq(binding_changes, 1, "the first exact bind reports one binding change")
+
+local mutated_snapshot = handoff.active_bindings()
+mutated_snapshot[root].sessionID = "mutated"
+eq(handoff.active_bindings()[root].sessionID, "ses_one", "mutating a binding snapshot cannot alter handoff state")
+
+local repeated_bind = handoff.receive({
+	version = 1,
+	type = "bind",
+	directory = root,
+	generation = generation,
+	lease = hello.lease,
+	sessionID = "ses_one",
+	routeRevision = 1,
+})
+eq(repeated_bind.status, "handled", "repeating the exact current binding remains idempotent")
+eq(binding_changes, 1, "repeating the current binding does not report a false change")
 
 local replay = handoff.receive({
 	version = 1,
@@ -94,6 +131,7 @@ local replay = handoff.receive({
 })
 eq(replay.status, "rejected", "the same revision cannot retarget a session")
 eq(replay.reason, "stale_route_revision", "session replay fails closed")
+eq(binding_changes, 1, "a rejected replay does not report a binding change")
 
 local switched = handoff.receive({
 	version = 1,
@@ -105,6 +143,9 @@ local switched = handoff.receive({
 	routeRevision = 2,
 })
 eq(switched.status, "handled", "a newer revision can switch the active TUI session")
+eq(handoff.active_bindings()[root].sessionID, "ses_two", "a newer route revision replaces the exposed session")
+eq(handoff.active_bindings()[root].routeRevision, 2, "the exposed binding follows the monotonic route revision")
+eq(binding_changes, 2, "a real session switch reports one additional binding change")
 
 local function batch(paths, overrides)
 	return handoff.receive(vim.tbl_extend("force", {
@@ -162,6 +203,10 @@ local route = handoff.resolve_plan_route(handoffs[1].provenance)
 eq(route.sessionID, "ses_two", "a live native plan route resolves to its exact session")
 handoff.unregister_terminal(root, generation)
 eq(handoff.resolve_plan_route(handoffs[1].provenance), nil, "native plan provenance fails closed after terminal exit")
+eq(handoff.active_bindings(), {}, "terminal exit removes the active binding")
+eq(binding_changes, 3, "removing a bound terminal reports one binding change")
+eq(handoff.unregister_terminal(root, generation), false, "a stale unregister remains rejected")
+eq(binding_changes, 3, "a rejected unregister does not report a binding change")
 
 local encoded = vim.base64.encode(vim.json.encode({
 	version = 1,
@@ -178,6 +223,7 @@ eq(oversized_result.status, "rejected", "oversized RPC payloads are rejected")
 eq(oversized_result.reason, "invalid_encoding", "oversized RPC rejection happens before decoding")
 
 handoff.__reset()
+pcall(vim.api.nvim_del_augroup_by_name, "opencode_handoff_spec_bindings")
 assert(vim.fn.delete(root, "rf") == 0, "failed to remove temporary project")
 assert(vim.fn.delete(sibling, "rf") == 0, "failed to remove sibling project")
 

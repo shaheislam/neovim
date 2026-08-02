@@ -91,6 +91,13 @@ local function authenticate(payload)
 	return project, project_state
 end
 
+local function emit_binding_changed()
+	pcall(vim.api.nvim_exec_autocmds, "User", {
+		pattern = "OpencodeHandoffEvent:binding_changed",
+		modeline = false,
+	})
+end
+
 local function focus_buffer(buf)
 	for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
 		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
@@ -232,6 +239,7 @@ local function receive_bind(payload)
 		project_state.sessionID = payload.sessionID
 		project_state.routeRevision = payload.routeRevision
 		project_state.routeToken = token("route_")
+		emit_binding_changed()
 	end
 	return response("handled", "session_bound", { routeRevision = project_state.routeRevision })
 end
@@ -321,8 +329,27 @@ function M.unregister_terminal(project, generation)
 	if not current or current.generation ~= generation then
 		return false
 	end
+	local was_bound = current.sessionID ~= nil
 	state.projects[project] = nil
+	if was_bound then
+		emit_binding_changed()
+	end
 	return true
+end
+
+function M.active_bindings()
+	local bindings = {}
+	for project, project_state in pairs(state.projects) do
+		if project_state.sessionID then
+			bindings[project] = {
+				project = project,
+				generation = project_state.generation,
+				sessionID = project_state.sessionID,
+				routeRevision = project_state.routeRevision,
+			}
+		end
+	end
+	return bindings
 end
 
 function M.resolve_plan_route(provenance)

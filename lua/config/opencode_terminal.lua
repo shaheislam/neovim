@@ -112,6 +112,19 @@ local function default_terminal_write(term, payload, on_result)
 	on_result(true)
 end
 
+local function default_terminal_job_pid(term)
+	local bufnr = term.bufnr
+	if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+		return nil
+	end
+	local channel = vim.bo[bufnr].channel
+	if not channel or channel <= 0 then
+		return nil
+	end
+	local ok, pid = pcall(vim.fn.jobpid, channel)
+	return ok and type(pid) == "number" and pid > 0 and pid or nil
+end
+
 -- The channel/job liveness probe below is the one part of this module that
 -- genuinely needs a live terminal job to test realistically. Tests override
 -- it (and the paired write primitive) through __set_test_hooks instead of
@@ -119,11 +132,13 @@ end
 -- timers, dead-terminal reconstruction) exercises the real production code.
 local terminal_live = default_terminal_live
 local terminal_write = default_terminal_write
+local terminal_job_pid = default_terminal_job_pid
 
 function M.__set_test_hooks(hooks)
 	hooks = hooks or {}
 	terminal_live = hooks.terminal_live or default_terminal_live
 	terminal_write = hooks.terminal_write or default_terminal_write
+	terminal_job_pid = hooks.terminal_job_pid or default_terminal_job_pid
 end
 
 local function fail_pending(term, message)
@@ -502,9 +517,18 @@ function M.start(dir)
 	return term
 end
 
+-- Idempotent: ToggleTerm's real Terminal:open() unconditionally resets its
+-- remembered origin window, even when the terminal is already visible.
+-- Calling open() again on an already-open terminal must therefore focus it
+-- instead, or the coordinated worktree-startup layout's split placement
+-- would be silently disturbed by a later reopen.
 function M.open(dir)
 	local term = M.start(dir)
-	term:open(resolve_size(term))
+	if term:is_open() then
+		term:focus()
+	else
+		term:open(resolve_size(term))
+	end
 	return term
 end
 
@@ -538,6 +562,15 @@ function M.generation_for(dir)
 	dir = opts.project_root(dir)
 	local entry = state.by_project[dir]
 	return entry and entry.generation or nil
+end
+
+function M.job_pid_for(dir, generation)
+	dir = opts.project_root(dir)
+	local entry = state.by_project[dir]
+	if not entry or entry.generation ~= generation or not entry.term or not terminal_live(entry.term) then
+		return nil
+	end
+	return terminal_job_pid(entry.term)
 end
 
 -- Sink for config.opencode_prompt: writes raw bytes (bracketed paste, plus a

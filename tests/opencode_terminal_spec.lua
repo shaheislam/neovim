@@ -34,11 +34,16 @@ local function make_terminal(term)
 	end
 
 	function term:open(size)
+		self.__open_count = (self.__open_count or 0) + 1
 		self.__last_open_size = size
 		if not registry[self.id] then
 			self:spawn()
 		end
 		self.__window_open = true
+	end
+
+	function term:focus()
+		self.__focus_count = (self.__focus_count or 0) + 1
 	end
 
 	function term:toggle(size)
@@ -97,6 +102,9 @@ local sent_payloads = {}
 terminal_adapter.__set_test_hooks({
 	terminal_live = function(term)
 		return term.__alive == true
+	end,
+	terminal_job_pid = function(term)
+		return term.__job_pid
 	end,
 	terminal_write = function(term, payload, on_result)
 		if term.__alive ~= true then
@@ -523,6 +531,50 @@ assert(hidden_term:is_open(), "toggle() explicitly reveals a hidden terminal")
 eq(hidden_term.__spawn_count, 1, "manual visibility changes never spawn a duplicate process")
 
 print("PASS hidden start and explicit open/toggle reuse one terminal without changing focus autonomously")
+
+-- ===== Section 12b: open() is idempotent - focuses instead of reopening =====
+--
+-- ToggleTerm's real Terminal:open() unconditionally calls
+-- ui.set_origin_window(), even when the terminal is already open. Calling
+-- open() a second time on an already-visible OCV terminal would therefore
+-- silently reset ToggleTerm's remembered origin window to whatever window
+-- happens to be current at that moment, breaking the coordinated worktree
+-- startup layout's split placement. open() must focus rather than reopen.
+
+setup_adapter()
+local idempotent_dir = "/tmp/opencode-terminal-spec/project-idempotent"
+local idempotent_term = terminal_adapter.start(idempotent_dir)
+idempotent_term.__alive = true
+
+local first_open = terminal_adapter.open(idempotent_dir)
+eq(first_open.__open_count, 1, "open() on a hidden terminal opens it once")
+eq(first_open.__focus_count or 0, 0, "open() on a hidden terminal does not also focus it")
+
+local second_open = terminal_adapter.open(idempotent_dir)
+assert(second_open == first_open, "open() twice returns the same terminal")
+eq(second_open.__open_count, 1, "open() twice does not call term:open() a second time once already open")
+eq(second_open.__focus_count, 1, "open() on an already-open terminal focuses it instead of reopening")
+
+print("PASS open() is idempotent and focuses an already-open terminal instead of reopening it")
+
+-- ===== Section 12c: exact generation resolves only its live terminal job =====
+
+setup_adapter()
+local pid_dir = "/tmp/opencode-terminal-spec/project-pid"
+local pid_term = terminal_adapter.start(pid_dir)
+pid_term.__alive = true
+pid_term.__job_pid = 4242
+
+eq(
+	terminal_adapter.job_pid_for(pid_dir, "test-generation"),
+	4242,
+	"the owning live generation resolves to its exact ToggleTerm job pid"
+)
+eq(terminal_adapter.job_pid_for(pid_dir, "stale-generation"), nil, "a stale terminal generation cannot borrow the job pid")
+pid_term.__alive = false
+eq(terminal_adapter.job_pid_for(pid_dir, "test-generation"), nil, "a dead terminal never proves generation liveness")
+
+print("PASS exact terminal generation exposes only its own live job pid")
 
 -- ===== Section 13: one stable generation owns start and exit callbacks =====
 

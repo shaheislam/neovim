@@ -310,6 +310,15 @@ assert(adapted_input ~= native_plugin_input, "the plugin Promise input function 
 plugin_specs[1].config()
 eq(promise_ui.input, adapted_input, "config is idempotent and does not wrap the Promise input adapter twice")
 
+assert(
+	vim.fn.exists(":OpenCodeFocus") == 2,
+	"repeated config() calls leave the OpenCodeFocus command registered without erroring"
+)
+assert(
+	vim.fn.exists(":OpenCodeWorktreeLayout") == 2,
+	"repeated config() calls leave the OpenCodeWorktreeLayout command registered without erroring"
+)
+
 print("PASS opencode config installs one plugin-local NUI input adapter and no global cmdline workaround")
 
 -- ===== Section 3: worktree startup opens the local OpenCode split =====
@@ -348,6 +357,91 @@ eq(startup_terminal_actions, { "open" }, "worktree startup opens the split exact
 
 print("PASS worktree startup eagerly loads opencode.nvim and opens its split exactly once")
 
+-- ===== Section 3b: NVIM_OPEN_TOGGLETERM=1 builds the coordinated layout =====
+--
+-- ToggleTerm's real Terminal:open() unconditionally resets its remembered
+-- origin window, so opening the ordinary project shell while OCV is still
+-- current would split off of OCV instead of the editor. The startup callback
+-- must therefore: open OCV, explicitly restore focus to the editor window,
+-- open the shell (so it splits relative to the editor), then re-focus OCV.
+
+vim.env.NVIM_OPEN_OPENCODE = "1"
+vim.env.NVIM_OPEN_TOGGLETERM = "1"
+local layout_plugin_specs = dofile("lua/plugins/opencode.lua")
+
+local layout_actions = {}
+local original_layout_terminal_open = terminal_adapter.open
+local original_layout_defer_fn = vim.defer_fn
+local original_layout_set_current_win = vim.api.nvim_set_current_win
+local layout_defer_delays = {}
+
+terminal_adapter.open = function(dir)
+	table.insert(layout_actions, { action = "ocv_open", dir = dir })
+end
+package.loaded["config.project_terminal"] = {
+	open = function(dir)
+		table.insert(layout_actions, { action = "shell_open", dir = dir })
+	end,
+}
+vim.api.nvim_set_current_win = function(win)
+	table.insert(layout_actions, { action = "focus_editor" })
+	return original_layout_set_current_win(win)
+end
+vim.defer_fn = function(callback, delay)
+	table.insert(layout_defer_delays, delay)
+	callback()
+end
+
+layout_plugin_specs[1].config()
+vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
+
+terminal_adapter.open = original_layout_terminal_open
+vim.defer_fn = original_layout_defer_fn
+vim.api.nvim_set_current_win = original_layout_set_current_win
+package.loaded["config.project_terminal"] = nil
+vim.env.NVIM_OPEN_OPENCODE = nil
+vim.env.NVIM_OPEN_TOGGLETERM = nil
+
+eq(layout_defer_delays, { 0 }, "the coordinated layout also defers by exactly one event-loop turn")
+eq(#layout_actions, 4, "the coordinated layout performs exactly four ordered actions")
+eq(layout_actions[1].action, "ocv_open", "OCV is opened first")
+eq(layout_actions[2].action, "focus_editor", "focus is explicitly restored to the editor window before opening the shell")
+eq(layout_actions[3].action, "shell_open", "the ordinary project shell is opened only after the editor is refocused")
+eq(layout_actions[4].action, "ocv_open", "OCV is re-focused last (open() is idempotent, so this focuses rather than reopens)")
+assert(type(layout_actions[1].dir) == "string" and layout_actions[1].dir ~= "", "OCV opens against a resolved project directory")
+eq(layout_actions[3].dir, layout_actions[1].dir, "the shell opens against the same resolved project directory as OCV")
+eq(layout_actions[4].dir, layout_actions[1].dir, "the final OCV re-focus targets the same resolved project directory")
+
+print("PASS NVIM_OPEN_TOGGLETERM=1 builds the coordinated editor+shell+OCV layout on worktree startup")
+
+-- ===== Section 3c: OpenCodeFocus and OpenCodeWorktreeLayout commands =====
+
+local command_actions = {}
+local original_command_terminal_open = terminal_adapter.open
+terminal_adapter.open = function(dir)
+	table.insert(command_actions, { action = "ocv_open", dir = dir })
+end
+package.loaded["config.project_terminal"] = {
+	open = function(dir)
+		table.insert(command_actions, { action = "shell_open", dir = dir })
+	end,
+}
+
+vim.cmd("OpenCodeFocus")
+eq(command_actions, { { action = "ocv_open", dir = command_actions[1].dir } }, "OpenCodeFocus only focuses/opens OCV")
+
+command_actions = {}
+vim.cmd("OpenCodeWorktreeLayout")
+eq(#command_actions, 3, "OpenCodeWorktreeLayout builds the full editor+shell+OCV layout")
+eq(command_actions[1].action, "ocv_open", "OpenCodeWorktreeLayout opens OCV first")
+eq(command_actions[2].action, "shell_open", "OpenCodeWorktreeLayout opens the shell second")
+eq(command_actions[3].action, "ocv_open", "OpenCodeWorktreeLayout re-focuses OCV last")
+
+terminal_adapter.open = original_command_terminal_open
+package.loaded["config.project_terminal"] = nil
+
+print("PASS OpenCodeFocus and OpenCodeWorktreeLayout commands dispatch to the expected terminal actions")
+
 -- ===== Section 4: shared picker catalog inside the OCV terminal composer =====
 
 local prompt_bindings = {}
@@ -366,8 +460,8 @@ eq(#prompt_bindings, 1, "the OCV composer binds the shared prompt picker catalog
 eq(prompt_bindings[1].buf, terminal_buf, "the OCV picker catalog is local to its terminal buffer")
 eq(
 	prompt_bindings[1].owner.mode,
-	"n",
-	"the OCV picker catalog uses terminal-normal-mode mappings so composer typing is never intercepted"
+	"t",
+	"the OCV picker catalog uses terminal-mode mappings so leader combinations work in the composer"
 )
 
 local appended

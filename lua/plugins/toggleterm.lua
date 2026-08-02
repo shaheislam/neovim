@@ -1,5 +1,3 @@
-local ft_terminal
-
 return {
   {
     "akinsho/toggleterm.nvim",
@@ -8,28 +6,7 @@ return {
       {
         "<leader>ft",
         function()
-          -- Get Oil's current directory if in Oil buffer, otherwise use vim's cwd
-          local cwd = vim.fn.getcwd()
-          if vim.bo.filetype == "oil" then
-            local oil = require("oil")
-            local oil_dir = oil.get_current_dir()
-            if oil_dir then
-              cwd = oil_dir
-            end
-          end
-
-          -- Reuse the cached terminal so repeated presses toggle the same
-          -- instance instead of spawning a new shell each time; only
-          -- recreate it if the target directory changed.
-          if not ft_terminal or ft_terminal.dir ~= cwd then
-            local Terminal = require("toggleterm.terminal").Terminal
-            ft_terminal = Terminal:new({
-              dir = cwd,
-              direction = "horizontal",
-              hidden = false,
-            })
-          end
-          ft_terminal:toggle()
+          require("config.project_terminal").toggle()
         end,
         desc = "Terminal Split (current dir)",
       },

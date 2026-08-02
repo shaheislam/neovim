@@ -21,10 +21,12 @@ local original_auth_env = {
 	username = vim.env.OPENCODE_SERVER_USERNAME,
 	password = vim.env.OPENCODE_SERVER_PASSWORD,
 	state_home = vim.env.XDG_STATE_HOME,
+	open_opencode = vim.env.NVIM_OPEN_OPENCODE,
 }
 vim.env.OPENCODE_SERVER_USERNAME = "opencode-spec-user-1"
 vim.env.OPENCODE_SERVER_PASSWORD = "opencode-spec-password-1"
 vim.env.XDG_STATE_HOME = "/tmp/opencode-plugin-spec-missing-state"
+vim.env.NVIM_OPEN_OPENCODE = nil
 
 -- ===== Section 1: toggleterm resize-on-reopen fix =====
 
@@ -79,6 +81,7 @@ package.loaded["toggleterm.terminal"] = {
 
 package.loaded["config.opencode_terminal"] = dofile("lua/config/opencode_terminal.lua")
 local plugin_specs = dofile("lua/plugins/opencode.lua")
+eq(plugin_specs[1].lazy, true, "ordinary editor startup keeps opencode.nvim lazy-loaded")
 local terminal_adapter = require("config.opencode_terminal")
 terminal_adapter.__set_test_hooks({
 	terminal_live = function(term)
@@ -304,7 +307,43 @@ eq(promise_ui.input, adapted_input, "config is idempotent and does not wrap the 
 
 print("PASS opencode config installs one plugin-local NUI input adapter and no global cmdline workaround")
 
--- ===== Section 3: shared picker catalog inside the OCV terminal composer =====
+-- ===== Section 3: worktree startup opens the local OpenCode split =====
+
+vim.env.NVIM_OPEN_OPENCODE = "1"
+local startup_plugin_specs = dofile("lua/plugins/opencode.lua")
+eq(startup_plugin_specs[1].lazy, false, "worktree startup eagerly loads opencode.nvim before VimEnter")
+
+local startup_terminal_actions = {}
+local startup_defer_delays = {}
+local original_terminal_open = terminal_adapter.open
+local original_terminal_toggle = terminal_adapter.toggle
+local original_startup_defer_fn = vim.defer_fn
+terminal_adapter.open = function()
+	table.insert(startup_terminal_actions, "open")
+end
+terminal_adapter.toggle = function()
+	table.insert(startup_terminal_actions, "toggle")
+end
+vim.defer_fn = function(callback, delay)
+	table.insert(startup_defer_delays, delay)
+	callback()
+end
+
+startup_plugin_specs[1].config()
+vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
+vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
+
+terminal_adapter.open = original_terminal_open
+terminal_adapter.toggle = original_terminal_toggle
+vim.defer_fn = original_startup_defer_fn
+vim.env.NVIM_OPEN_OPENCODE = nil
+
+eq(startup_defer_delays, { 0 }, "worktree startup defers the terminal open by one event-loop turn")
+eq(startup_terminal_actions, { "open" }, "worktree startup opens the split exactly once without toggling it")
+
+print("PASS worktree startup eagerly loads opencode.nvim and opens its split exactly once")
+
+-- ===== Section 4: shared picker catalog inside the OCV terminal composer =====
 
 local prompt_bindings = {}
 package.loaded["config.fzf_prompt"] = {
@@ -832,5 +871,6 @@ vim.api.nvim_buf_delete(modal_buf, { force = true })
 vim.env.OPENCODE_SERVER_USERNAME = original_auth_env.username
 vim.env.OPENCODE_SERVER_PASSWORD = original_auth_env.password
 vim.env.XDG_STATE_HOME = original_auth_env.state_home
+vim.env.NVIM_OPEN_OPENCODE = original_auth_env.open_opencode
 
 print("PASS local OpenCode prompt mappings route through the shared prompt facade and no longer expose aoM")

@@ -699,6 +699,7 @@ return {
 			"akinsho/toggleterm.nvim",
 			"MunifTanjim/nui.nvim",
 		},
+		lazy = vim.env.NVIM_OPEN_OPENCODE ~= "1",
 		cmd = { "Opencode" },
 		init = apply_opencode_opts,
 		keys = {

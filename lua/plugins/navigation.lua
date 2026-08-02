@@ -10,6 +10,42 @@ return {
   -- solely on the Neovim-native mappings below.
   init = function()
     vim.g.tmux_navigator_no_mappings = 1
+
+    local group = vim.api.nvim_create_augroup("nvim_mini_terminal_navigation", { clear = true })
+    vim.api.nvim_create_autocmd("WinLeave", {
+      group = group,
+      desc = "Remember terminal-job mode before window navigation",
+      callback = function(event)
+        if vim.api.nvim_get_current_buf() ~= event.buf then
+          return
+        end
+
+        if vim.bo[event.buf].buftype == "terminal" and vim.fn.mode() == "t" then
+          vim.w.nvim_mini_terminal_navigation_buf = event.buf
+        else
+          vim.w.nvim_mini_terminal_navigation_buf = nil
+        end
+      end,
+    })
+    vim.api.nvim_create_autocmd("WinEnter", {
+      group = group,
+      desc = "Resume terminal-job mode after window navigation",
+      callback = function(event)
+        local resume_buf = vim.w.nvim_mini_terminal_navigation_buf
+        if resume_buf == nil then
+          return
+        end
+
+        vim.w.nvim_mini_terminal_navigation_buf = nil
+        if
+          resume_buf == event.buf
+          and vim.api.nvim_get_current_buf() == event.buf
+          and vim.bo[event.buf].buftype == "terminal"
+        then
+          vim.cmd("startinsert")
+        end
+      end,
+    })
   end,
   cmd = {
     "TmuxNavigateLeft",
@@ -25,11 +61,11 @@ return {
     { "<c-k>", "<cmd>TmuxNavigateUp<cr>", desc = "Navigate up (vim/tmux)" },
     { "<c-l>", "<cmd>TmuxNavigateRight<cr>", desc = "Navigate right (vim/tmux)" },
     { "<c-\\>", "<cmd>TmuxNavigatePrevious<cr>", desc = "Navigate to previous (vim/tmux)" },
-    -- Terminal mode: must exit terminal-insert first
-    { "<c-h>", "<C-\\><C-n><cmd>TmuxNavigateLeft<cr>", mode = "t", desc = "Navigate left (vim/tmux)" },
-    { "<c-j>", "<C-\\><C-n><cmd>TmuxNavigateDown<cr>", mode = "t", desc = "Navigate down (vim/tmux)" },
-    { "<c-k>", "<C-\\><C-n><cmd>TmuxNavigateUp<cr>", mode = "t", desc = "Navigate up (vim/tmux)" },
-    { "<c-l>", "<C-\\><C-n><cmd>TmuxNavigateRight<cr>", mode = "t", desc = "Navigate right (vim/tmux)" },
-    { "<c-\\>", "<C-\\><C-n><cmd>TmuxNavigatePrevious<cr>", mode = "t", desc = "Navigate to previous (vim/tmux)" },
+    -- <Cmd> executes without sending command text to the terminal job.
+    { "<c-h>", "<cmd>TmuxNavigateLeft<cr>", mode = "t", desc = "Navigate left (vim/tmux)" },
+    { "<c-j>", "<cmd>TmuxNavigateDown<cr>", mode = "t", desc = "Navigate down (vim/tmux)" },
+    { "<c-k>", "<cmd>TmuxNavigateUp<cr>", mode = "t", desc = "Navigate up (vim/tmux)" },
+    { "<c-l>", "<cmd>TmuxNavigateRight<cr>", mode = "t", desc = "Navigate right (vim/tmux)" },
+    { "<c-\\>", "<cmd>TmuxNavigatePrevious<cr>", mode = "t", desc = "Navigate to previous (vim/tmux)" },
   },
 }

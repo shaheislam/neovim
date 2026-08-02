@@ -490,8 +490,8 @@ eq(#prompt_bindings, 1, "the OCV composer binds the shared prompt picker catalog
 eq(prompt_bindings[1].buf, terminal_buf, "the OCV picker catalog is local to its terminal buffer")
 eq(
 	prompt_bindings[1].owner.mode,
-	"t",
-	"the OCV picker catalog uses terminal-mode mappings so leader combinations work in the composer"
+	"n",
+	"the OCV picker catalog uses Normal-mode mappings so terminal input cannot trigger pickers"
 )
 
 local appended

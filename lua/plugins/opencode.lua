@@ -104,8 +104,10 @@ local function bind_opencode_terminal_picker(term, dir)
 			vim.cmd("startinsert")
 		end
 	end
+	-- OCV's Vim mode is internal to the child process, so terminal-mode maps
+	-- would also intercept leader-like text while its prompt is in Insert mode.
 	require("config.fzf_prompt").bind(term.bufnr, {
-		mode = "t",
+		mode = "n",
 		source = function()
 			return require("config.return_target").last()
 		end,

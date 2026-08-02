@@ -62,6 +62,7 @@ return {
         -- stopinsert doesn't synchronously leave Terminal-mode; scheduling
         -- lets the transition finish before zoom's internal `normal!` runs.
         vim.schedule(function()
+          toggle_zoom()
           if
             vim.api.nvim_buf_is_valid(buf)
             and vim.api.nvim_get_current_buf() == buf

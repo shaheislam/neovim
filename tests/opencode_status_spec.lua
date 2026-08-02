@@ -181,6 +181,10 @@ eq(multi_publish[8], "gemini-2.5", "the newest busy session supplies model metad
 eq(multi_publish[10], "400,500", "every live exact terminal job pid is sorted into the proof")
 finish_one()
 
+emit("OpencodeEvent:session.deleted", { info = { id = "ses-b" } })
+eq(last_async_argv()[2], "clear", "deleting an exact bound session drops its cache and fails closed")
+finish_one()
+
 emit("OpencodeEvent:server.instance.disposed")
 eq(vim.g.opencode_status, nil, "server disposal clears the exact lualine aggregate")
 eq(last_async_argv()[2], "clear", "server disposal clears the pane fact")

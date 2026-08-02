@@ -34,6 +34,7 @@ local catalog = {
 
 	{ name = "git_status", key = "<leader>gg", desc = "Find Git status", kind = "git_status" },
 	{ name = "git_commits", key = "<leader>gl", desc = "Find Git commits", kind = "commit" },
+	{ name = "git_worktrees", desc = "Find Git worktrees", kind = "worktree" },
 	{ name = "git_branches", key = "<leader>gb", desc = "Find Git branches", kind = "branch" },
 	{ name = "git_files", key = "<leader>gf", desc = "Find Git files", kind = "path" },
 	{ name = "git_bcommits", key = "<leader>gC", desc = "Find buffer commits", kind = "commit" },
@@ -75,7 +76,7 @@ end
 local normal_builtins = {
 	"files", "git_files", "grep", "live_grep", "grep_cword", "grep_cWORD", "buffers", "tabs", "lines", "blines",
 	"tags", "btags", "marks", "jumps", "changes", "registers", "keymaps", "commands", "command_history", "help_tags",
-	"man_pages", "colorschemes", "git_commits", "git_bcommits", "git_branches", "git_status", "git_stash",
+	"man_pages", "colorschemes", "git_commits", "git_worktrees", "git_bcommits", "git_branches", "git_status", "git_stash",
 	"lsp_references", "lsp_definitions", "lsp_declarations", "lsp_typedefs", "lsp_implementations",
 	"lsp_document_symbols", "lsp_workspace_symbols", "diagnostics_document", "diagnostics_workspace", "oldfiles", "quickfix",
 	"loclist", "yank_history", "aws_accounts", "opencode_messages", "opencode_prompts", "opencode_assistant",
@@ -139,6 +140,8 @@ local function entry_value(item, entry, opts)
 		return clean(entry):match("^[*+]?%s*([^%s]+)")
 	elseif item.kind == "commit" then
 		return clean(entry):match("^([a-fA-F0-9]+)")
+	elseif item.kind == "worktree" then
+		return clean(entry):match("^(%S+)")
 	elseif item.kind == "stash" then
 		return clean(entry):match("^(stash@{%d+})")
 	elseif item.kind == "command" then

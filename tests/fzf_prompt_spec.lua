@@ -65,6 +65,7 @@ package.loaded["fzf-lua"] = setmetatable({
 	__index = function(_, name)
 		return function(opts)
 			table.insert(picker_calls, { name = name, opts = opts })
+			if opts == nil then return end
 			assert(opts._start == false, name .. " resolves without starting fzf")
 			return nil, "command:" .. name, {
 				_start = false,
@@ -110,6 +111,7 @@ for _, expected in ipairs({
 	"live_grep",
 	"git_status",
 	"git_commits",
+	"git_worktrees",
 	"git_branches",
 	"git_stash",
 	"lsp_document_symbols",
@@ -157,6 +159,11 @@ eq(owner_restores, 1, "cancelling restores the prompt owner once")
 eq(prompt.transform("git_branches", { "\27[32m* main abc123 subject\27[0m" }, {}), "main ", "branch markers are stripped")
 eq(prompt.transform("git_branches", { "+ feature/topic def456 subject" }, {}), "feature/topic ", "worktree branch markers are stripped")
 eq(prompt.transform("git_commits", { "abc1234 (2 days ago) fix parser" }, {}), "abc1234 ", "commit rows insert their SHA")
+eq(
+	prompt.transform("git_worktrees", { "\27[34m/Users/shahe/work/topic\27[0m  abc1234 [topic]" }, {}),
+	"/Users/shahe/work/topic ",
+	"worktree rows insert only the worktree path"
+)
 eq(prompt.transform("git_stash", { "stash@{2}: On main: WIP" }, {}), "stash@{2} ", "stash rows insert their ref")
 eq(
 	prompt.transform("git_status", { "R  old name.lua -> new name.lua" }, {}),
@@ -236,6 +243,30 @@ eq(
 	":: enter insert account id  ::  alt-y insert profile name  ::  alt-b insert both",
 	"the prompt-mode AWS picker's header documents all three insertion actions"
 )
+
+inserted = {}
+prompt.launch("git_worktrees", owner)
+eq(wrapped.command, "command:git_worktrees", "the worktree provider is relaunched for prompt insertion")
+assert(
+	vim.tbl_count(wrapped.opts.actions) == 1 and wrapped.opts.actions.enter,
+	"prompt worktrees remove inherited cd, add, and delete actions"
+)
+wrapped.opts.actions.enter({ "\27[34m/Users/shahe/work/topic\27[0m  abc1234 [topic]" }, wrapped.opts)
+eq(inserted, { "/Users/shahe/work/topic " }, "prompt worktrees insert the selected path")
+
+scheduled = {}
+picker_calls = {}
+prompt.open_menu()
+local normal_menu = picker_calls[#picker_calls]
+eq(normal_menu.name, "fzf_exec", "the ownerless picker opens the regular FZF menu")
+contains(normal_menu.entries, "git_commits", "the regular FZF menu includes Git commits")
+contains(normal_menu.entries, "git_worktrees", "the regular FZF menu includes Git worktrees")
+normal_menu.opts.actions.enter({ "git_worktrees" })
+eq(#scheduled, 1, "regular picker dispatch is scheduled after the menu closes")
+scheduled[1]()
+local normal_worktrees = picker_calls[#picker_calls]
+eq(normal_worktrees.name, "git_worktrees", "the regular FZF menu dispatches the worktree provider")
+eq(normal_worktrees.opts, nil, "regular worktrees retain the provider's normal actions")
 
 vim.schedule = original_schedule
 vim.api.nvim_get_current_win = original_get_current_win

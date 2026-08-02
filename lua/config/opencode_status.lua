@@ -1,55 +1,50 @@
--- Event-driven bridge from opencode.nvim's shared-server SSE stream to tmux
--- window color, mirroring the color policy `scripts/opencode/tmux-open.sh`
--- and Claude's hooks already give direct OpenCode/Claude sessions in the
--- active dotfiles checkout.
---
--- Design constraints (see docs/opencode-nvim.md and dotfiles
--- .claude/rules/agent-window-status.md):
---   - The shared OpenCode server multiplexes events for every session, not
---     just this Neovim's embedded terminal, so every event is filtered
---     against config.opencode_handoff's exact bound sessions before it can
---     influence tmux. An event for an unrelated session/window must never
---     recolor this pane.
---   - Status is published per-*pane* (not per-window): this module writes
---     @opencode_owner/@opencode_status/@opencode_provider/@opencode_model/
---     @opencode_proof_pid/@opencode_updated_at directly via `tmux set-option
---     -p`, exactly like config.diffview_idle already does for its own pane
---     options. The actual window-color decision (aggregating every pane in
---     the window, respecting live Claude/Codex precedence) is centralized in
---     the dotfiles scripts/lib/agent-window.sh reconciler; this module never
---     duplicates that policy, it only reconciles its own window afterward on
---     a best-effort basis for snappy feedback (the dotfiles 10s heal loop is
---     the durable backstop if that shells out fails or the checkout is
---     missing).
---   - One Neovim process can have multiple bound projects sharing the same
---     tmux pane (opencode_terminal keeps one terminal per project). Their
---     statuses are aggregated locally: any exact busy/error wins; idle is
---     only published once every bound, live-proven project reports idle.
---     Anything unproven or unknown fails closed (clears rather than guesses).
---   - A session's status can arrive before its native bind completes; it is
---     cached by sessionID regardless, and reconsidered once
---     opencode_handoff signals a binding change.
---   - The shared server's connect/disconnect events are not session-specific
---     and never drive tmux color; disposal invalidates every cached status
---     so a reconnect cannot resurrect stale color before a fresh event.
+-- Publish exact opencode.nvim session state to tmux through the dotfiles
+-- pane-state protocol. The shared OpenCode server emits every session's
+-- events, so only sessions bound by config.opencode_handoff may contribute.
 
 local M = {}
 
+local MAX_CACHED_SESSIONS = 256
+local AUGROUP = "opencode_status_bridge"
+
 local session_cache = {}
-local seq_counter = 0
+local cache_size = 0
+local sequence = 0
 local server_connected = false
 
-local function bump_seq()
-	seq_counter = seq_counter + 1
-	return seq_counter
+local function default_helper_path()
+	local configured = vim.env.OPENCODE_TMUX_STATE_HELPER
+	if configured and configured ~= "" then
+		return vim.fn.executable(configured) == 1 and configured or nil
+	end
+
+	local path = vim.fn.exepath("tmux-agent-state")
+	return path ~= "" and path or nil
+end
+
+local defaults = {
+	helper_path = default_helper_path,
+	getpid = vim.fn.getpid,
+	owner_nonce = function()
+		local uv = vim.uv or vim.loop
+		return tostring(uv.hrtime())
+	end,
+	jobstart = vim.fn.jobstart,
+	system = vim.fn.system,
+	jobstop = vim.fn.jobstop,
+	jobwait = vim.fn.jobwait,
+}
+
+local hooks = vim.tbl_extend("force", {}, defaults)
+
+local function next_sequence()
+	sequence = sequence + 1
+	return sequence
 end
 
 local function normalize_status(status_type)
 	if status_type == "idle" then
 		return "idle"
-	end
-	if status_type == "error" then
-		return "error"
 	end
 	if type(status_type) == "string" and status_type ~= "" then
 		return "busy"
@@ -57,266 +52,130 @@ local function normalize_status(status_type)
 	return nil
 end
 
-local function cache_status(session_id, status_type)
-	if type(session_id) ~= "string" or session_id == "" then
-		return
+local function prune_cache()
+	while cache_size > MAX_CACHED_SESSIONS do
+		local oldest_id
+		local oldest_sequence = math.huge
+		for session_id, entry in pairs(session_cache) do
+			if (entry.updated_sequence or 0) < oldest_sequence then
+				oldest_id = session_id
+				oldest_sequence = entry.updated_sequence or 0
+			end
+		end
+		if not oldest_id then
+			return
+		end
+		session_cache[oldest_id] = nil
+		cache_size = cache_size - 1
 	end
+end
+
+local function cache_entry(session_id)
+	if type(session_id) ~= "string" or session_id == "" then
+		return nil
+	end
+
+	local entry = session_cache[session_id]
+	if not entry then
+		entry = {}
+		session_cache[session_id] = entry
+		cache_size = cache_size + 1
+	end
+	entry.updated_sequence = next_sequence()
+	prune_cache()
+	return entry
+end
+
+local function cache_status(session_id, status_type)
 	local normalized = normalize_status(status_type)
 	if not normalized then
 		return
 	end
-	local entry = session_cache[session_id] or {}
+
+	local entry = cache_entry(session_id)
+	if not entry then
+		return
+	end
 	entry.status = normalized
-	entry.status_seq = bump_seq()
-	session_cache[session_id] = entry
+	entry.status_sequence = entry.updated_sequence
 end
 
 local function cache_model(session_id, provider_id, model_id)
-	if type(session_id) ~= "string" or session_id == "" then
+	local entry = cache_entry(session_id)
+	if not entry then
 		return
 	end
-	local entry = session_cache[session_id] or {}
-	entry.providerID = type(provider_id) == "string" and provider_id or entry.providerID
-	entry.modelID = type(model_id) == "string" and model_id or entry.modelID
-	session_cache[session_id] = entry
+	if type(provider_id) == "string" then
+		entry.providerID = provider_id
+	end
+	if type(model_id) == "string" then
+		entry.modelID = model_id
+	end
 end
 
 local function drop_session(session_id)
-	if type(session_id) == "string" then
+	if type(session_id) == "string" and session_cache[session_id] then
 		session_cache[session_id] = nil
+		cache_size = cache_size - 1
 	end
+end
+
+local function clear_cache()
+	session_cache = {}
+	cache_size = 0
 end
 
 local function tmux_pane()
 	local pane = vim.env.TMUX_PANE
-	if not pane or pane == "" or vim.fn.executable("tmux") ~= 1 then
+	if type(pane) ~= "string" or not pane:match("^%%%d+$") then
 		return nil
 	end
 	return pane
 end
 
-local function dotfiles_agent_window_helper()
-	local root = vim.env.DOTFILES_ROOT
-	if not root or root == "" then
-		root = (vim.env.HOME or "") .. "/dotfiles"
+local function helper_path()
+	local ok, path = pcall(hooks.helper_path)
+	if not ok or type(path) ~= "string" or path == "" then
+		return nil
 	end
-	local path = root .. "/scripts/lib/agent-window.sh"
-	return vim.fn.filereadable(path) == 1 and path or nil
-end
-
--- Best-effort, fire-and-forget: the durable backstop is the dotfiles 10s
--- heal loop, which reconciles every window from the same pane facts
--- regardless of whether this immediate reconcile ran or the checkout that
--- provides it is even present in this environment.
-local function reconcile_window_async()
-	local pane = tmux_pane()
-	local helper = pane and dotfiles_agent_window_helper()
-	if not helper then
-		return
-	end
-	local window = vim.trim(vim.fn.system({ "tmux", "display-message", "-p", "-t", pane, "#{window_id}" }))
-	if window == "" then
-		return
-	end
-	vim.fn.jobstart({
-		"bash",
-		"-c",
-		". " .. vim.fn.shellescape(helper) .. "; agent_window_reconcile_opencode " .. vim.fn.shellescape(window),
-	}, { detach = true })
+	return path
 end
 
 local function owner_token()
-	return "nvim:" .. tostring(vim.fn.getpid())
-end
-
--- Every field is a separate `tmux set-option` chained with a literal `;`
--- token (tmux's own multi-command syntax) so the whole publish is one
--- process/message; @opencode_updated_at is set last as the commit marker,
--- matching agent_window_publish_pane_fact's ordering guarantee on the
--- dotfiles side.
-local function publish_pane_fact_async(owner, status, provider, model, proof_pid, on_done)
-	local pane = tmux_pane()
-	if not pane then
-		if on_done then
-			on_done()
-		end
-		return
+	if M._owner then
+		return M._owner
 	end
-	local updated_at = tostring(os.time() * 1000)
-	vim.fn.jobstart({
-		"tmux",
-		"set-option",
-		"-p",
-		"-t",
-		pane,
-		"@opencode_owner",
-		owner,
-		";",
-		"set-option",
-		"-p",
-		"-t",
-		pane,
-		"@opencode_status",
-		status,
-		";",
-		"set-option",
-		"-p",
-		"-t",
-		pane,
-		"@opencode_provider",
-		provider or "",
-		";",
-		"set-option",
-		"-p",
-		"-t",
-		pane,
-		"@opencode_model",
-		model or "",
-		";",
-		"set-option",
-		"-p",
-		"-t",
-		pane,
-		"@opencode_proof_pid",
-		tostring(proof_pid or ""),
-		";",
-		"set-option",
-		"-p",
-		"-t",
-		pane,
-		"@opencode_updated_at",
-		updated_at,
-	}, {
-		detach = true,
-		on_exit = function()
-			reconcile_window_async()
-			if on_done then
-				on_done()
-			end
-		end,
-	})
-end
 
-local function clear_pane_fact_async(on_done)
-	local pane = tmux_pane()
-	if not pane then
-		if on_done then
-			on_done()
-		end
-		return
+	local pid = tonumber(hooks.getpid())
+	if not pid or pid <= 0 then
+		return nil
 	end
-	vim.fn.jobstart({
-		"tmux",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_owner",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_status",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_provider",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_model",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_proof_pid",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_updated_at",
-	}, {
-		detach = true,
-		on_exit = function()
-			reconcile_window_async()
-			if on_done then
-				on_done()
-			end
-		end,
-	})
-end
-
--- Synchronous: a detached VimLeavePre job is not guaranteed to run before
--- the process exits (same rationale as config.diffview_idle's
--- unregister_server), so the final clear on exit must block.
-local function clear_pane_fact_sync()
-	local pane = tmux_pane()
-	if not pane then
-		return
+	local nonce = tostring(hooks.owner_nonce() or ""):gsub("[^%w_.-]", "")
+	if nonce == "" then
+		nonce = tostring(pid)
 	end
-	vim.fn.system({
-		"tmux",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_owner",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_status",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_provider",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_model",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_proof_pid",
-		";",
-		"set-option",
-		"-p",
-		"-u",
-		"-t",
-		pane,
-		"@opencode_updated_at",
-	})
+	M._owner = string.format("nvim:%d:%s", pid, nonce)
+	return M._owner
 end
 
--- Aggregates every exact bound session in this Neovim process into a single
--- decision. Returns nil when nothing should be published (no bound project,
--- or at least one bound project's status/liveness could not be proven and
--- none is busy) so the caller clears instead of guessing.
+local function valid_job_pid(value)
+	local pid = tonumber(value)
+	return pid and pid > 0 and pid % 1 == 0 and pid or nil
+end
+
+local function newer(candidate, current)
+	if not current then
+		return true
+	end
+	if candidate.sequence ~= current.sequence then
+		return candidate.sequence > current.sequence
+	end
+	return candidate.session_id < current.session_id
+end
+
+-- Aggregate every bound project in this Neovim pane. Every terminal job must
+-- be live and exact. A known busy session wins even while another live bound
+-- session has not reported status; idle requires every session to be idle.
 function M._compute()
 	local handoff_ok, handoff = pcall(require, "config.opencode_handoff")
 	local terminal_ok, terminal = pcall(require, "config.opencode_terminal")
@@ -324,44 +183,76 @@ function M._compute()
 		return nil
 	end
 
-	local bindings = handoff.active_bindings()
-	local any_bound = false
+	local bindings_ok, bindings = pcall(handoff.active_bindings)
+	if not bindings_ok or type(bindings) ~= "table" or next(bindings) == nil then
+		return nil
+	end
+
+	local job_set = {}
+	local busy
+	local idle
 	local all_idle = true
-	local best_status = "none"
-	local best_idle_seq = -1
-	local best_provider, best_model, best_proof_pid
 
 	for project, binding in pairs(bindings) do
-		any_bound = true
-		local cached = session_cache[binding.sessionID]
-		local proof_pid = terminal.job_pid_for(project, binding.generation)
+		if type(binding) ~= "table" or type(binding.sessionID) ~= "string" then
+			return nil
+		end
 
-		if not cached or not cached.status or not proof_pid then
+		local pid = valid_job_pid(terminal.job_pid_for(project, binding.generation))
+		if not pid then
+			return nil
+		end
+		job_set[pid] = true
+
+		local cached = session_cache[binding.sessionID]
+		if not cached or not cached.status then
 			all_idle = false
-		elseif cached.status == "busy" or cached.status == "error" then
-			best_status = "busy"
-			all_idle = false
-			best_proof_pid = best_proof_pid or proof_pid
-		elseif cached.status == "idle" then
-			if best_status ~= "busy" and (cached.status_seq or 0) > best_idle_seq then
-				best_idle_seq = cached.status_seq or 0
-				best_provider = cached.providerID
-				best_model = cached.modelID
-				best_proof_pid = proof_pid
+		else
+			local candidate = {
+				session_id = binding.sessionID,
+				sequence = cached.status_sequence or 0,
+				provider = cached.providerID or "",
+				model = cached.modelID or "",
+			}
+			if cached.status == "busy" then
+				all_idle = false
+				if newer(candidate, busy) then
+					busy = candidate
+				end
+			elseif cached.status == "idle" then
+				if newer(candidate, idle) then
+					idle = candidate
+				end
+			else
+				all_idle = false
 			end
 		end
 	end
 
-	if not any_bound then
+	local job_pids = {}
+	for pid in pairs(job_set) do
+		table.insert(job_pids, pid)
+	end
+	table.sort(job_pids)
+
+	local winner
+	local status
+	if busy then
+		winner = busy
+		status = "busy"
+	elseif all_idle and idle then
+		winner = idle
+		status = "idle"
+	else
 		return nil
 	end
-	if best_status == "busy" then
-		return { status = "busy", provider = best_provider, model = best_model, proof_pid = best_proof_pid }
-	end
-	if all_idle then
-		return { status = "idle", provider = best_provider, model = best_model, proof_pid = best_proof_pid }
-	end
-	return nil
+
+	return {
+		status = status,
+		provider = winner.provider,
+		model = winner.model,
+		job_pids = job_pids,
+	}
 end
 
 local function update_lualine(computed)
@@ -374,10 +265,80 @@ local function update_lualine(computed)
 	end
 end
 
--- Coalesces overlapping recompute requests into a single in-flight publish
--- job: a burst of SSE events (status then model, say) triggers only one
--- tmux round trip, and any request that arrives mid-publish is re-run once
--- the current one completes rather than racing it.
+local function command_for(computed)
+	local helper = helper_path()
+	local pane = tmux_pane()
+	local owner = owner_token()
+	if not helper or not pane or not owner then
+		return nil
+	end
+
+	if not computed then
+		return { helper, "clear", pane, owner }
+	end
+
+	local nvim_pid = valid_job_pid(hooks.getpid())
+	if not nvim_pid then
+		return nil
+	end
+	local job_pids = {}
+	for _, pid in ipairs(computed.job_pids or {}) do
+		table.insert(job_pids, tostring(pid))
+	end
+	if #job_pids == 0 then
+		return nil
+	end
+
+	return {
+		helper,
+		"publish",
+		pane,
+		"nvim",
+		owner,
+		computed.status,
+		computed.provider or "",
+		computed.model or "",
+		tostring(nvim_pid),
+		table.concat(job_pids, ","),
+	}
+end
+
+local function operation_finished(token)
+	if token ~= M._operation_token then
+		return
+	end
+	M._inflight_job = nil
+	M._recompute_inflight = false
+	if M._disabled then
+		M._recompute_pending = false
+		return
+	end
+	if M._recompute_pending then
+		M._recompute_pending = false
+		M._recompute()
+	end
+end
+
+local function run_async(argv)
+	M._operation_token = (M._operation_token or 0) + 1
+	local token = M._operation_token
+	M._recompute_inflight = true
+
+	local ok, job = pcall(hooks.jobstart, argv, {
+		detach = false,
+		on_exit = function()
+			operation_finished(token)
+		end,
+	})
+	if not ok or type(job) ~= "number" or job <= 0 then
+		M._recompute_inflight = false
+		M._inflight_job = nil
+		return false
+	end
+	M._inflight_job = job
+	return true
+end
+
 function M._recompute()
 	if M._disabled then
 		return
@@ -386,23 +347,12 @@ function M._recompute()
 		M._recompute_pending = true
 		return
 	end
-	M._recompute_inflight = true
 
 	local computed = M._compute()
 	update_lualine(computed)
-
-	local function finish()
-		M._recompute_inflight = false
-		if M._recompute_pending then
-			M._recompute_pending = false
-			M._recompute()
-		end
-	end
-
-	if computed then
-		publish_pane_fact_async(owner_token(), computed.status, computed.provider, computed.model, computed.proof_pid, finish)
-	else
-		clear_pane_fact_async(finish)
+	local argv = command_for(computed)
+	if argv then
+		run_async(argv)
 	end
 end
 
@@ -410,13 +360,34 @@ function M.refresh()
 	M._recompute()
 end
 
--- Disables the bridge and clears any published state — for
--- OPENCODE_TMUX_STATE_DISABLE=1 rollback without reverting the plugin wiring.
+local function clear_sync()
+	local helper = helper_path()
+	local pane = tmux_pane()
+	local owner = owner_token()
+	if helper and pane and owner then
+		pcall(hooks.system, { helper, "clear", pane, owner })
+	end
+end
+
+local function stop_inflight()
+	M._operation_token = (M._operation_token or 0) + 1
+	local job = M._inflight_job
+	M._inflight_job = nil
+	M._recompute_inflight = false
+	M._recompute_pending = false
+	if type(job) == "number" and job > 0 then
+		pcall(hooks.jobstop, job)
+		pcall(hooks.jobwait, { job }, 200)
+	end
+end
+
 function M.disable()
 	M._disabled = true
-	session_cache = {}
-	clear_pane_fact_sync()
+	stop_inflight()
+	clear_cache()
+	server_connected = false
 	vim.g.opencode_status = nil
+	clear_sync()
 end
 
 local function event_properties(event)
@@ -425,51 +396,38 @@ local function event_properties(event)
 	return type(inner) == "table" and inner.properties or nil
 end
 
-function M.setup()
-	if M._did_setup then
-		return
-	end
-	M._did_setup = true
-
-	if vim.env.OPENCODE_TMUX_STATE_DISABLE == "1" then
-		M._disabled = true
-	end
-
-	local group = vim.api.nvim_create_augroup("opencode_status_bridge", { clear = true })
-
+local function create_autocmds(group)
 	vim.api.nvim_create_autocmd("User", {
 		group = group,
 		pattern = "OpencodeEvent:session.status",
-		desc = "Cache exact-session OpenCode status for tmux/lualine",
+		desc = "Cache exact-session OpenCode status",
 		callback = function(event)
 			local props = event_properties(event)
-			if type(props) ~= "table" then
-				return
+			if type(props) == "table" then
+				cache_status(props.sessionID, props.status and props.status.type)
+				M._recompute()
 			end
-			cache_status(props.sessionID, props.status and props.status.type)
-			M._recompute()
 		end,
 	})
 
 	vim.api.nvim_create_autocmd("User", {
 		group = group,
 		pattern = "OpencodeEvent:message.updated",
-		desc = "Cache exact-session OpenCode provider/model for tmux color",
+		desc = "Cache exact-session OpenCode provider and model",
 		callback = function(event)
 			local props = event_properties(event)
 			local info = type(props) == "table" and props.info or nil
-			if type(info) ~= "table" then
-				return
+			if type(info) == "table" then
+				cache_model(info.sessionID, info.providerID, info.modelID)
+				M._recompute()
 			end
-			cache_model(info.sessionID, info.providerID, info.modelID)
-			M._recompute()
 		end,
 	})
 
 	vim.api.nvim_create_autocmd("User", {
 		group = group,
 		pattern = "OpencodeEvent:session.deleted",
-		desc = "Drop cached status for a deleted OpenCode session",
+		desc = "Drop deleted OpenCode session state",
 		callback = function(event)
 			local props = event_properties(event)
 			local info = type(props) == "table" and props.info or nil
@@ -483,7 +441,7 @@ function M.setup()
 	vim.api.nvim_create_autocmd("User", {
 		group = group,
 		pattern = "OpencodeEvent:server.connected",
-		desc = "Track shared OpenCode server connectivity (never colors tmux by itself)",
+		desc = "Track OpenCode server connectivity without coloring tmux",
 		callback = function()
 			server_connected = true
 			M._recompute()
@@ -493,10 +451,10 @@ function M.setup()
 	vim.api.nvim_create_autocmd("User", {
 		group = group,
 		pattern = "OpencodeEvent:server.instance.disposed",
-		desc = "Invalidate cached status on disposal so a reconnect cannot resurrect stale color",
+		desc = "Invalidate session state when the OpenCode server disconnects",
 		callback = function()
 			server_connected = false
-			session_cache = {}
+			clear_cache()
 			M._recompute()
 		end,
 	})
@@ -504,36 +462,53 @@ function M.setup()
 	vim.api.nvim_create_autocmd("User", {
 		group = group,
 		pattern = "OpencodeHandoffEvent:binding_changed",
-		desc = "Re-evaluate the published aggregate when a project's native binding changes",
-		callback = function()
-			M._recompute()
-		end,
+		desc = "Recompute tmux state after an exact OpenCode bind changes",
+		callback = M._recompute,
 	})
 
 	vim.api.nvim_create_autocmd("VimLeavePre", {
 		group = group,
-		desc = "Drain any in-flight publish, then synchronously clear this pane's OpenCode fact",
-		callback = function()
-			M._disabled = true
-			vim.wait(200, function()
-				return not M._recompute_inflight
-			end, 10)
-			clear_pane_fact_sync()
-		end,
+		desc = "Synchronously clear this Neovim instance's tmux state",
+		callback = M.disable,
 	})
 end
 
--- Test-only: resets all cached/module state and the augroup between specs.
+function M.setup()
+	if M._did_setup then
+		return
+	end
+	M._did_setup = true
+
+	local group = vim.api.nvim_create_augroup(AUGROUP, { clear = true })
+	if vim.env.OPENCODE_TMUX_STATE_DISABLE == "1" then
+		M.disable()
+		return
+	end
+	create_autocmds(group)
+end
+
+function M.__set_test_hooks(overrides)
+	for name, value in pairs(overrides or {}) do
+		if defaults[name] then
+			hooks[name] = value
+		end
+	end
+end
+
 function M.__reset()
-	session_cache = {}
-	seq_counter = 0
+	clear_cache()
+	sequence = 0
 	server_connected = false
+	hooks = vim.tbl_extend("force", {}, defaults)
+	M._owner = nil
 	M._did_setup = nil
 	M._disabled = nil
+	M._inflight_job = nil
 	M._recompute_inflight = nil
 	M._recompute_pending = nil
+	M._operation_token = nil
 	vim.g.opencode_status = nil
-	pcall(vim.api.nvim_del_augroup_by_name, "opencode_status_bridge")
+	pcall(vim.api.nvim_del_augroup_by_name, AUGROUP)
 end
 
 return M

@@ -1070,30 +1070,10 @@ return {
 			patch_opencode_server_disconnect()
 			patch_opencode_server_prompt_delivery()
 			setup_opencode_prompt_input()
+			require("config.opencode_status").setup()
 
 			-- Required for auto-reload when opencode edits files
 			vim.o.autoread = true
-
-			-- Track opencode status for statusline via OpencodeEvent autocmds
-			vim.api.nvim_create_autocmd("User", {
-				pattern = "OpencodeEvent:session.status",
-				callback = function(args)
-					local event = args.data and args.data.event
-					vim.g.opencode_status = event and event.properties and event.properties.status.type or nil
-				end,
-			})
-			vim.api.nvim_create_autocmd("User", {
-				pattern = "OpencodeEvent:server.connected",
-				callback = function()
-					vim.g.opencode_status = "connected"
-				end,
-			})
-			vim.api.nvim_create_autocmd("User", {
-				pattern = "OpencodeEvent:server.instance.disposed",
-				callback = function()
-					vim.g.opencode_status = nil
-				end,
-			})
 
 			-- Worktree launchers (gwtt, worktrunk-open-window.sh) set this to land
 			-- directly in the editor + opencode split instead of a bare buffer.

@@ -80,6 +80,13 @@ package.loaded["toggleterm.terminal"] = {
 }
 
 package.loaded["config.opencode_terminal"] = dofile("lua/config/opencode_terminal.lua")
+local original_status_bridge = package.loaded["config.opencode_status"]
+local status_setup_calls = 0
+package.loaded["config.opencode_status"] = {
+	setup = function()
+		status_setup_calls = status_setup_calls + 1
+	end,
+}
 local plugin_specs = dofile("lua/plugins/opencode.lua")
 eq(plugin_specs[1].lazy, true, "ordinary editor startup keeps opencode.nvim lazy-loaded")
 local terminal_adapter = require("config.opencode_terminal")
@@ -296,6 +303,7 @@ package.loaded["opencode.server.discovery"] = {
 }
 
 plugin_specs[1].config()
+eq(status_setup_calls, 1, "opencode config delegates status ownership to the exact-session bridge")
 
 eq(
 	vim.fn.maparg("<leader>ff", "c"),
@@ -309,6 +317,7 @@ assert(type(adapted_input) == "function", "config replaces opencode.promise.ui.i
 assert(adapted_input ~= native_plugin_input, "the plugin Promise input function is replaced")
 plugin_specs[1].config()
 eq(promise_ui.input, adapted_input, "config is idempotent and does not wrap the Promise input adapter twice")
+eq(status_setup_calls, 2, "repeated config delegates to the bridge's idempotent setup instead of adding raw autocmds")
 
 assert(
 	vim.fn.exists(":OpenCodeFocus") == 2,
@@ -963,6 +972,7 @@ last_local_prompt("non-file named prompt", "Add tests")
 
 package.loaded["opencode.config"] = original_config
 package.loaded["config.opencode_prompt"] = original_prompt
+package.loaded["config.opencode_status"] = original_status_bridge
 terminal_module.focus = original_focus
 vim.fn.getcwd = original_getcwd
 vim.api.nvim_buf_delete(ask_buffer, { force = true })

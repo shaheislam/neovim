@@ -163,6 +163,8 @@ eq(first_auth_env, {
 	OPENTUI_GRAPHICS = "0",
 	OPENCODE_SERVER_USERNAME = "opencode-spec-user-1",
 	OPENCODE_SERVER_PASSWORD = "opencode-spec-password-1",
+	TMUX = "",
+	STY = "",
 }, "launch credentials and terminal flags are passed as raw environment values")
 assert(not first_auth_terminal.cmd:find("opencode-spec-user-1", 1, true), "the username is absent from the terminal command")
 assert(not first_auth_terminal.cmd:find("opencode-spec-password-1", 1, true), "the password is absent from the terminal command")

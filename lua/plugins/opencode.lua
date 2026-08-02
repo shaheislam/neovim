@@ -8,9 +8,8 @@ local opencode_startup_timeout = 30000
 local opencode_startup_poll = 500
 local opencode_service = "com.dotfiles.opencode-serve"
 local opencode_username = vim.env.OPENCODE_SERVER_USERNAME or "opencode"
-local opencode_terminal
-local opencode_terminal_cmd
 local opencode_ask_model = { provider = "anthropic", model = "claude-sonnet-5" }
+local terminal_adapter = require("config.opencode_terminal")
 
 local function opencode_password()
 	if vim.env.OPENCODE_SERVER_PASSWORD and vim.env.OPENCODE_SERVER_PASSWORD ~= "" then
@@ -43,64 +42,66 @@ local function opencode_env_prefix()
 		.. " "
 end
 
-local function opencode_command()
+-- Resolves the canonical project root a terminal/prompt-write should target:
+-- an explicit dir if given, otherwise this Neovim's git root (falling back to
+-- cwd). Using the project root rather than raw cwd keeps Oil/subdirectory
+-- navigation from spawning a second terminal for the same project.
+local function project_root(explicit_dir)
+	local ok, http = pcall(require, "config.opencode_http")
+	local canonical = ok and type(http.canonical) == "function" and http.canonical or nil
+	if explicit_dir and explicit_dir ~= "" then
+		return (canonical and canonical(explicit_dir)) or explicit_dir
+	end
+	local cwd = vim.fn.getcwd()
+	local git_dir = vim.fs.find(".git", { path = cwd, upward = true })[1]
+	local root = git_dir and vim.fn.fnamemodify(git_dir, ":h") or cwd
+	return (canonical and canonical(root)) or root
+end
+
+local function opencode_command(dir)
 	return opencode_env_prefix()
 		.. "ocv attach http://127.0.0.1:"
 		.. opencode_port
 		.. " --dir "
-		.. vim.fn.shellescape(vim.fn.getcwd())
+		.. vim.fn.shellescape(dir)
 end
 
-local function get_opencode_terminal()
-	local cmd = opencode_command()
-	if opencode_terminal and opencode_terminal_cmd == cmd then
-		return opencode_terminal
+local function bind_opencode_terminal_picker(term, dir)
+	local function restore_terminal()
+		local wins = vim.fn.win_findbuf(term.bufnr)
+		if wins[1] and vim.api.nvim_win_is_valid(wins[1]) then
+			vim.api.nvim_set_current_win(wins[1])
+			vim.cmd("startinsert")
+		end
 	end
-
-	local Terminal = require("toggleterm.terminal").Terminal
-	opencode_terminal_cmd = cmd
-	opencode_terminal = Terminal:new({
-		cmd = cmd,
-		direction = "vertical",
-		dir = vim.fn.getcwd(),
-		display_name = "OpenCode",
-		hidden = true,
-		close_on_exit = false,
-		on_create = function(term)
-			local function restore_terminal()
-				local wins = vim.fn.win_findbuf(term.bufnr)
-				if wins[1] and vim.api.nvim_win_is_valid(wins[1]) then
-					vim.api.nvim_set_current_win(wins[1])
-					vim.cmd("startinsert")
-				end
-			end
-			require("config.fzf_prompt").bind(term.bufnr, {
-				mode = "t",
-				source = function()
-					return require("config.return_target").last()
-				end,
-				insert = function(text)
-					require("config.opencode_http").append_prompt(text, {
-						title = "opencode",
-						success = "Sent picker selection to OpenCode",
-						fallback_clipboard = true,
-					})
-					restore_terminal()
-				end,
-				restore = restore_terminal,
+	require("config.fzf_prompt").bind(term.bufnr, {
+		mode = "n",
+		source = function()
+			return require("config.return_target").last()
+		end,
+		insert = function(text)
+			require("config.opencode_prompt").append(text, {
+				title = "opencode",
+				success = "Sent picker selection to OpenCode",
+				fallback_clipboard = true,
+				dir = dir,
 			})
+			restore_terminal()
 		end,
-		on_exit = function(_, _, exit_code)
-			if exit_code ~= 0 then
-				vim.notify("OpenCode terminal exited with code " .. exit_code, vim.log.levels.ERROR, { title = "opencode" })
-			end
-		end,
-		size = function()
-			return math.floor(vim.o.columns * 0.5)
-		end,
+		restore = restore_terminal,
 	})
-	return opencode_terminal
 end
+
+terminal_adapter.setup({
+	display_name = "OpenCode",
+	cmd = opencode_command,
+	project_root = project_root,
+	size = function()
+		return math.floor(vim.o.columns * 0.5)
+	end,
+	notify_title = "opencode",
+	on_create = bind_opencode_terminal_picker,
+})
 
 local function check_opencode_ready(callback)
 	local curl_args = {
@@ -132,24 +133,27 @@ local function check_opencode_ready(callback)
 	end
 end
 
-local function resolve_opencode_terminal_size(term)
-	return type(term.size) == "function" and term.size() or term.size
+local function start_opencode_terminal(dir)
+	terminal_adapter.open(dir)
 end
 
-local function start_opencode_terminal()
-	local term = get_opencode_terminal()
-	term:open(resolve_opencode_terminal_size(term))
+do
+	local http_ok, http_module = pcall(require, "config.opencode_http")
+	if http_ok and type(http_module.set_ensure_open) == "function" then
+		http_module.set_ensure_open(start_opencode_terminal)
+	end
+	local prompt_ok, prompt_module = pcall(require, "config.opencode_prompt")
+	if prompt_ok and type(prompt_module.set_sink) == "function" then
+		prompt_module.set_sink(terminal_adapter.send)
+	end
 end
 
 local function toggle_opencode_terminal()
-	local term = get_opencode_terminal()
-	term:toggle(resolve_opencode_terminal_size(term))
+	terminal_adapter.toggle()
 end
 
 local function close_opencode_terminal()
-	if opencode_terminal then
-		opencode_terminal:close()
-	end
+	terminal_adapter.close()
 end
 
 local function patch_opencode_server_disconnect()
@@ -171,6 +175,57 @@ local function patch_opencode_server_disconnect()
 	end
 
 	server._nvim_mini_disconnect_patched = true
+end
+
+-- opencode.nvim's own owned prompt flows (<leader>aoB/aoV/aoQ, go/goo, the
+-- <leader>aox action picker's prompt entries) all funnel through
+-- opencode.api.prompt.prompt(), which delivers via
+-- context.server:tui_append_prompt()/tui_execute_command("prompt.submit").
+-- Both POST to /tui/publish, which OpenCode's TUI broadcasts to every client
+-- attached to the same project directory -- the same multi-tmux-window
+-- broadcast bug as <leader>aoS/<leader>aos. Patching these two Server methods
+-- (rather than reimplementing prompt.lua's ask/render/clear/resume chain)
+-- reroutes delivery through the local composer facade for every one of those
+-- callers at once, without touching their existing Promise-chain semantics
+-- (context:clear() on success, context:resume()+reject on failure, trailing-
+-- space "append only" detection all remain opencode.nvim's own code).
+local function patch_opencode_server_prompt_delivery()
+	local server = require("opencode.server")
+	if server._nvim_mini_prompt_delivery_patched then
+		return
+	end
+
+	function server:tui_append_prompt(text)
+		return require("opencode.promise").new(function(resolve, reject)
+			require("config.opencode_prompt").append(text, {
+				title = "opencode",
+				fallback_clipboard = false,
+				silent = true,
+				on_success = resolve,
+				on_error = reject,
+			})
+			pcall(terminal_adapter.focus, project_root())
+		end)
+	end
+
+	local original_tui_execute_command = server.tui_execute_command
+	function server:tui_execute_command(command)
+		if command ~= "prompt.submit" then
+			return original_tui_execute_command(self, command)
+		end
+
+		return require("opencode.promise").new(function(resolve, reject)
+			require("config.opencode_prompt").submit({
+				title = "opencode",
+				fallback_clipboard = false,
+				silent = true,
+				on_success = resolve,
+				on_error = reject,
+			})
+		end)
+	end
+
+	server._nvim_mini_prompt_delivery_patched = true
 end
 
 local function kickstart_opencode_service()
@@ -419,6 +474,30 @@ local function setup_opencode_prompt_input()
 	ui._nvim_mini_nui_input = true
 end
 
+-- Visual-mode Lua keymaps run their callback *before* Neovim commits '< '>
+-- for the current selection, so reading those marks here would return the
+-- previous selection's range. Read the live visual anchor/cursor instead
+-- while still in Visual mode, falling back to '< '> outside of it (e.g. gv).
+local function get_visual_range()
+	local mode = vim.fn.mode()
+	local start_pos, end_pos
+	if mode == "v" or mode == "V" or mode == "\22" then
+		start_pos = vim.fn.getpos("v")
+		end_pos = vim.fn.getpos(".")
+	else
+		start_pos = vim.fn.getpos("'<")
+		end_pos = vim.fn.getpos("'>")
+	end
+	local sl, el = start_pos[2], end_pos[2]
+	if sl == 0 or el == 0 then
+		return nil, nil
+	end
+	if sl > el then
+		sl, el = el, sl
+	end
+	return sl, el
+end
+
 local function ask_via_http(opts)
 	opts = opts or {}
 	return function()
@@ -442,22 +521,12 @@ local function ask_via_http(opts)
 						success = "Sent to OpenCode",
 					})
 				else
-					http.append_prompt(text, {
+					require("config.opencode_prompt").append_and_submit(text, {
 						title = "opencode",
 						success = "Sent to OpenCode",
 						fallback_clipboard = false,
-						on_success = function()
-							http.publish_command("prompt.submit", function(ok, out)
-								if not ok then
-									vim.notify(
-										"OpenCode submit failed: " .. (out or ""),
-										vim.log.levels.WARN,
-										{ title = "opencode" }
-									)
-								end
-							end)
-						end,
 					})
+					pcall(terminal_adapter.focus, project_root())
 				end
 			end,
 		})
@@ -467,15 +536,10 @@ end
 local function ask_via_http_visual()
 	local bufname = vim.api.nvim_buf_get_name(0)
 	local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
-	local start_pos = vim.fn.getpos("'<")
-	local end_pos = vim.fn.getpos("'>")
-	local sl, el = start_pos[2], end_pos[2]
-	if sl == 0 or el == 0 then
+	local sl, el = get_visual_range()
+	if not sl then
 		vim.notify("No selection", vim.log.levels.WARN, { title = "opencode" })
 		return
-	end
-	if sl > el then
-		sl, el = el, sl
 	end
 	local lines = vim.api.nvim_buf_get_lines(0, sl - 1, el, false)
 	if #lines == 0 then
@@ -513,13 +577,8 @@ local function run_prompt_via_http(name, opts)
 
 		local selection_ctx = ""
 		if opts.with_selection then
-			local start_pos = vim.fn.getpos("'<")
-			local end_pos = vim.fn.getpos("'>")
-			local sl, el = start_pos[2], end_pos[2]
-			if sl > 0 and el > 0 then
-				if sl > el then
-					sl, el = el, sl
-				end
+			local sl, el = get_visual_range()
+			if sl then
 				local lines = vim.api.nvim_buf_get_lines(0, sl - 1, el, false)
 				if #lines > 0 then
 					selection_ctx = "```\n" .. table.concat(lines, "\n") .. "\n```\n"
@@ -580,16 +639,10 @@ end
 
 
 local function send_visual_selection()
-	local start_pos = vim.fn.getpos("'<")
-	local end_pos = vim.fn.getpos("'>")
-	local start_line = start_pos[2]
-	local end_line = end_pos[2]
-	if start_line == 0 or end_line == 0 then
+	local start_line, end_line = get_visual_range()
+	if not start_line then
 		vim.notify("No selection to send", vim.log.levels.WARN, { title = "opencode" })
 		return
-	end
-	if start_line > end_line then
-		start_line, end_line = end_line, start_line
 	end
 
 	local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
@@ -604,11 +657,12 @@ local function send_visual_selection()
 		and ("[file: " .. filepath .. ", lines " .. start_line .. "-" .. end_line .. "]\n")
 		or ""
 
-	require("config.opencode_http").append_prompt(header .. table.concat(lines, "\n"), {
+	require("config.opencode_prompt").append(header .. table.concat(lines, "\n"), {
 		title = "opencode",
 		success = "Sent selection to OpenCode",
 		fallback_clipboard = true,
 	})
+	pcall(terminal_adapter.focus, project_root())
 end
 
 return {
@@ -964,6 +1018,7 @@ return {
 		config = function()
 			apply_opencode_opts()
 			patch_opencode_server_disconnect()
+			patch_opencode_server_prompt_delivery()
 			setup_opencode_prompt_input()
 
 			-- Required for auto-reload when opencode edits files

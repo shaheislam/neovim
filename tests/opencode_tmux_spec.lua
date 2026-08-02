@@ -277,8 +277,10 @@ eq(vim.fn.getreg("+"), "paste failure", "paste failure copies the prompt")
 
 local original_tmux_module = package.loaded["config.opencode_tmux"]
 local original_http_module = package.loaded["config.opencode_http"]
+local original_prompt_module = package.loaded["config.opencode_prompt"]
 local tmux_prompt_calls = {}
 local http_prompt_calls = {}
+local facade_prompt_calls = {}
 package.loaded["config.opencode_tmux"] = {
 	append_prompt = function(text, opts)
 		table.insert(tmux_prompt_calls, { text = text, opts = opts })
@@ -287,6 +289,11 @@ package.loaded["config.opencode_tmux"] = {
 package.loaded["config.opencode_http"] = {
 	append_prompt = function(text, opts)
 		table.insert(http_prompt_calls, { text = text, opts = opts })
+	end,
+}
+package.loaded["config.opencode_prompt"] = {
+	append = function(text, opts)
+		table.insert(facade_prompt_calls, { text = text, opts = opts })
 	end,
 }
 
@@ -309,15 +316,16 @@ vim.fn.setpos("'<", { selection_buffer, 1, 1, 0 })
 vim.fn.setpos("'>", { selection_buffer, 2, 6, 0 })
 send_selection()
 
-eq(#http_prompt_calls, 1, "<leader>aoS delegates to the broadcast HTTP transport")
+eq(#http_prompt_calls, 0, "<leader>aoS never broadcasts over the directory-scoped HTTP transport")
 eq(#tmux_prompt_calls, 0, "<leader>aoS never uses the pane-targeted tmux transport")
+eq(#facade_prompt_calls, 1, "<leader>aoS delegates to the local composer facade, scoped to this Neovim's terminal")
 eq(
-	http_prompt_calls[1].text,
+	facade_prompt_calls[1].text,
 	"[file: lua/example.lua, lines 1-2]\nfirst\nsecond",
 	"Diffview selection keeps its file and line context"
 )
 eq(
-	http_prompt_calls[1].opts,
+	facade_prompt_calls[1].opts,
 	{ title = "opencode", success = "Sent selection to OpenCode", fallback_clipboard = true },
 	"selection keeps its existing delivery options"
 )
@@ -326,6 +334,7 @@ vim.api.nvim_set_current_buf(original_buffer)
 vim.api.nvim_buf_delete(selection_buffer, { force = true })
 package.loaded["config.opencode_tmux"] = original_tmux_module
 package.loaded["config.opencode_http"] = original_http_module
+package.loaded["config.opencode_prompt"] = original_prompt_module
 
 vim.fn.executable = original_executable
 vim.system = original_system
@@ -337,4 +346,4 @@ assert(vim.fn.delete(root, "rf") == 0, "failed to remove temporary state")
 print("PASS same-window OpenCode tmux prompt append")
 print("PASS OpenCode attach record trust boundary")
 print("PASS OpenCode tmux failure fallback")
-print("PASS <leader>aoS broadcast transport wiring")
+print("PASS <leader>aoS local composer facade wiring")

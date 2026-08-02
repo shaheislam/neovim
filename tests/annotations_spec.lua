@@ -100,35 +100,42 @@ assert(prompt:find("```diff", 1, true), "prompt includes a diff fence")
 assert(prompt:find("+if not value then", 1, true), "prompt includes changed code")
 assert(prompt:find("mark resolved", 1, true), "prompt includes the resolution instruction")
 
-local http = require("config.opencode_http")
-local captured_args
-local original_system = vim.system
+local original_prompt_module = package.loaded["config.opencode_prompt"]
 local original_notify = vim.notify
 vim.notify = function() end
-vim.system = function(args, _, callback)
-	captured_args = args
-	callback({ code = 0, stdout = "", stderr = "" })
-	return {}
-end
 
-http.append_prompt("review feedback", { dir = "/tmp/review-root" })
-vim.wait(100, function()
-	return captured_args ~= nil
-end)
+local sink_calls = {}
+package.loaded["config.opencode_prompt"] = {
+	append = function(text, opts)
+		table.insert(sink_calls, { text = text, opts = opts })
+	end,
+}
+package.loaded["config.annotations"] = nil
+local annotations = require("config.annotations")
 
-vim.system = original_system
+local root = vim.fn.tempname()
+assert(vim.fn.mkdir(root .. "/.git", "p") == 1, "failed to create temporary annotation repo marker")
+assert(vim.fn.mkdir(root .. "/.tmp", "p") == 1, "failed to create temporary annotation dir")
+assert(vim.fn.writefile(vim.split(vim.json.encode({
+	{ file = "lua/example.lua", line = 10, end_line = 11, text = "Handle the missing value explicitly" },
+}), "\n"), root .. "/.tmp/annotations.json") == 0, "failed to write temporary annotations")
+
+local annotation_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_name(annotation_buf, root .. "/lua/example.lua")
+vim.api.nvim_set_current_buf(annotation_buf)
+vim.api.nvim_buf_set_lines(annotation_buf, 0, -1, false, { "local value = load_value()" })
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+annotations.ask_all()
+
+assert_equal(#sink_calls, 1, "annotation ask routes through the local composer facade, not HTTP broadcast")
+assert(sink_calls[1].text:find("Handle the missing value explicitly", 1, true), "routed prompt includes the annotation text")
+assert_equal(sink_calls[1].opts.dir, root, "targets the OpenCode terminal for the reviewed repo")
+
+vim.api.nvim_buf_delete(annotation_buf, { force = true })
 vim.notify = original_notify
-
-local directory_header
-for index, value in ipairs(captured_args or {}) do
-	if value == "--header" then
-		local candidate = captured_args[index + 1]
-		if candidate and candidate:match("^x%-opencode%-directory:") then
-			directory_header = candidate
-		end
-	end
-end
-assert_equal(directory_header, "x-opencode-directory: /tmp/review-root", "targets the OpenCode session for the reviewed repo")
+package.loaded["config.opencode_prompt"] = original_prompt_module
+assert(vim.fn.delete(root, "rf") == 0, "failed to remove temporary annotation root")
 
 print("PASS annotation hunk context")
 print("PASS annotation OpenCode directory routing")

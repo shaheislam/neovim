@@ -224,28 +224,73 @@ opencode_terminal_opts.on_create({ bufnr = terminal_buf })
 
 eq(#prompt_bindings, 1, "the OCV composer binds the shared prompt picker catalog")
 eq(prompt_bindings[1].buf, terminal_buf, "the OCV picker catalog is local to its terminal buffer")
-eq(prompt_bindings[1].owner.mode, "t", "the OCV picker catalog uses terminal-mode mappings")
+eq(
+	prompt_bindings[1].owner.mode,
+	"n",
+	"the OCV picker catalog uses terminal-normal-mode mappings so composer typing is never intercepted"
+)
 
 local appended
-package.loaded["config.opencode_http"] = {
-	append_prompt = function(text, opts)
+package.loaded["config.opencode_prompt"] = {
+	append = function(text, opts)
 		appended = { text = text, opts = opts }
 	end,
 }
 
 prompt_bindings[1].owner.insert("main abc123 lua/plugins/opencode.lua ")
-eq(appended, {
-	text = "main abc123 lua/plugins/opencode.lua ",
-	opts = {
-		title = "opencode",
-		success = "Sent picker selection to OpenCode",
-		fallback_clipboard = true,
-	},
-}, "the shared picker sink appends arbitrary selections to the live OCV composer through the HTTP bridge")
+assert(appended, "the shared picker sink appends selections through the local composer facade")
+eq(appended.text, "main abc123 lua/plugins/opencode.lua ", "the picker selection text is forwarded unchanged")
+eq(appended.opts.title, "opencode", "the picker append keeps its title")
+eq(appended.opts.success, "Sent picker selection to OpenCode", "the picker append keeps its success message")
+eq(appended.opts.fallback_clipboard, true, "the picker append keeps its clipboard fallback")
+assert(type(appended.opts.dir) == "string" and appended.opts.dir ~= "", "the picker append pins its owning project directory")
+
+-- A real opencode_pickers Enter action (not a direct owner.insert call)
+-- must reach the same terminal-bound owner, proving the full picker ->
+-- facade chain, not just the facade wiring in isolation.
+local fzf_calls = {}
+package.loaded["fzf-lua"] = {
+	fzf_exec = function(entries, fzf_opts)
+		table.insert(fzf_calls, { entries = entries, opts = fzf_opts })
+	end,
+}
+package.loaded["fzf-lua.utils"] = {
+	strip_ansi_coloring = function(value)
+		return value
+	end,
+}
+package.loaded["config.opencode_messages"] = {
+	latest_session = function(callback)
+		callback({ id = "session-1", title = "Picker Enter session", agent = "build", time = { created = 1, updated = 2 } })
+	end,
+	sessions = function(callback)
+		callback({})
+	end,
+	messages = function(_, callback)
+		callback({
+			{
+				info = { id = "message-1", role = "user", time = { created = 3 } },
+				parts = { { id = "part-1", type = "text", text = "picker enter payload" } },
+			},
+		})
+	end,
+	notify_error = function(err)
+		error(err or "unexpected OpenCode API error")
+	end,
+}
+
+appended = nil
+require("config.opencode_pickers").all({ prompt = { owner = prompt_bindings[1].owner } })
+eq(#fzf_calls, 1, "a real opencode_pickers.all() call opens exactly one message picker")
+local picker_enter = fzf_calls[1].opts.actions.enter
+assert(type(picker_enter) == "function", "the real message picker exposes an Enter action")
+picker_enter({ fzf_calls[1].entries[1] })
+assert(appended, "the real picker Enter reaches the terminal-bound owner and the composer facade")
+assert(appended.text:match("picker enter payload"), "the real picker Enter forwards its selected message payload")
 
 vim.api.nvim_buf_delete(terminal_buf, { force = true })
 
-print("PASS the OCV terminal binds the shared picker catalog and appends its selections")
+print("PASS the OCV terminal binds the shared picker catalog and appends its selections through the local composer facade")
 
 -- ===== Section 4: shared modal NUI prompt =====
 

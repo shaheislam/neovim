@@ -251,7 +251,7 @@ local function send_to_prompt(items)
 		return
 	end
 	local payload = table.concat(vim.tbl_map(item_payload, items), "\n\n")
-	require("config.opencode_http").append_prompt(payload .. "\n", {
+	require("config.opencode_prompt").append(payload .. "\n", {
 		title = "opencode",
 		success = "Sent OpenCode selection to prompt",
 		fallback_clipboard = true,
@@ -265,7 +265,7 @@ local function send_context_to_prompt(items)
 	local payload = table.concat(vim.tbl_map(function(item)
 		return surrounding_payload(item, 1)
 	end, items), "\n\n")
-	require("config.opencode_http").append_prompt(payload .. "\n", {
+	require("config.opencode_prompt").append(payload .. "\n", {
 		title = "opencode",
 		success = "Sent OpenCode surrounding context to prompt",
 		fallback_clipboard = true,
@@ -282,7 +282,7 @@ local function resume_from_item(item)
 		"",
 		surrounding_payload(item, 1),
 	}, "\n")
-	require("config.opencode_http").append_prompt(payload .. "\n", {
+	require("config.opencode_prompt").append(payload .. "\n", {
 		title = "opencode",
 		success = "Sent resume context to OpenCode prompt",
 		fallback_clipboard = true,

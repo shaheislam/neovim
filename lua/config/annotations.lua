@@ -398,7 +398,7 @@ local function ask_items(items, root)
 		return
 	end
 
-	require("config.opencode_http").append_prompt(prompt, {
+	require("config.opencode_prompt").append(prompt, {
 		title = "Annotate",
 		success = "Sent " .. #items .. " annotation(s) to OpenCode",
 		fallback_clipboard = true,

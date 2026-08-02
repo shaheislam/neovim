@@ -45,6 +45,29 @@ return {
 			local wk = require("which-key")
 			wk.setup(opts)
 
+			local group = vim.api.nvim_create_augroup("nvim_mini_which_key_leader", { clear = true })
+			vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter", "ModeChanged" }, {
+				group = group,
+				desc = "Restore a missing which-key leader trigger",
+				callback = function(event)
+					vim.schedule(function()
+						if not vim.api.nvim_buf_is_valid(event.buf) or require("which-key.state").state then
+							return
+						end
+
+						local mapping = {}
+						vim.api.nvim_buf_call(event.buf, function()
+							mapping = vim.fn.maparg(vim.g.mapleader, "n", false, true)
+						end)
+						if type(mapping) == "table" and vim.tbl_isempty(mapping) then
+							local buffers = require("which-key.buf")
+							buffers.clear({ buf = event.buf, mode = "n" })
+							buffers.get({ buf = event.buf, mode = "n" })
+						end
+					end)
+				end,
+			})
+
 			-- Prefixes are otherwise allowed to fall through to normal-mode commands
 			-- on timeout, e.g. `<leader>a` replaying `a` and entering insert mode.
 			vim.keymap.set({ "n", "x" }, "<leader>a", "<Nop>", { desc = "AI", silent = true })

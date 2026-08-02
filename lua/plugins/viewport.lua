@@ -59,8 +59,8 @@ return {
         -- cursor in Normal mode.
         local buf = vim.api.nvim_get_current_buf()
         vim.cmd([[stopinsert]])
-        toggle_zoom()
-        -- Deferred so startinsert runs after the mapping stack completes
+        -- stopinsert doesn't synchronously leave Terminal-mode; scheduling
+        -- lets the transition finish before zoom's internal `normal!` runs.
         vim.schedule(function()
           if
             vim.api.nvim_buf_is_valid(buf)

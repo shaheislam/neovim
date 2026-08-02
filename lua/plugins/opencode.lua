@@ -8,7 +8,6 @@ local opencode_startup_timeout = 30000
 local opencode_startup_poll = 500
 local opencode_service = "com.dotfiles.opencode-serve"
 local opencode_username = vim.env.OPENCODE_SERVER_USERNAME or "opencode"
-local opencode_ask_model = { provider = "anthropic", model = "claude-sonnet-5" }
 local terminal_adapter = require("config.opencode_terminal")
 
 local function opencode_password()
@@ -138,10 +137,6 @@ local function start_opencode_terminal(dir)
 end
 
 do
-	local http_ok, http_module = pcall(require, "config.opencode_http")
-	if http_ok and type(http_module.set_ensure_open) == "function" then
-		http_module.set_ensure_open(start_opencode_terminal)
-	end
 	local prompt_ok, prompt_module = pcall(require, "config.opencode_prompt")
 	if prompt_ok and type(prompt_module.set_sink) == "function" then
 		prompt_module.set_sink(terminal_adapter.send)
@@ -498,8 +493,18 @@ local function get_visual_range()
 	return sl, el
 end
 
-local function ask_via_http(opts)
+local function submit_prompt_locally(text, opts)
 	opts = opts or {}
+	require("config.opencode_prompt").append_and_submit(text, {
+		title = "opencode",
+		success = opts.success or "Sent to OpenCode",
+		fallback_clipboard = false,
+		dir = opts.dir,
+	})
+	pcall(terminal_adapter.focus, opts.dir or project_root())
+end
+
+local function ask_locally()
 	return function()
 		local bufname = vim.api.nvim_buf_get_name(0)
 		local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
@@ -512,28 +517,13 @@ local function ask_via_http(opts)
 				if not input or input == "" then
 					return
 				end
-				local http = require("config.opencode_http")
-				local text = file_ctx .. input
-
-				if opts.model then
-					http.send_with_model(text, opts.model.provider, opts.model.model, {
-						title = "opencode",
-						success = "Sent to OpenCode",
-					})
-				else
-					require("config.opencode_prompt").append_and_submit(text, {
-						title = "opencode",
-						success = "Sent to OpenCode",
-						fallback_clipboard = false,
-					})
-					pcall(terminal_adapter.focus, project_root())
-				end
+				submit_prompt_locally(file_ctx .. input)
 			end,
 		})
 	end
 end
 
-local function ask_via_http_visual()
+local function ask_locally_visual()
 	local bufname = vim.api.nvim_buf_get_name(0)
 	local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
 	local sl, el = get_visual_range()
@@ -557,16 +547,12 @@ local function ask_via_http_visual()
 			if not input or input == "" then
 				return
 			end
-			local http = require("config.opencode_http")
-			http.send_with_model(selection_text .. input, opencode_ask_model.provider, opencode_ask_model.model, {
-				title = "opencode",
-				success = "Sent to OpenCode",
-			})
+			submit_prompt_locally(selection_text .. input)
 		end,
 	})
 end
 
-local function run_prompt_via_http(name, opts)
+local function run_named_prompt_locally(name, opts)
 	opts = opts or {}
 	return function()
 		local bufname = vim.api.nvim_buf_get_name(0)
@@ -592,15 +578,8 @@ local function run_prompt_via_http(name, opts)
 		local prompt = ok and config
 			and ((config.prompts and config.prompts[name]) or (config.select and config.select.prompts and config.select.prompts[name]))
 		local text = prompt_text(prompt) or name
-
-		local http = require("config.opencode_http")
 		local function send(final_text)
-			http.send_with_model(
-				file_ctx .. selection_ctx .. final_text,
-				opencode_ask_model.provider,
-				opencode_ask_model.model,
-				{ title = "opencode", success = "Sent to OpenCode" }
-			)
+			submit_prompt_locally(file_ctx .. selection_ctx .. final_text)
 		end
 
 		if type(prompt) == "table" and prompt.ask then
@@ -694,22 +673,22 @@ return {
 				mode = { "n", "t" },
 				desc = "Toggle opencode",
 			},
-		-- Ask opencode with current file context via HTTP (no plugin server required)
+			-- Ask opencode with current file context in this Neovim's local terminal
 			{
 				"<leader>aoa",
-				ask_via_http({ model = opencode_ask_model }),
+				ask_locally(),
 				mode = "n",
 				desc = "Ask opencode",
 			},
 			{
 				"<leader>aoa",
-				ask_via_http_visual,
+				ask_locally_visual,
 				mode = "x",
 				desc = "Ask opencode (with selection)",
 			},
 			{
 				"<leader>aos",
-				ask_via_http(),
+				ask_locally(),
 				mode = { "n", "x" },
 				desc = "Ask opencode (append to prompt)",
 			},
@@ -736,32 +715,6 @@ return {
 				ask_with_context("@quickfix: "),
 				mode = "n",
 				desc = "Ask quickfix list",
-			},
-			{
-				"<leader>aoM",
-				function()
-					local http = require("config.opencode_http")
-					http.get_models(function(models, err)
-						if not models or #models == 0 then
-							vim.notify(err or "No models found", vim.log.levels.ERROR, { title = "opencode" })
-							return
-						end
-						vim.ui.select(models, {
-							prompt = "Ask model:",
-							format_item = function(item)
-								return item.label
-							end,
-						}, function(choice)
-							if not choice then
-								return
-							end
-							opencode_ask_model = { provider = choice.provider, model = choice.model }
-							vim.notify("Ask model → " .. choice.label, vim.log.levels.INFO, { title = "opencode" })
-						end)
-					end)
-				end,
-				mode = { "n", "x" },
-				desc = "Select opencode ask model",
 			},
 			-- Action picker
 			{
@@ -794,97 +747,97 @@ return {
 		-- Named prompts
 		{
 			"<leader>aoe",
-			run_prompt_via_http("explain"),
+			run_named_prompt_locally("explain"),
 			mode = "n",
 			desc = "Explain (opencode)",
 		},
 		{
 			"<leader>aoe",
-			run_prompt_via_http("explain", { with_selection = true }),
+			run_named_prompt_locally("explain", { with_selection = true }),
 			mode = "x",
 			desc = "Explain (opencode)",
 		},
 		{
 			"<leader>aof",
-			run_prompt_via_http("fix"),
+			run_named_prompt_locally("fix"),
 			mode = "n",
 			desc = "Fix diagnostics (opencode)",
 		},
 		{
 			"<leader>aof",
-			run_prompt_via_http("fix", { with_selection = true }),
+			run_named_prompt_locally("fix", { with_selection = true }),
 			mode = "x",
 			desc = "Fix diagnostics (opencode)",
 		},
 		{
 			"<leader>aor",
-			run_prompt_via_http("review"),
+			run_named_prompt_locally("review"),
 			mode = "n",
 			desc = "Review (opencode)",
 		},
 		{
 			"<leader>aor",
-			run_prompt_via_http("review", { with_selection = true }),
+			run_named_prompt_locally("review", { with_selection = true }),
 			mode = "x",
 			desc = "Review (opencode)",
 		},
 		{
 			"<leader>aot",
-			run_prompt_via_http("test"),
+			run_named_prompt_locally("test"),
 			mode = "n",
 			desc = "Add tests (opencode)",
 		},
 		{
 			"<leader>aot",
-			run_prompt_via_http("test", { with_selection = true }),
+			run_named_prompt_locally("test", { with_selection = true }),
 			mode = "x",
 			desc = "Add tests (opencode)",
 		},
 		{
 			"<leader>aod",
-			run_prompt_via_http("document"),
+			run_named_prompt_locally("document"),
 			mode = "n",
 			desc = "Document (opencode)",
 		},
 		{
 			"<leader>aod",
-			run_prompt_via_http("document", { with_selection = true }),
+			run_named_prompt_locally("document", { with_selection = true }),
 			mode = "x",
 			desc = "Document (opencode)",
 		},
 		{
 			"<leader>aoo",
-			run_prompt_via_http("optimize"),
+			run_named_prompt_locally("optimize"),
 			mode = "n",
 			desc = "Optimize (opencode)",
 		},
 		{
 			"<leader>aoo",
-			run_prompt_via_http("optimize", { with_selection = true }),
+			run_named_prompt_locally("optimize", { with_selection = true }),
 			mode = "x",
 			desc = "Optimize (opencode)",
 		},
 		{
 			"<leader>aoi",
-			run_prompt_via_http("implement"),
+			run_named_prompt_locally("implement"),
 			mode = "n",
 			desc = "Implement (opencode)",
 		},
 		{
 			"<leader>aoi",
-			run_prompt_via_http("implement", { with_selection = true }),
+			run_named_prompt_locally("implement", { with_selection = true }),
 			mode = "x",
 			desc = "Implement (opencode)",
 		},
 		{
 			"<leader>aoE",
-			run_prompt_via_http("diagnostics"),
+			run_named_prompt_locally("diagnostics"),
 			mode = "n",
 			desc = "Explain diagnostics (opencode)",
 		},
 		{
 			"<leader>aoE",
-			run_prompt_via_http("diagnostics", { with_selection = true }),
+			run_named_prompt_locally("diagnostics", { with_selection = true }),
 			mode = "x",
 			desc = "Explain diagnostics (opencode)",
 		},

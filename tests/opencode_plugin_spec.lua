@@ -485,34 +485,151 @@ vim.lsp.start = original_lsp_start
 
 print("PASS plugin-owned context asks use discovery, current APIs, and the shared NUI prompt")
 
--- ===== Section 6: custom ask=true named prompts use NUI =====
+-- ===== Section 6: local prompt routing uses append_and_submit + terminal focus =====
 
 local original_config = package.loaded["opencode.config"]
-local original_http = package.loaded["config.opencode_http"]
-local custom_prompt_calls = {}
+local original_prompt = package.loaded["config.opencode_prompt"]
+local terminal_module = require("config.opencode_terminal")
+local original_focus = terminal_module.focus
+local local_prompt_calls = {}
+local focus_calls = {}
+
 package.loaded["opencode.config"] = {
 	opts = {
 		prompts = {
 			explain = { prompt = "Explain: ", ask = true },
+			fix = "Fix diagnostics",
+			review = { prompt = "Review this" },
+			test = "Add tests",
+			document = "Document this",
+			optimize = "Optimize this",
+			implement = "Implement this",
+		},
+		select = {
+			prompts = {
+				diagnostics = "Explain diagnostics",
+			},
 		},
 	},
 }
-package.loaded["config.opencode_http"] = {
-	send_with_model = function(text, provider, model, opts)
-		table.insert(custom_prompt_calls, { text = text, provider = provider, model = model, opts = opts })
+package.loaded["config.opencode_prompt"] = {
+	append_and_submit = function(text, opts)
+		table.insert(local_prompt_calls, { text = text, opts = opts })
 	end,
+	append = function() end,
+	submit = function() end,
+	set_sink = function() end,
+}
+terminal_module.focus = function(dir)
+	table.insert(focus_calls, dir)
+	return true
+end
+
+local original_getcwd = vim.fn.getcwd
+vim.fn.getcwd = function()
+	return "/Users/shaheislam/neovim"
+end
+
+local function last_local_prompt(label, expected_text)
+	local call = local_prompt_calls[#local_prompt_calls]
+	assert(call, label .. " routes through config.opencode_prompt.append_and_submit")
+	eq(call.text, expected_text, label .. " forwards the expected prompt text")
+	eq(call.opts, {
+		title = "opencode",
+		success = "Sent to OpenCode",
+		fallback_clipboard = false,
+		dir = nil,
+	}, label .. " preserves exact local facade options")
+	eq(focus_calls[#focus_calls], "/Users/shaheislam/neovim", label .. " focuses the local OpenCode terminal")
+end
+
+local function reset_local_prompt_calls()
+	local_prompt_calls = {}
+	focus_calls = {}
+end
+
+local ask_calls_before = #modals
+local ask_normal = key_callback("<leader>aoa", "n")
+local ask_visual = key_callback("<leader>aoa", "x")
+assert(ask_normal, "normal <leader>aoa mapping is present")
+assert(ask_visual, "visual <leader>aoa mapping is present")
+assert(key_callback("<leader>aoM", "n") == nil, "obsolete <leader>aoM mapping is removed")
+
+local ask_buffer = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_set_current_buf(ask_buffer)
+vim.api.nvim_buf_set_name(ask_buffer, "diffview://deadbeef:lua/example.lua")
+
+reset_local_prompt_calls()
+ask_normal()
+modal = modals[#modals]
+assert(#modals == ask_calls_before + 1, "normal <leader>aoa reuses the shared modal NUI prompt")
+modal.input_opts.on_submit("what does this do")
+last_local_prompt("normal <leader>aoa", "[file: lua/example.lua]\nwhat does this do")
+
+vim.api.nvim_buf_set_lines(ask_buffer, 0, -1, false, { "local answer = 42" })
+vim.api.nvim_set_current_buf(ask_buffer)
+vim.fn.setpos("'<", { 0, 1, 1, 0 })
+vim.fn.setpos("'>", { 0, 1, 17, 0 })
+
+reset_local_prompt_calls()
+ask_visual()
+modal = modals[#modals]
+modal.input_opts.on_submit("why")
+last_local_prompt("visual <leader>aoa", "[file: lua/example.lua, lines 1-1]\nlocal answer = 42\nwhy")
+
+local named_expectations = {
+	{ lhs = "<leader>aof", mode = "n", text = "[file: lua/example.lua]\nFix diagnostics" },
+	{ lhs = "<leader>aor", mode = "n", text = "[file: lua/example.lua]\nReview this" },
+	{ lhs = "<leader>aot", mode = "n", text = "[file: lua/example.lua]\nAdd tests" },
+	{ lhs = "<leader>aod", mode = "n", text = "[file: lua/example.lua]\nDocument this" },
+	{ lhs = "<leader>aoo", mode = "n", text = "[file: lua/example.lua]\nOptimize this" },
+	{ lhs = "<leader>aoi", mode = "n", text = "[file: lua/example.lua]\nImplement this" },
+	{ lhs = "<leader>aoE", mode = "n", text = "[file: lua/example.lua]\nExplain diagnostics" },
+	{ lhs = "<leader>aof", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nFix diagnostics" },
+	{ lhs = "<leader>aor", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nReview this" },
+	{ lhs = "<leader>aot", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nAdd tests" },
+	{ lhs = "<leader>aod", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nDocument this" },
+	{ lhs = "<leader>aoo", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nOptimize this" },
+	{ lhs = "<leader>aoi", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nImplement this" },
+	{ lhs = "<leader>aoE", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nExplain diagnostics" },
 }
 
+for _, expected in ipairs(named_expectations) do
+	vim.api.nvim_set_current_buf(ask_buffer)
+	reset_local_prompt_calls()
+	local callback = key_callback(expected.lhs, expected.mode)
+	assert(callback, expected.lhs .. " " .. expected.mode .. " mapping is present")
+	callback()
+	last_local_prompt(expected.lhs .. " " .. expected.mode, expected.text)
+end
+
+vim.api.nvim_set_current_buf(ask_buffer)
+reset_local_prompt_calls()
 local explain = key_callback("<leader>aoe", "n")
 assert(explain, "normal <leader>aoe mapping is present")
 explain()
 modal = modals[#modals]
 eq(modal.input_opts.default_value, "", "custom ask=true prompts open an empty shared NUI input")
 modal.input_opts.on_submit("focus on errors")
-eq(custom_prompt_calls[1].text, "Explain: focus on errors", "custom ask input is combined with its prompt template")
+last_local_prompt("custom ask=true named prompt", "[file: lua/example.lua]\nExplain: focus on errors")
+
+vim.api.nvim_set_current_buf(ask_buffer)
+reset_local_prompt_calls()
+local explain_visual = key_callback("<leader>aoe", "x")
+assert(explain_visual, "visual <leader>aoe mapping is present")
+explain_visual()
+modal = modals[#modals]
+modal.input_opts.on_submit("focus on selection")
+last_local_prompt(
+	"visual custom ask=true named prompt",
+	"[file: lua/example.lua]\n```\nlocal answer = 42\n```\nExplain: focus on selection"
+)
 
 package.loaded["opencode.config"] = original_config
-package.loaded["config.opencode_http"] = original_http
+package.loaded["config.opencode_prompt"] = original_prompt
+terminal_module.focus = original_focus
+vim.fn.getcwd = original_getcwd
+vim.api.nvim_buf_delete(ask_buffer, { force = true })
 vim.api.nvim_buf_delete(modal_buf, { force = true })
 
-print("PASS custom ask=true named prompts use the shared NUI prompt")
+print("PASS local OpenCode prompt mappings route through the shared prompt facade and no longer expose aoM")

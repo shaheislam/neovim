@@ -1,9 +1,5 @@
 local M = {}
 
-local function notify(message, level, title)
-  vim.notify(message, level or vim.log.levels.INFO, { title = title or "opencode" })
-end
-
 local function server_url()
   local url = vim.g.opencode_server_url or vim.env.OPENCODE_SERVER_URL or "http://127.0.0.1:4096"
   return url:gsub("/+$", "")
@@ -233,10 +229,6 @@ function M.patch(path, body, callback, opts)
   vim.fn.chanclose(job, "stdin")
 end
 
-local function is_json_null(value)
-  return value == nil or value == vim.NIL
-end
-
 function M.canonical(path)
   if type(path) ~= "string" or path == "" then
     return nil
@@ -247,105 +239,6 @@ function M.canonical(path)
     resolved = resolved:gsub("/+$", "")
   end
   return resolved
-end
-
-local canonical = M.canonical
-
-local function pane_title_for_session(title)
-  if type(title) ~= "string" or title == "" or title:find("[\128-\255]") then
-    return nil
-  end
-  if #title > 40 then
-    title = title:sub(1, 37) .. "..."
-  end
-  return "OC | " .. title
-end
-
-local function valid_root_session(session, directory)
-  return type(session) == "table"
-    and type(session.id) == "string"
-    and session.id:match("^[%w_-]+$") ~= nil
-    and type(session.title) == "string"
-    and type(session.directory) == "string"
-    and canonical(session.directory) == directory
-    and is_json_null(session.parentID)
-    and is_json_null(session.parent_id)
-    and is_json_null(session.archived)
-    and type(session.time) == "table"
-    and is_json_null(session.time.archived)
-end
-
-local function same_attach(left, right)
-  return type(left) == "table"
-    and type(right) == "table"
-    and left.pane == right.pane
-    and left.cwd == right.cwd
-    and left.title == right.title
-end
-
--- Lists root sessions (per the /session?roots=true contract) whose directory
--- matches `dir`. Used by send_with_model's session targeting.
-local function list_root_sessions(dir, callback)
-  M.get("/session?roots=true&limit=1000", function(ok, output)
-    if not ok then
-      callback(nil, "Could not list OpenCode sessions")
-      return
-    end
-    local parse_ok, sessions = pcall(vim.json.decode, output)
-    if not parse_ok or type(sessions) ~= "table" or not vim.islist(sessions) then
-      callback(nil, "Could not parse OpenCode sessions")
-      return
-    end
-    if #sessions >= 1000 then
-      callback(nil, "OpenCode session list is saturated")
-      return
-    end
-    local matches = {}
-    for _, session in ipairs(sessions) do
-      if valid_root_session(session, dir) then
-        table.insert(matches, session)
-      end
-    end
-    callback(matches)
-  end, { dir = dir })
-end
-
--- The split (opened via <leader>aoc, or `ocv attach --dir <dir>`) is what
--- registers a root session for a project directory. When nothing has been
--- opened yet there is no session to target, so open it here and poll until
--- one appears rather than failing outright.
-local ensure_open_fn
-local ensure_open_poll_interval_ms = 400
-local ensure_open_timeout_ms = 10000
-
-function M.set_ensure_open(fn)
-  ensure_open_fn = fn
-end
-
-local function ensure_session_then(dir, on_ready, on_timeout)
-  if not ensure_open_fn then
-    on_timeout()
-    return
-  end
-
-  ensure_open_fn(dir)
-  local deadline = vim.uv.now() + ensure_open_timeout_ms
-
-  local function poll()
-    list_root_sessions(dir, function(matches)
-      if matches and #matches >= 1 then
-        on_ready(matches)
-        return
-      end
-      if vim.uv.now() >= deadline then
-        on_timeout()
-        return
-      end
-      vim.defer_fn(poll, ensure_open_poll_interval_ms)
-    end)
-  end
-
-  poll()
 end
 
 -- NOTE: there is deliberately no HTTP append_prompt here anymore. OpenCode's
@@ -444,123 +337,6 @@ function M.fork_session(session_id, opts, callback)
 
   vim.fn.chansend(job, json_body)
   vim.fn.chanclose(job, "stdin")
-end
-
-function M.get_models(callback)
-  M.get("/config", function(ok, output)
-    if not ok then
-      callback(nil, "Could not fetch OpenCode config")
-      return
-    end
-    local parse_ok, cfg = pcall(vim.json.decode, output)
-    if not parse_ok or not cfg then
-      callback(nil, "Could not parse OpenCode config")
-      return
-    end
-    local models = {}
-    for provider_id, provider_cfg in pairs(cfg.provider or {}) do
-      for model_id, model_cfg in pairs((provider_cfg or {}).models or {}) do
-        local name = (type(model_cfg) == "table" and model_cfg.name) or model_id
-        table.insert(models, {
-          label = provider_id .. " / " .. name,
-          provider = provider_id,
-          model = model_id,
-        })
-      end
-    end
-    table.sort(models, function(a, b) return a.label < b.label end)
-    callback(models, nil)
-  end)
-end
-
-function M.send_with_model(text, provider_id, model_id, opts)
-  opts = opts or {}
-  if not text or text == "" then
-    notify("No text to send", vim.log.levels.WARN, opts.title)
-    return
-  end
-
-  local tmux = require("config.opencode_tmux")
-  local target = tmux.resolve_attach()
-  -- A same-window tmux OpenCode pane is only registered when OpenCode runs
-  -- directly in a tmux pane. opencode.nvim deliberately skips that
-  -- registration when it runs OpenCode nested in its own terminal, so fall
-  -- back to matching by directory alone in that case.
-  local pane_identified = type(target) == "table"
-    and type(target.pane) == "string"
-    and type(target.cwd) == "string"
-    and type(target.title) == "string"
-    and target.title ~= "OpenCode"
-    and pane_title_for_session(target.title:match("^OC | (.*)$")) ~= nil
-
-  local dir = pane_identified and target.cwd or canonical(vim.fn.getcwd())
-  if not dir then
-    notify("Could not resolve the OpenCode project directory", vim.log.levels.ERROR, opts.title)
-    return
-  end
-
-  local function submit_to(session_id)
-    local body = {
-      model = { providerID = provider_id, modelID = model_id },
-      parts = { { type = "text", text = text } },
-    }
-
-    M.post("/session/" .. session_id .. "/prompt_async", body, function(post_ok, post_output)
-      if post_ok then
-        notify(opts.success or "Sent to OpenCode", vim.log.levels.INFO, opts.title)
-        if opts.on_success then opts.on_success() end
-        return
-      end
-      local message = (post_output or ""):gsub("^%s+", ""):gsub("%s+$", "")
-      if message == "" then message = "Could not send to OpenCode" end
-      notify(message, vim.log.levels.ERROR, opts.title)
-    end, { dir = dir })
-  end
-
-  local function proceed_with_matches(matches)
-    if #matches ~= 1 then
-      local message = pane_identified and "Could not uniquely identify the visible OpenCode session"
-        or ("Could not uniquely identify the OpenCode session for " .. dir)
-      notify(message, vim.log.levels.ERROR, opts.title)
-      return
-    end
-
-    if pane_identified then
-      local current_target = tmux.resolve_attach()
-      if not same_attach(target, current_target) then
-        notify("The visible OpenCode session changed before submission", vim.log.levels.ERROR, opts.title)
-        return
-      end
-    end
-
-    submit_to(matches[1].id)
-  end
-
-  list_root_sessions(dir, function(matches, err)
-    if not matches then
-      notify(err, vim.log.levels.ERROR, opts.title)
-      return
-    end
-
-    local filtered = {}
-    for _, session in ipairs(matches) do
-      if not pane_identified or pane_title_for_session(session.title) == target.title then
-        table.insert(filtered, session)
-      end
-    end
-
-    -- No tmux pane and no registered session for this project: the split
-    -- (<leader>aoc) has likely never been opened. Open it and retry once a
-    -- session appears rather than failing outright.
-    if #filtered == 0 and not pane_identified then
-      ensure_session_then(dir, proceed_with_matches, function()
-        notify("OpenCode session did not start in time", vim.log.levels.ERROR, opts.title)
-      end)
-      return
-    end
-
-    proceed_with_matches(filtered)
-  end)
 end
 
 return M

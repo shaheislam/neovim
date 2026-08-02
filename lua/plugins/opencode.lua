@@ -58,6 +58,7 @@ end
 local function opencode_launch(dir)
 	-- The dotfiles opencode shim reroutes `attach` through tmux when $TMUX is set.
 	-- This terminal already owns the split, so bypass that wrapper and run ocv directly.
+	-- Clear multiplexer markers so ocv emits bare OSC52 for Neovim to forward.
 	-- OPENTUI_GRAPHICS=0: suppress Kitty graphics probing which segfaults in nvim :terminal.
 	local auth = current_opencode_auth()
 	sync_opencode_auth(auth)
@@ -65,6 +66,8 @@ local function opencode_launch(dir)
 		OPENCODE_TMUX_WRAPPER_ACTIVE = "1",
 		OPENTUI_GRAPHICS = "0",
 		OPENCODE_SERVER_USERNAME = auth.username,
+		TMUX = "",
+		STY = "",
 	}
 	if auth.password and auth.password ~= "" then
 		env.OPENCODE_SERVER_PASSWORD = auth.password

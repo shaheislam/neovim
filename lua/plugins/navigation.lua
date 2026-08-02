@@ -2,6 +2,15 @@
 -- Use Ctrl-h/j/k/l to navigate in both Neovim and tmux without prefix
 return {
   "christoomey/vim-tmux-navigator",
+  lazy = false,
+  -- The plugin's own bundled default mappings use a Vim-only <C-w> terminal
+  -- escape that Neovim doesn't special-case in terminal-job mode, so <C-h>
+  -- leaks raw keystrokes (including the literal ":TmuxNavigateLeft" text)
+  -- into whatever job is running in the terminal. Disable them and rely
+  -- solely on the Neovim-native mappings below.
+  init = function()
+    vim.g.tmux_navigator_no_mappings = 1
+  end,
   cmd = {
     "TmuxNavigateLeft",
     "TmuxNavigateDown",

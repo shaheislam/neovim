@@ -999,27 +999,10 @@ return {
 			-- Worktree launchers (gwtt, worktrunk-open-window.sh) set this to land
 			-- directly in the editor + opencode split instead of a bare buffer.
 			if vim.env.NVIM_OPEN_OPENCODE == "1" then
-				local fork_prompt = vim.env.NVIM_OPENCODE_PROMPT
 				vim.api.nvim_create_autocmd("VimEnter", {
 					once = true,
 					callback = function()
-						vim.defer_fn(function()
-							start_opencode_terminal()
-							if fork_prompt and fork_prompt ~= "" then
-								-- Give the attach client a moment to connect and
-								-- subscribe before publishing to it.
-								vim.defer_fn(function()
-									local http = require("config.opencode_http")
-									http.append_prompt(fork_prompt, {
-										title = "opencode",
-										success = "Sent fork prompt to OpenCode",
-										on_success = function()
-											http.publish_command("prompt.submit")
-										end,
-									})
-								end, opencode_ready_delay)
-							end
-						end, 0)
+						vim.defer_fn(start_opencode_terminal, 0)
 					end,
 				})
 			end

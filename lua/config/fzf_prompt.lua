@@ -478,14 +478,17 @@ end
 
 function M.bind(buf, owner)
 	local mode = owner.mode or "n"
+	local function key(lhs)
+		return owner.prefix and lhs:gsub("^<leader>", owner.prefix) or lhs
+	end
 	for _, item in ipairs(catalog) do
 		if item.key then
-			vim.keymap.set(mode, item.key, function()
+			vim.keymap.set(mode, key(item.key), function()
 				M.launch(item.name, owner)
 			end, { buffer = buf, desc = item.desc })
 		end
 	end
-	vim.keymap.set(mode, "<leader>fz", function()
+	vim.keymap.set(mode, key("<leader>fz"), function()
 		M.open_menu(owner)
 	end, { buffer = buf, desc = "Choose picker for prompt" })
 end

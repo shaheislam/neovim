@@ -55,7 +55,7 @@ registry.__set_test_hooks({
 local dir = "/tmp/opencode-attach-registry-spec/project-a"
 local cmd = "ocv attach http://127.0.0.1:4096 --dir " .. vim.fn.shellescape(dir)
 local term = { job_id = 999, cmd = cmd }
-local registered = registry.register(term, dir)
+local registered = registry.register(term, dir, "generation-a")
 eq(registered, true, "register() succeeds inside tmux with a resolvable pid")
 
 local attach_file = attach_dir .. "/pane-42.pid"
@@ -74,7 +74,7 @@ print("PASS register() writes a well-formed, atomically-written attach file")
 
 -- ===== Section 3: unregister() removes the attach file =====
 
-registry.unregister()
+registry.unregister("generation-a")
 eq(vim.fn.filereadable(attach_file), 0, "unregister() removes the attach file it created")
 
 print("PASS unregister() removes the previously registered attach file")
@@ -108,11 +108,15 @@ registry.__set_test_hooks({
 		return 111
 	end,
 })
-registry.register({ job_id = 2, cmd = "ocv attach --dir /tmp/first" }, "/tmp/first")
-registry.register({ job_id = 3, cmd = "ocv attach --dir /tmp/second" }, "/tmp/second")
+registry.register({ job_id = 2, cmd = "ocv attach --dir /tmp/first" }, "/tmp/first", "generation-a")
+registry.register({ job_id = 3, cmd = "ocv attach --dir /tmp/second" }, "/tmp/second", "generation-b")
 local replaced_fields = read_fields(attach_file)
 eq(replaced_fields.cwd, "/tmp/second", "re-registering for the same pane updates the same attach file in place")
-registry.unregister()
+registry.unregister("generation-a")
+eq(vim.fn.filereadable(attach_file), 1, "a stale generation cannot remove the replacement attach record")
+eq(read_fields(attach_file).cwd, "/tmp/second", "stale unregister leaves the replacement record unchanged")
+registry.unregister("generation-b")
+eq(vim.fn.filereadable(attach_file), 0, "the owning generation removes its attach record")
 
 vim.env.TMUX_PANE = ORIGINAL_TMUX_PANE
 registry.__reset()

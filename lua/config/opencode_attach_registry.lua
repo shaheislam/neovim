@@ -10,7 +10,7 @@
 -- Neovim+OCV layout instead of reusing the existing one.
 local M = {}
 
-local current_file = nil
+local current = nil
 local resolve_pid = function(job_id)
 	return vim.fn.jobpid(job_id)
 end
@@ -30,7 +30,7 @@ end
 --- Best-effort: records this terminal as the OCV attach owner for the
 --- current tmux pane. Returns false (never raises) when registration isn't
 --- possible - outside tmux, or before the terminal job has actually spawned.
-function M.register(term, dir)
+function M.register(term, dir, generation)
 	local pane = vim.env.TMUX_PANE
 	if not pane or pane == "" then
 		return false
@@ -65,16 +65,18 @@ function M.register(term, dir)
 		return false
 	end
 
-	current_file = file
+	current = { file = file, generation = generation }
 	return true
 end
 
 --- Removes the attach file this Neovim instance registered, if any.
-function M.unregister()
-	if current_file then
-		pcall(vim.fn.delete, current_file)
-		current_file = nil
+function M.unregister(generation)
+	if not current or current.generation ~= generation then
+		return false
 	end
+	pcall(vim.fn.delete, current.file)
+	current = nil
+	return true
 end
 
 -- Test-only: overrides internal seams that would otherwise require a real
@@ -87,7 +89,7 @@ end
 
 -- Test-only: clears cached state and hook overrides between test sections.
 function M.__reset()
-	current_file = nil
+	current = nil
 	resolve_pid = function(job_id)
 		return vim.fn.jobpid(job_id)
 	end

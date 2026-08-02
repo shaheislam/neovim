@@ -166,6 +166,139 @@ local function stop_ready_timer(term)
 	end
 end
 
+local lifecycle_group = vim.api.nvim_create_augroup("NvimMiniOpenCodeTerminalLifecycle", { clear = false })
+
+local function owns_generation(term, dir, generation)
+	local entry = state.by_project[dir]
+	return entry ~= nil and entry.term == term and entry.generation == generation
+end
+
+-- State release never deletes a buffer. ToggleTerm owns natural-exit deletion,
+-- while explicit adapter close paths call shutdown() only after ownership and
+-- external bindings have been invalidated.
+local function release_generation(term, dir, generation, message)
+	stop_ready_timer(term)
+	term._nvim_mini_ready = false
+	fail_pending(term, message)
+	if not owns_generation(term, dir, generation) then
+		return false
+	end
+	state.by_project[dir] = nil
+	return true
+end
+
+local function finalize_adapter(term, lifecycle, exit_code)
+	if lifecycle.adapter_finalized then
+		return
+	end
+	lifecycle.adapter_finalized = true
+	if opts.on_exit then
+		opts.on_exit(term, lifecycle.dir, lifecycle.generation, exit_code)
+	end
+end
+
+local function finalize_foreign(term, lifecycle, job_id, exit_code, ...)
+	if lifecycle.foreign_finalized or not lifecycle.foreign_on_exit then
+		return
+	end
+	lifecycle.foreign_finalized = true
+	lifecycle.foreign_on_exit(term, job_id, exit_code, ...)
+end
+
+local function install_buffer_lifecycle(term, created_term, lifecycle)
+	local bufnr = created_term and created_term.bufnr or term.bufnr
+	if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+		return
+	end
+	local binding = tostring(bufnr) .. ":" .. lifecycle.generation
+	if term._nvim_mini_buffer_binding == binding then
+		return
+	end
+	term._nvim_mini_buffer_binding = binding
+	vim.bo[bufnr].bufhidden = "wipe"
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		group = lifecycle_group,
+		buffer = bufnr,
+		once = true,
+		callback = function()
+			release_generation(term, lifecycle.dir, lifecycle.generation, "OpenCode terminal closed")
+		end,
+	})
+end
+
+local function run_on_create(term, created_term, lifecycle)
+	term._nvim_mini_started = true
+	install_buffer_lifecycle(term, created_term, lifecycle)
+	if lifecycle.created then
+		return
+	end
+	lifecycle.created = true
+	if opts.on_create then
+		opts.on_create(created_term or term, lifecycle.dir, lifecycle.generation)
+	end
+end
+
+local function bind_terminal_lifecycle(term, dir, generation, adopted)
+	local previous_lifecycle = term._nvim_mini_lifecycle
+	local foreign_on_exit = term.on_exit
+	if foreign_on_exit and foreign_on_exit == term._nvim_mini_adapter_on_exit then
+		foreign_on_exit = previous_lifecycle and previous_lifecycle.foreign_on_exit or nil
+	end
+
+	local lifecycle = {
+		dir = dir,
+		generation = generation,
+		foreign_on_exit = foreign_on_exit,
+	}
+	term._nvim_mini_lifecycle = lifecycle
+	term._nvim_mini_generation = generation
+	term.close_on_exit = true
+
+	local adapter_on_exit = function(exit_term, job_id, exit_code, ...)
+		if lifecycle.exit_seen then
+			return
+		end
+		lifecycle.exit_seen = true
+		if exit_code ~= 0 then
+			vim.notify(
+				"OpenCode terminal exited with code " .. exit_code,
+				vim.log.levels.ERROR,
+				{ title = opts.notify_title }
+			)
+		end
+		release_generation(exit_term, dir, generation, "OpenCode terminal exited")
+		finalize_adapter(exit_term, lifecycle, exit_code)
+		finalize_foreign(exit_term, lifecycle, job_id, exit_code, ...)
+	end
+	term._nvim_mini_adapter_on_exit = adapter_on_exit
+	term.on_exit = adapter_on_exit
+
+	install_buffer_lifecycle(term, term, lifecycle)
+	if adopted then
+		term._nvim_mini_started = true
+		run_on_create(term, term, lifecycle)
+	end
+	return lifecycle
+end
+
+local function retire_generation(term, dir, generation)
+	if not owns_generation(term, dir, generation) then
+		return false
+	end
+	local lifecycle = term._nvim_mini_lifecycle
+	release_generation(term, dir, generation, "OpenCode terminal closed")
+	if lifecycle then
+		finalize_adapter(term, lifecycle, 0)
+	end
+	if not term._nvim_mini_shutdown then
+		term._nvim_mini_shutdown = true
+		pcall(function()
+			term:shutdown()
+		end)
+	end
+	return true
+end
+
 -- One-shot: whichever of "readiness observed" / "timeout elapsed" happens
 -- first wins; the other is a no-op, so pending writes are never delivered
 -- twice and never delivered after a timeout has already failed them closed.
@@ -383,7 +516,8 @@ end
 local function new_terminal(dir, launch, generation)
 	ensure_toggleterm_loaded()
 	local Terminal = require("toggleterm.terminal").Terminal
-	local term = Terminal:new({
+	local term
+	term = Terminal:new({
 		cmd = launch.cmd,
 		env = vim.deepcopy(launch.env),
 		clear_env = launch.clear_env,
@@ -391,33 +525,16 @@ local function new_terminal(dir, launch, generation)
 		dir = dir,
 		display_name = opts.display_name,
 		hidden = true,
-		close_on_exit = false,
-		on_create = function(term)
-			if opts.on_create then
-				opts.on_create(term, dir, generation)
-			end
+		close_on_exit = true,
+		on_create = function(created_term)
+			run_on_create(term, created_term, term._nvim_mini_lifecycle)
 		end,
 		on_stdout = function(term, _, data)
 			scan_ready(term, data)
 		end,
-		on_exit = function(term, _, exit_code)
-			if exit_code ~= 0 then
-				vim.notify(
-					"OpenCode terminal exited with code " .. exit_code,
-					vim.log.levels.ERROR,
-					{ title = opts.notify_title }
-				)
-			end
-			stop_ready_timer(term)
-			term._nvim_mini_ready = false
-			fail_pending(term, "OpenCode terminal exited")
-			if opts.on_exit then
-				opts.on_exit(term, dir, generation, exit_code)
-			end
-		end,
 		size = opts.size,
 	})
-	term._nvim_mini_generation = generation
+	bind_terminal_lifecycle(term, dir, generation, false)
 	return term
 end
 
@@ -444,11 +561,9 @@ function M.get_terminal(dir)
 	if entry and entry.term then
 		-- Launch changed (e.g. an auth/env revision): retire the old
 		-- generation before adopting/creating the new target.
-		pcall(function()
-			entry.term:shutdown()
-		end)
-		entry.term = nil
-		entry.generation = new_generation()
+		retire_generation(entry.term, dir, entry.generation)
+		entry = { dir = dir, generation = new_generation() }
+		state.by_project[dir] = entry
 		launch = resolve_launch(dir, entry.generation)
 	end
 
@@ -459,7 +574,8 @@ function M.get_terminal(dir)
 	local term
 	if adopted then
 		term = adopted
-		term._nvim_mini_generation = entry.generation
+		entry.term = term
+		bind_terminal_lifecycle(term, dir, entry.generation, true)
 		if not term._nvim_mini_ready then
 			start_adopted_fallback(term)
 		end
@@ -479,20 +595,20 @@ local function ensure_live(dir, term)
 	if terminal_live(term) then
 		return term
 	end
-	if term.bufnr and vim.api.nvim_buf_is_valid(term.bufnr) then
-		pcall(function()
-			term:shutdown()
-		end)
-		local entry = state.by_project[dir]
-		if not entry or not entry.launch then
-			error("OpenCode terminal cache lost its launch snapshot")
-		end
-		entry.generation = new_generation()
-		entry.launch = vim.deepcopy(entry.launch)
-		entry.launch.env.OPENCODE_NVIM_GENERATION = entry.generation
-		term = new_terminal(dir, entry.launch, entry.generation)
-		entry.term = term
+	if not term._nvim_mini_started then
+		return term
 	end
+	local entry = state.by_project[dir]
+	if not entry or entry.term ~= term or not entry.launch then
+		return M.get_terminal(dir)
+	end
+	local launch = vim.deepcopy(entry.launch)
+	retire_generation(term, dir, entry.generation)
+	entry = { dir = dir, generation = new_generation(), launch = launch }
+	entry.launch.env.OPENCODE_NVIM_GENERATION = entry.generation
+	state.by_project[dir] = entry
+	term = new_terminal(dir, entry.launch, entry.generation)
+	entry.term = term
 	return term
 end
 
@@ -502,6 +618,7 @@ local function ensure_spawned(term)
 	end
 	term._nvim_mini_ready = false
 	term:spawn()
+	term._nvim_mini_started = true
 	start_ready_timeout(term)
 end
 
@@ -534,15 +651,21 @@ end
 
 function M.toggle(dir)
 	dir = opts.project_root(dir)
+	local entry = state.by_project[dir]
+	if entry and entry.term and terminal_live(entry.term) and entry.term:is_open() then
+		retire_generation(entry.term, dir, entry.generation)
+		return entry.term
+	end
 	local term = M.start(dir)
 	term:toggle(resolve_size(term))
 	return term
 end
 
 function M.close(dir)
-	local entry = state.by_project[opts.project_root(dir)]
+	dir = opts.project_root(dir)
+	local entry = state.by_project[dir]
 	if entry and entry.term then
-		entry.term:close()
+		retire_generation(entry.term, dir, entry.generation)
 	end
 end
 
@@ -552,10 +675,7 @@ function M.close_generation(dir, generation)
 	if not entry or entry.generation ~= generation or not entry.term then
 		return false
 	end
-	if entry.term:is_open() then
-		entry.term:close()
-	end
-	return true
+	return retire_generation(entry.term, dir, generation)
 end
 
 function M.generation_for(dir)

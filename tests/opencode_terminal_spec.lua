@@ -59,6 +59,7 @@ local function make_terminal(term)
 	end
 
 	function term:shutdown()
+		self.__shutdown_count = (self.__shutdown_count or 0) + 1
 		if self:is_open() then
 			self:close()
 		end
@@ -67,6 +68,20 @@ local function make_terminal(term)
 		end
 		registry[self.id] = nil
 		self.__alive = false
+	end
+
+	function term:simulate_exit(exit_code)
+		self:on_exit(self.job_id, exit_code)
+		self.__alive = false
+		if self.close_on_exit then
+			if self:is_open() then
+				self:close()
+			end
+			if self.bufnr and vim.api.nvim_buf_is_valid(self.bufnr) then
+				vim.api.nvim_buf_delete(self.bufnr, { force = true })
+			end
+			registry[self.id] = nil
+		end
 	end
 
 	return term
@@ -306,9 +321,14 @@ eq(adopt_result, "success", "a live adopted terminal assumes readiness after its
 
 print("PASS an adopted live terminal becomes ready via the short fallback instead of hanging forever")
 
--- ===== Section 7: process exit fails pending and resets readiness =====
+-- ===== Section 7: process exit fails pending, finalizes, and wipes the buffer =====
 
-setup_adapter()
+local natural_exits = {}
+setup_adapter({
+	on_exit = function(_, project, generation, code)
+		table.insert(natural_exits, { project = project, generation = generation, code = code })
+	end,
+})
 local exit_dir = "/tmp/opencode-terminal-spec/project-g"
 local exit_result
 terminal_adapter.send("hello", {
@@ -323,12 +343,17 @@ terminal_adapter.send("hello", {
 local exit_term = terminal_adapter.get_terminal(exit_dir)
 exit_term.__alive = true
 
-exit_term:on_exit(exit_term.job_id, 1)
+exit_term:simulate_exit(1)
 assert(exit_result, "the queued request is failed when the terminal process exits")
 assert(exit_result:match("^failure:"), "process exit fails the request rather than silently dropping it")
 eq(exit_term._nvim_mini_ready, false, "readiness is reset to false on exit")
+assert(not vim.api.nvim_buf_is_valid(exit_term.bufnr), "natural process exit wipes the OpenCode terminal buffer")
+eq(terminal_adapter.generation_for(exit_dir), nil, "natural process exit releases the terminal generation")
+eq(#natural_exits, 1, "natural process exit finalizes external lifecycle exactly once")
+exit_term:on_exit(exit_term.job_id, 1)
+eq(#natural_exits, 1, "a repeated late process-exit callback cannot finalize twice")
 
-print("PASS process exit fails pending requests and resets readiness")
+print("PASS process exit fails pending requests, finalizes once, and wipes its buffer")
 
 -- ===== Section 8: a command/project change retires the old generation first =====
 
@@ -472,6 +497,7 @@ setup_adapter({
 })
 
 local reconstruction_original = terminal_adapter.get_terminal(reconstruction_dir)
+reconstruction_original:spawn()
 reconstruction_original.__alive = false
 local reconstruction = terminal_adapter.open(reconstruction_dir)
 
@@ -504,9 +530,23 @@ eq(sent_payloads[3].payload, "\r", "submit-only with no text sends just a carria
 
 print("PASS exact PTY payload bytes match bracketed-paste and submit conventions")
 
--- ===== Section 12: hidden start and explicit visibility share one terminal =====
+-- ===== Section 12: hidden start opens once, while visible toggle retires =====
 
-setup_adapter()
+local visibility_generation = 0
+local visibility_exits = {}
+local visibility_starts = 0
+setup_adapter({
+	generation = function()
+		visibility_generation = visibility_generation + 1
+		return "visibility-generation-" .. visibility_generation
+	end,
+	on_exit = function(_, _, generation)
+		table.insert(visibility_exits, generation)
+	end,
+	on_start = function()
+		visibility_starts = visibility_starts + 1
+	end,
+})
 local visibility_dir = "/tmp/opencode-terminal-spec/project-visibility"
 local editor_win = vim.api.nvim_get_current_win()
 local hidden_term = terminal_adapter.start(visibility_dir)
@@ -520,17 +560,25 @@ hidden_term.__alive = true
 eq(terminal_adapter.start(visibility_dir), hidden_term, "repeated start() reuses the live hidden terminal")
 eq(hidden_term.__spawn_count, 1, "repeated start() does not spawn another process")
 
-eq(terminal_adapter.open(visibility_dir), hidden_term, "open() displays the existing hidden terminal")
-assert(hidden_term:is_open(), "open() makes the terminal visible")
-eq(hidden_term.__last_open_size, 42, "open() still resolves the configured split size")
+eq(terminal_adapter.toggle(visibility_dir), hidden_term, "the first toggle displays the live hidden terminal")
+assert(hidden_term:is_open(), "the first toggle makes a background-started terminal visible")
+eq(hidden_term.__last_open_size, 42, "the first toggle resolves the configured split size")
 
-eq(terminal_adapter.toggle(visibility_dir), hidden_term, "toggle() reuses the visible terminal")
-assert(not hidden_term:is_open(), "toggle() closes a visible terminal")
-eq(terminal_adapter.toggle(visibility_dir), hidden_term, "toggle() reopens the same hidden terminal")
-assert(hidden_term:is_open(), "toggle() explicitly reveals a hidden terminal")
-eq(hidden_term.__spawn_count, 1, "manual visibility changes never spawn a duplicate process")
+local starts_before_close = visibility_starts
+eq(terminal_adapter.toggle(visibility_dir), hidden_term, "closing toggle returns the terminal it retired")
+eq(visibility_starts, starts_before_close, "closing a visible toggle does not redundantly re-register terminal ownership")
+assert(not vim.api.nvim_buf_is_valid(hidden_term.bufnr), "closing a visible OpenCode toggle wipes its buffer")
+eq(registry[hidden_term.id], nil, "closing a visible OpenCode toggle deregisters its terminal")
+eq(terminal_adapter.generation_for(visibility_dir), nil, "closing toggle releases the retired generation")
+eq(visibility_exits, { "visibility-generation-1" }, "closing toggle finalizes the retired generation once")
 
-print("PASS hidden start and explicit open/toggle reuse one terminal without changing focus autonomously")
+local replacement_term = terminal_adapter.toggle(visibility_dir)
+assert(replacement_term ~= hidden_term, "the next toggle creates a fresh terminal generation")
+assert(replacement_term:is_open(), "the fresh terminal is opened by the next toggle")
+eq(replacement_term.__spawn_count, 1, "the fresh terminal process starts exactly once")
+eq(replacement_term._nvim_mini_generation, "visibility-generation-2", "reopen uses a fresh generation")
+
+print("PASS hidden toggle opens once and visible toggle destructively retires before fresh recreation")
 
 -- ===== Section 12b: open() is idempotent - focuses instead of reopening =====
 --
@@ -575,6 +623,94 @@ pid_term.__alive = false
 eq(terminal_adapter.job_pid_for(pid_dir, "test-generation"), nil, "a dead terminal never proves generation liveness")
 
 print("PASS exact terminal generation exposes only its own live job pid")
+
+-- ===== Section 12d: close APIs retire exact generations, including hidden terminals =====
+
+local close_generation = 0
+local close_exits = {}
+setup_adapter({
+	generation = function()
+		close_generation = close_generation + 1
+		return "close-generation-" .. close_generation
+	end,
+	on_exit = function(_, _, generation)
+		table.insert(close_exits, generation)
+	end,
+})
+local close_dir = "/tmp/opencode-terminal-spec/project-close"
+local close_term = terminal_adapter.open(close_dir)
+close_term.__alive = true
+terminal_adapter.close(close_dir)
+assert(not vim.api.nvim_buf_is_valid(close_term.bufnr), "close() wipes the OpenCode terminal buffer")
+eq(close_term.__shutdown_count, 1, "close() shuts the terminal down exactly once")
+eq(close_exits, { "close-generation-1" }, "close() finalizes its generation exactly once")
+terminal_adapter.close(close_dir)
+eq(close_term.__shutdown_count, 1, "repeated close() does not retire an already-released terminal twice")
+
+local hidden_close_term = terminal_adapter.start(close_dir)
+hidden_close_term.__alive = true
+eq(
+	terminal_adapter.close_generation(close_dir, "close-generation-1"),
+	false,
+	"close_generation() rejects a stale generation"
+)
+assert(vim.api.nvim_buf_is_valid(hidden_close_term.bufnr), "a stale generation cannot delete the live terminal")
+eq(
+	terminal_adapter.close_generation(close_dir, "close-generation-2"),
+	true,
+	"close_generation() retires the matching hidden terminal"
+)
+assert(not vim.api.nvim_buf_is_valid(hidden_close_term.bufnr), "matching generation close wipes a hidden terminal buffer")
+eq(close_exits, { "close-generation-1", "close-generation-2" }, "each retired generation finalizes exactly once")
+
+print("PASS close APIs destructively retire only their exact live generation")
+
+-- ===== Section 12e: adopted terminals receive destructive buffer lifecycle =====
+
+local adopted_creates = {}
+local adopted_exits = {}
+local foreign_exits = 0
+setup_adapter({
+	on_create = function(_, _, generation)
+		table.insert(adopted_creates, generation)
+	end,
+	on_exit = function(_, _, generation)
+		table.insert(adopted_exits, generation)
+	end,
+})
+local adopted_close_dir = "/tmp/opencode-terminal-spec/project-adopted-close"
+local adopted_close_term = Terminal:new({
+	cmd = "TESTCMD --dir " .. adopted_close_dir,
+	dir = adopted_close_dir,
+	display_name = "OpenCode",
+	hidden = true,
+	env = { OPENCODE_TEST_REVISION = "1", OPENCODE_NVIM_GENERATION = "test-generation" },
+	clear_env = false,
+	on_exit = function()
+		foreign_exits = foreign_exits + 1
+	end,
+})
+adopted_close_term.__alive = true
+adopted_close_term:open(42)
+eq(terminal_adapter.get_terminal(adopted_close_dir), adopted_close_term, "the live terminal is adopted")
+eq(vim.bo[adopted_close_term.bufnr].bufhidden, "wipe", "adopted OpenCode buffers wipe when their split closes")
+eq(adopted_close_term.close_on_exit, true, "adopted terminals wipe on natural process exit")
+eq(adopted_creates, { "test-generation" }, "adoption runs current on_create lifecycle once")
+
+local editor_window = vim.api.nvim_get_current_win()
+vim.cmd("vsplit")
+local terminal_window = vim.api.nvim_get_current_win()
+vim.api.nvim_win_set_buf(terminal_window, adopted_close_term.bufnr)
+vim.cmd("quit")
+assert(vim.api.nvim_win_is_valid(editor_window), "closing the terminal split preserves the editor window")
+assert(not vim.api.nvim_buf_is_valid(adopted_close_term.bufnr), "direct :quit wipes an adopted terminal buffer")
+eq(terminal_adapter.generation_for(adopted_close_dir), nil, "direct :quit releases adopted terminal ownership")
+adopted_close_term:on_exit(adopted_close_term.job_id, 0)
+adopted_close_term:on_exit(adopted_close_term.job_id, 0)
+eq(adopted_exits, { "test-generation" }, "direct close finalizes adapter lifecycle exactly once on process exit")
+eq(foreign_exits, 1, "an adopted terminal's foreign on_exit callback is preserved exactly once")
+
+print("PASS adopted terminals gain destructive direct-close lifecycle without duplicate finalization")
 
 -- ===== Section 13: one stable generation owns start and exit callbacks =====
 

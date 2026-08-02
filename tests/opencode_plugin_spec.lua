@@ -68,6 +68,7 @@ package.loaded["toggleterm.terminal"] = {
 				self.__is_open = false
 			end
 			term.shutdown = function(self)
+				table.insert(recorded_terminal_calls, { action = "shutdown" })
 				if record_auth_lifecycle then
 					table.insert(auth_lifecycle, "shutdown-old")
 				end
@@ -112,21 +113,38 @@ eq(recorded_terminal_calls[1], { action = "spawn" }, "first manual open starts t
 eq(recorded_terminal_calls[2], { action = "open_via_toggle", size = 100 }, "first open resolves a fresh explicit size (50%% of columns), not toggleterm's global/persisted default")
 
 toggle_terminal() -- closes
-eq(recorded_terminal_calls[3], { action = "close" }, "second press closes")
+eq(recorded_terminal_calls[3], { action = "shutdown" }, "second press destructively shuts down the visible terminal")
+local first_toggle_terminal = opencode_terminal_opts
+eq(first_toggle_terminal.__alive, false, "destructive toggle stops the old terminal process")
 
 vim.o.columns = 140 -- simulate the user resizing Neovim while opencode was closed
-toggle_terminal() -- reopens
+toggle_terminal() -- creates and opens a fresh terminal
+assert(opencode_terminal_opts ~= first_toggle_terminal, "reopening after a destructive toggle creates a fresh terminal")
 eq(
-	recorded_terminal_calls[4],
+	recorded_terminal_calls[5],
 	{ action = "open_via_toggle", size = 70 },
-	"reopening after a close recomputes size fresh from the current column count instead of reusing a stale/persisted width"
+	"fresh reopen recomputes size from the current column count instead of reusing stale width"
 )
+eq(recorded_terminal_calls[4], { action = "spawn" }, "fresh reopen starts a new terminal process")
 
 plugin_specs[1].init()
 assert(type(vim.g.opencode_opts.server.start) == "function", "server.start is wired to start_opencode_terminal")
 assert(type(vim.g.opencode_opts.server.url) == "function", "server.url resolves the launchd-managed OpenCode endpoint")
 eq(vim.g.opencode_opts.server.port, nil, "the obsolete server.port option is not configured")
 eq(vim.g.opencode_opts.events.reload, false, "session-blind SSE reload stays disabled in favor of native targeted batches")
+local default_server_terminal = opencode_terminal_opts
+local before_stop_calls = #recorded_terminal_calls
+vim.g.opencode_opts.server.stop()
+eq(
+	recorded_terminal_calls[before_stop_calls + 1],
+	{ action = "shutdown" },
+	"server.stop destructively shuts down the project terminal"
+)
+eq(default_server_terminal.__alive, false, "server.stop terminates the project terminal process")
+vim.g.opencode_opts.server.start()
+assert(opencode_terminal_opts ~= default_server_terminal, "server.start after stop creates a fresh project terminal")
+eq(recorded_terminal_calls[before_stop_calls + 2], { action = "spawn" }, "server restart starts the fresh terminal process")
+
 local original_jobstart = vim.fn.jobstart
 local original_url_schedule = vim.schedule
 local resolved_url
@@ -143,13 +161,14 @@ end)
 vim.fn.jobstart = original_jobstart
 vim.schedule = original_url_schedule
 eq(resolved_url, "http://127.0.0.1:4096", "server.url resolves the configured launchd endpoint after readiness succeeds")
+local before_explicit_start_calls = #recorded_terminal_calls
 vim.g.opencode_opts.server.start("/tmp/opencode-plugin-spec/server-start")
 eq(
-	recorded_terminal_calls[5],
+	recorded_terminal_calls[before_explicit_start_calls + 1],
 	{ action = "spawn" },
 	"server.start (used by opencode.nvim discovery) starts the terminal without opening a split"
 )
-eq(#recorded_terminal_calls, 5, "server.start performs no visible terminal action")
+eq(#recorded_terminal_calls, before_explicit_start_calls + 1, "server.start performs no visible terminal action")
 
 local first_auth_terminal = opencode_terminal_opts
 eq(first_auth_terminal.display_name, "OpenCode", "the terminal keeps its semantic display name")

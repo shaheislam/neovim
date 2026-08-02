@@ -129,14 +129,14 @@ terminal_adapter.setup({
 	notify_title = "opencode",
 	on_create = function(term, dir, generation)
 		bind_opencode_terminal_picker(term, dir)
-		require("config.opencode_attach_registry").register(term, dir)
+		require("config.opencode_attach_registry").register(term, dir, generation)
 	end,
 	on_start = function(_, dir, generation)
 		require("config.opencode_handoff").register_terminal(dir, generation)
 	end,
 	on_exit = function(_, dir, generation)
 		require("config.opencode_handoff").unregister_terminal(dir, generation)
-		require("config.opencode_attach_registry").unregister()
+		require("config.opencode_attach_registry").unregister(generation)
 	end,
 })
 

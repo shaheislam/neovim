@@ -53,12 +53,20 @@ return {
 
       -- Terminal-mode zoom (works in opencode.nvim and other terminal buffers)
       vim.keymap.set('t', '<C-z>', function()
-        local win = vim.api.nvim_get_current_win()
+        -- Track the terminal buffer, not the window: zooming in opens a new
+        -- floating window over it, and zooming out closes that window, so a
+        -- window-validity check always fails on zoom-out and strands the
+        -- cursor in Normal mode.
+        local buf = vim.api.nvim_get_current_buf()
         vim.cmd([[stopinsert]])
         toggle_zoom()
         -- Deferred so startinsert runs after the mapping stack completes
         vim.schedule(function()
-          if vim.api.nvim_win_is_valid(win) and vim.bo.buftype == 'terminal' then
+          if
+            vim.api.nvim_buf_is_valid(buf)
+            and vim.api.nvim_get_current_buf() == buf
+            and vim.bo.buftype == 'terminal'
+          then
             vim.cmd('startinsert')
           end
         end)

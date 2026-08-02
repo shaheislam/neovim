@@ -101,7 +101,7 @@ local owner = {
 	end,
 }
 
-local prompt = require("config.fzf_prompt")
+local prompt = dofile("lua/config/fzf_prompt.lua")
 local names = vim.tbl_map(function(item)
 	return item.name
 end, prompt.catalog())
@@ -267,6 +267,35 @@ scheduled[1]()
 local normal_worktrees = picker_calls[#picker_calls]
 eq(normal_worktrees.name, "git_worktrees", "the regular FZF menu dispatches the worktree provider")
 eq(normal_worktrees.opts, nil, "regular worktrees retain the provider's normal actions")
+
+local binding_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_set_current_buf(binding_buf)
+prompt.bind(binding_buf, {
+	mode = "t",
+	prefix = "<C-Space>",
+	insert = function() end,
+	restore = function() end,
+})
+local function binding(lhs)
+	for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(binding_buf, "t")) do
+		if mapping.lhs == lhs then return mapping end
+	end
+end
+eq(
+	binding("<C-Space>ff").desc,
+	"Find files",
+	"an explicit prompt prefix binds the files picker directly in terminal mode"
+)
+eq(
+	binding("<C-Space>fz").desc,
+	"Choose picker for prompt",
+	"an explicit prompt prefix also binds the picker menu directly in terminal mode"
+)
+eq(
+	binding("<Space>ff"),
+	nil,
+	"an explicit prompt prefix leaves ordinary terminal leader text unmapped"
+)
 
 vim.schedule = original_schedule
 vim.api.nvim_get_current_win = original_get_current_win

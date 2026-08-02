@@ -87,7 +87,8 @@ package.loaded["toggleterm.terminal"] = {
 	end,
 }
 
-local terminal_adapter = require("config.opencode_terminal")
+local terminal_adapter = dofile("lua/config/opencode_terminal.lua")
+package.loaded["config.opencode_terminal"] = terminal_adapter
 
 -- Deterministic liveness/write hooks: __alive is a plain flag the test sets
 -- directly instead of needing a real terminal job, and sent_payloads
@@ -112,8 +113,12 @@ local function setup_adapter(overrides)
 	terminal_adapter.__reset()
 	terminal_adapter.setup(vim.tbl_extend("force", {
 		display_name = "OpenCode",
-		cmd = function(dir)
-			return "TESTCMD --dir " .. dir
+		launch = function(dir)
+			return {
+				cmd = "TESTCMD --dir " .. dir,
+				env = { OPENCODE_TEST_REVISION = "1" },
+				clear_env = false,
+			}
 		end,
 		project_root = function(explicit_dir)
 			return explicit_dir or "/tmp/opencode-terminal-spec/project-a"
@@ -145,12 +150,27 @@ setup_adapter()
 local dir = "/tmp/opencode-terminal-spec/project-b"
 local cmd = "TESTCMD --dir " .. dir
 local Terminal = require("toggleterm.terminal").Terminal
+local launch_env = { OPENCODE_TEST_REVISION = "1" }
 
-local legacy_open = Terminal:new({ cmd = cmd, display_name = "OpenCode", hidden = true })
+local legacy_open = Terminal:new({
+	cmd = cmd,
+	dir = dir,
+	display_name = "OpenCode",
+	hidden = true,
+	env = vim.deepcopy(launch_env),
+	clear_env = false,
+})
 legacy_open.__alive = true
 legacy_open:open(50)
 
-local legacy_hidden = Terminal:new({ cmd = cmd, display_name = "OpenCode", hidden = true })
+local legacy_hidden = Terminal:new({
+	cmd = cmd,
+	dir = dir,
+	display_name = "OpenCode",
+	hidden = true,
+	env = vim.deepcopy(launch_env),
+	clear_env = false,
+})
 legacy_hidden.__alive = true
 legacy_hidden:spawn() -- live, but never opened -> UI-closed duplicate
 
@@ -242,7 +262,14 @@ print("PASS a fresh spawn without a ready marker fails closed after its timeout"
 setup_adapter({ adopted_ready_timeout_ms = 20 })
 local adopt_dir = "/tmp/opencode-terminal-spec/project-f"
 local adopt_cmd = "TESTCMD --dir " .. adopt_dir
-local legacy = Terminal:new({ cmd = adopt_cmd, display_name = "OpenCode", hidden = true })
+local legacy = Terminal:new({
+	cmd = adopt_cmd,
+	dir = adopt_dir,
+	display_name = "OpenCode",
+	hidden = true,
+	env = { OPENCODE_TEST_REVISION = "1" },
+	clear_env = false,
+})
 legacy.__alive = true
 legacy:open(50) -- live and UI-open, but never marked _nvim_mini_ready (pre-adapter generation)
 
@@ -300,8 +327,12 @@ local change_dir = "/tmp/opencode-terminal-spec/project-h"
 local current_cmd = "TESTCMD --dir " .. change_dir .. " --rev 1"
 terminal_adapter.setup({
 	display_name = "OpenCode",
-	cmd = function(dir)
-		return current_cmd
+	launch = function()
+		return {
+			cmd = current_cmd,
+			env = { OPENCODE_TEST_REVISION = "1" },
+			clear_env = false,
+		}
 	end,
 	project_root = function(explicit_dir)
 		return explicit_dir or change_dir
@@ -332,7 +363,110 @@ assert(registry[original_term.id] == nil, "the retired terminal is removed from 
 
 print("PASS a command/project change retires the old terminal before creating the new one")
 
--- ===== Section 9: exact PTY payload bytes for append / append+submit / submit-only =====
+-- ===== Section 9: environment revisions and registry reconciliation =====
+
+setup_adapter()
+local env_dir = "/tmp/opencode-terminal-spec/project-env"
+local current_env = { OPENCODE_TEST_REVISION = "1", OPENCODE_SERVER_PASSWORD = "password-1" }
+terminal_adapter.setup({
+	display_name = "OpenCode",
+	launch = function(dir)
+		return {
+			cmd = "TESTCMD --dir " .. dir,
+			env = vim.deepcopy(current_env),
+			clear_env = false,
+		}
+	end,
+	project_root = function(explicit_dir)
+		return explicit_dir or env_dir
+	end,
+	size = function()
+		return 42
+	end,
+	ready_timeout_ms = 60,
+	adopted_ready_timeout_ms = 30,
+})
+
+local env_original = terminal_adapter.get_terminal(env_dir)
+env_original.__alive = true
+env_original:spawn()
+local env_reused = terminal_adapter.get_terminal(env_dir)
+assert(env_reused == env_original, "value-equal launch descriptors reuse the cached terminal")
+
+local env_order = {}
+local env_original_shutdown = env_original.shutdown
+env_original.shutdown = function(self)
+	table.insert(env_order, "shutdown-old")
+	return env_original_shutdown(self)
+end
+current_env = { OPENCODE_TEST_REVISION = "2", OPENCODE_SERVER_PASSWORD = "password-2" }
+local env_replacement = terminal_adapter.get_terminal(env_dir)
+table.insert(env_order, "create-new")
+
+assert(env_replacement ~= env_original, "an environment-only revision creates a new terminal generation")
+eq(env_order, { "shutdown-old", "create-new" }, "the stale-auth generation is retired before replacement")
+eq(env_replacement.env, current_env, "the replacement terminal receives the revised environment")
+
+setup_adapter()
+local registry_dir = "/tmp/opencode-terminal-spec/project-registry"
+local stale_hidden = Terminal:new({
+	cmd = "TESTCMD --dir " .. registry_dir,
+	dir = registry_dir,
+	display_name = "OpenCode",
+	hidden = true,
+	env = { OPENCODE_TEST_REVISION = "stale" },
+	clear_env = false,
+})
+stale_hidden.__alive = true
+stale_hidden:spawn()
+
+local stale_visible = Terminal:new({
+	cmd = "TESTCMD --dir " .. registry_dir,
+	dir = registry_dir,
+	display_name = "OpenCode",
+	hidden = true,
+	env = { OPENCODE_TEST_REVISION = "visible-stale" },
+	clear_env = false,
+})
+stale_visible.__alive = true
+stale_visible:open(42)
+
+local registry_replacement = terminal_adapter.get_terminal(registry_dir)
+assert(registry_replacement ~= stale_hidden, "a hidden stale-env registry terminal is not adopted")
+assert(registry[stale_hidden.id] == nil, "a hidden stale-env registry terminal is retired")
+assert(registry[stale_visible.id] == stale_visible, "a live visible mismatched terminal is left untouched")
+
+print("PASS environment revisions replace stale generations and reconcile same-project registry terminals")
+
+-- ===== Section 10: dead reconstruction reuses one resolved launch snapshot =====
+
+local launch_resolutions = 0
+local reconstruction_dir = "/tmp/opencode-terminal-spec/project-reconstruction"
+setup_adapter({
+	launch = function(dir)
+		launch_resolutions = launch_resolutions + 1
+		return {
+			cmd = "TESTCMD --dir " .. dir,
+			env = { OPENCODE_TEST_REVISION = "stable" },
+			clear_env = false,
+		}
+	end,
+	project_root = function(explicit_dir)
+		return explicit_dir or reconstruction_dir
+	end,
+})
+
+local reconstruction_original = terminal_adapter.get_terminal(reconstruction_dir)
+reconstruction_original.__alive = false
+local reconstruction = terminal_adapter.open(reconstruction_dir)
+
+assert(reconstruction ~= reconstruction_original, "a dead terminal is reconstructed")
+eq(launch_resolutions, 2, "dead reconstruction does not resolve a second launch snapshot within open()")
+eq(reconstruction.env, { OPENCODE_TEST_REVISION = "stable" }, "dead reconstruction reuses the resolved environment")
+
+print("PASS dead-terminal reconstruction reuses the current operation's launch snapshot")
+
+-- ===== Section 11: exact PTY payload bytes for append / append+submit / submit-only =====
 
 setup_adapter()
 local payload_dir = "/tmp/opencode-terminal-spec/project-i"
@@ -351,7 +485,7 @@ eq(sent_payloads[3].payload, "\r", "submit-only with no text sends just a carria
 
 print("PASS exact PTY payload bytes match bracketed-paste and submit conventions")
 
--- ===== Section 10: hidden start and explicit visibility share one terminal =====
+-- ===== Section 12: hidden start and explicit visibility share one terminal =====
 
 setup_adapter()
 local visibility_dir = "/tmp/opencode-terminal-spec/project-visibility"

@@ -36,14 +36,60 @@ return {
 				return aerial_cache.text
 			end
 
-				require("lualine").setup({
-					options = {
-						theme = "auto",
-						globalstatus = true,
-						disabled_filetypes = {
-							statusline = { "dashboard", "alpha", "starter", "snacks_dashboard" },
-							winbar = {},
-						},
+			local stl_escape = require("lualine.utils.utils").stl_escape
+			local function buffer_label()
+				if vim.bo.buftype == "terminal" then
+					local id = vim.b.toggle_number
+					if id then
+						local ok, toggleterm = pcall(require, "toggleterm.terminal")
+						if ok and type(toggleterm.get) == "function" then
+							local found, term = pcall(toggleterm.get, id, true)
+							if found and term and type(term.display_name) == "string" and term.display_name ~= "" then
+								return stl_escape(term.display_name)
+							end
+						end
+					end
+					return "Terminal"
+				end
+
+				-- Handle Oil buffers specially
+				if vim.bo.filetype == "oil" then
+					local ok, oil = pcall(require, "oil")
+					if ok then
+						local oil_dir = oil.get_current_dir()
+						if oil_dir then
+							local home = os.getenv("HOME")
+							if home and oil_dir:find(home, 1, true) == 1 then
+								oil_dir = oil_dir:sub(#home + 2)
+							end
+							return stl_escape(oil_dir)
+						end
+					end
+				end
+
+				local path = vim.fn.expand("%:p")
+				if path == "" then
+					return ""
+				end
+
+				local cwd = vim.fn.getcwd()
+				if path:find(cwd, 1, true) == 1 then
+					path = path:sub(#cwd + 2)
+				end
+
+				local modified_sign = vim.bo.modified and " " or ""
+				local readonly_sign = vim.bo.readonly and " 󰌾" or ""
+				return stl_escape(path .. modified_sign .. readonly_sign)
+			end
+
+			require("lualine").setup({
+				options = {
+					theme = "auto",
+					globalstatus = true,
+					disabled_filetypes = {
+						statusline = { "dashboard", "alpha", "starter", "snacks_dashboard" },
+						winbar = {},
+					},
 					component_separators = { left = "", right = "" },
 					section_separators = { left = "", right = "" },
 				},
@@ -61,51 +107,7 @@ return {
 							},
 						},
 						{ "filetype", icon_only = true, separator = "", padding = { left = 1, right = 0 } },
-						{
-							function()
-								-- Handle Oil buffers specially
-								if vim.bo.filetype == "oil" then
-									local ok, oil = pcall(require, "oil")
-									if ok then
-										local oil_dir = oil.get_current_dir()
-										if oil_dir then
-											-- Remove /Users/shahe prefix, show relative path from home
-											local home = os.getenv("HOME")
-											if home and oil_dir:find(home, 1, true) == 1 then
-												oil_dir = oil_dir:sub(#home + 2) -- +2 to skip the trailing /
-											end
-											return oil_dir
-										end
-									end
-								end
-
-								local path = vim.fn.expand("%:p")
-								if path == "" then
-									return ""
-								end
-
-								-- Get current working directory
-								local cwd = vim.fn.getcwd()
-
-								-- Try to make path relative to cwd
-								if path:find(cwd, 1, true) == 1 then
-									path = path:sub(#cwd + 2)
-								end
-
-								-- Add modified and readonly indicators
-								local modified_sign = ""
-								local readonly_sign = ""
-
-								if vim.bo.modified then
-									modified_sign = " "
-								end
-								if vim.bo.readonly then
-									readonly_sign = " 󰌾"
-								end
-
-								return path .. modified_sign .. readonly_sign
-							end,
-						},
+						{ buffer_label },
 						-- Aerial breadcrumb (cached — only recalculates on buffer change tick, not every CursorMoved)
 						{
 							cached_aerial,
@@ -188,7 +190,7 @@ return {
 				inactive_sections = {
 					lualine_a = {},
 					lualine_b = {},
-					lualine_c = { "filename" },
+					lualine_c = { { buffer_label } },
 					lualine_x = { "location" },
 					lualine_y = {},
 					lualine_z = {},

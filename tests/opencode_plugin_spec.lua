@@ -17,14 +17,28 @@ local function mode_includes(mode, target)
 	return false
 end
 
+local original_auth_env = {
+	username = vim.env.OPENCODE_SERVER_USERNAME,
+	password = vim.env.OPENCODE_SERVER_PASSWORD,
+	state_home = vim.env.XDG_STATE_HOME,
+}
+vim.env.OPENCODE_SERVER_USERNAME = "opencode-spec-user-1"
+vim.env.OPENCODE_SERVER_PASSWORD = "opencode-spec-password-1"
+vim.env.XDG_STATE_HOME = "/tmp/opencode-plugin-spec-missing-state"
+
 -- ===== Section 1: toggleterm resize-on-reopen fix =====
 
 local recorded_terminal_calls = {}
 local opencode_terminal_opts
+local record_auth_lifecycle = false
+local auth_lifecycle = {}
 
 package.loaded["toggleterm.terminal"] = {
 	Terminal = {
 		new = function(_, term)
+			if record_auth_lifecycle then
+				table.insert(auth_lifecycle, "create-new")
+			end
 			opencode_terminal_opts = term
 			term.__is_open = false
 			term.__alive = false
@@ -51,11 +65,19 @@ package.loaded["toggleterm.terminal"] = {
 			term.close = function(self)
 				self.__is_open = false
 			end
+			term.shutdown = function(self)
+				if record_auth_lifecycle then
+					table.insert(auth_lifecycle, "shutdown-old")
+				end
+				self.__is_open = false
+				self.__alive = false
+			end
 			return term
 		end,
 	},
 }
 
+package.loaded["config.opencode_terminal"] = dofile("lua/config/opencode_terminal.lua")
 local plugin_specs = dofile("lua/plugins/opencode.lua")
 local terminal_adapter = require("config.opencode_terminal")
 terminal_adapter.__set_test_hooks({
@@ -118,7 +140,66 @@ eq(
 )
 eq(#recorded_terminal_calls, 5, "server.start performs no visible terminal action")
 
+local first_auth_terminal = opencode_terminal_opts
+eq(first_auth_terminal.display_name, "OpenCode", "the terminal keeps its semantic display name")
+eq(first_auth_terminal.clear_env, false, "the terminal inherits the editor environment")
+eq(first_auth_terminal.env, {
+	OPENCODE_TMUX_WRAPPER_ACTIVE = "1",
+	OPENTUI_GRAPHICS = "0",
+	OPENCODE_SERVER_USERNAME = "opencode-spec-user-1",
+	OPENCODE_SERVER_PASSWORD = "opencode-spec-password-1",
+}, "launch credentials and terminal flags are passed as raw environment values")
+assert(not first_auth_terminal.cmd:find("opencode-spec-user-1", 1, true), "the username is absent from the terminal command")
+assert(not first_auth_terminal.cmd:find("opencode-spec-password-1", 1, true), "the password is absent from the terminal command")
+eq(
+	first_auth_terminal.cmd,
+	"ocv attach http://127.0.0.1:4096 --dir " .. vim.fn.shellescape(first_auth_terminal.dir),
+	"the terminal command contains only the attach invocation"
+)
+
+local original_auth_config = package.loaded["opencode.config"]
+local loaded_auth_config = {
+	opts = {
+		server = {
+			username = "stale-user",
+			password = "stale-password",
+		},
+	},
+}
+package.loaded["opencode.config"] = loaded_auth_config
+
+vim.env.OPENCODE_SERVER_USERNAME = "opencode-spec-user-2"
+vim.env.OPENCODE_SERVER_PASSWORD = "opencode-spec-password-2"
+record_auth_lifecycle = true
+auth_lifecycle = {}
+local revised_auth_terminal = terminal_adapter.get_terminal(first_auth_terminal.dir)
+record_auth_lifecycle = false
+
+assert(revised_auth_terminal ~= first_auth_terminal, "changing launch auth replaces the terminal generation")
+eq(auth_lifecycle, { "shutdown-old", "create-new" }, "auth replacement shuts down the old terminal before creation")
+eq(revised_auth_terminal.env.OPENCODE_SERVER_USERNAME, "opencode-spec-user-2", "replacement receives the new username")
+eq(revised_auth_terminal.env.OPENCODE_SERVER_PASSWORD, "opencode-spec-password-2", "replacement receives the new password")
+eq(vim.g.opencode_opts.server.username, "opencode-spec-user-2", "global opencode options receive the launch username")
+eq(vim.g.opencode_opts.server.password, "opencode-spec-password-2", "global opencode options receive the launch password")
+eq(loaded_auth_config.opts.server.username, "opencode-spec-user-2", "loaded config receives the launch username")
+eq(loaded_auth_config.opts.server.password, "opencode-spec-password-2", "loaded config receives the launch password")
+
+vim.env.OPENCODE_SERVER_PASSWORD = nil
+auth_lifecycle = {}
+record_auth_lifecycle = true
+local passwordless_terminal = terminal_adapter.get_terminal(first_auth_terminal.dir)
+record_auth_lifecycle = false
+
+assert(passwordless_terminal ~= revised_auth_terminal, "clearing the password replaces the authenticated terminal")
+eq(auth_lifecycle, { "shutdown-old", "create-new" }, "password clearing retires before replacement")
+eq(passwordless_terminal.env.OPENCODE_SERVER_PASSWORD, nil, "the cleared password is omitted from the launch environment")
+eq(vim.g.opencode_opts.server.password, nil, "the cleared password is removed from global opencode options")
+eq(loaded_auth_config.opts.server.password, nil, "the cleared password is removed from loaded opencode options")
+
+package.loaded["opencode.config"] = original_auth_config
+
 print("PASS opencode terminal resize-on-reopen always resolves a fresh explicit size")
+print("PASS opencode terminal launch keeps auth out of commands and synchronizes auth revisions")
 
 -- ===== Section 2: current OpenCode API mocks and prompt adapter setup =====
 
@@ -507,6 +588,7 @@ local original_prompt = package.loaded["config.opencode_prompt"]
 local terminal_module = require("config.opencode_terminal")
 local original_focus = terminal_module.focus
 local local_prompt_calls = {}
+local local_append_calls = {}
 local visibility_calls = {}
 
 package.loaded["opencode.config"] = {
@@ -531,7 +613,9 @@ package.loaded["config.opencode_prompt"] = {
 	append_and_submit = function(text, opts)
 		table.insert(local_prompt_calls, { text = text, opts = opts })
 	end,
-	append = function() end,
+	append = function(text, opts)
+		table.insert(local_append_calls, { text = text, opts = opts })
+	end,
 	submit = function() end,
 	set_sink = function() end,
 }
@@ -560,6 +644,7 @@ end
 
 local function reset_local_prompt_calls()
 	local_prompt_calls = {}
+	local_append_calls = {}
 	visibility_calls = {}
 end
 
@@ -667,11 +752,85 @@ last_local_prompt(
 	"[file: lua/example.lua]\n```\nlocal answer = 42\n```\nExplain: focus on selection"
 )
 
+local terminal_like_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_name(
+	terminal_like_buf,
+	"term://project//123:OPENCODE_SERVER_PASSWORD=prompt-context-secret ocv attach"
+)
+vim.api.nvim_buf_set_lines(terminal_like_buf, 0, -1, false, { "terminal output one", "terminal output two" })
+vim.api.nvim_set_current_buf(terminal_like_buf)
+vim.api.nvim_win_set_cursor(0, { 2, 0 })
+vim.fn.setpos("'<", { 0, 1, 1, 0 })
+vim.fn.setpos("'>", { 0, 2, 19, 0 })
+
+reset_local_prompt_calls()
+ask_normal()
+modal = modals[#modals]
+modal.input_opts.on_submit("question")
+last_local_prompt("terminal normal ask", "question")
+
+reset_local_prompt_calls()
+vim.api.nvim_set_current_buf(terminal_like_buf)
+ask_visual()
+modal = modals[#modals]
+modal.input_opts.on_submit("question")
+last_local_prompt("terminal visual ask", "terminal output one\nterminal output two\nquestion")
+
+reset_local_prompt_calls()
+vim.api.nvim_set_current_buf(terminal_like_buf)
+key_callback("<leader>aof", "n")()
+last_local_prompt("terminal named prompt", "Fix diagnostics")
+
+reset_local_prompt_calls()
+vim.api.nvim_set_current_buf(terminal_like_buf)
+key_callback("<leader>aof", "x")()
+last_local_prompt("terminal visual named prompt", "```\nterminal output one\nterminal output two\n```\nFix diagnostics")
+
+reset_local_prompt_calls()
+vim.api.nvim_set_current_buf(terminal_like_buf)
+key_callback("<leader>aoS", "x")()
+eq(#local_append_calls, 1, "terminal selection routes through the local append facade")
+eq(local_append_calls[1].text, "terminal output one\nterminal output two", "terminal selections omit pseudo-file context")
+eq(local_append_calls[1].opts, {
+	title = "opencode",
+	success = "Sent selection to OpenCode",
+	fallback_clipboard = true,
+}, "terminal selection preserves local append options")
+assert(
+	not local_append_calls[1].text:find("prompt-context-secret", 1, true),
+	"terminal credentials never reach selection prompt text"
+)
+
+local uri_buf = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_buf_set_name(uri_buf, "https://example.test/prompt-context-secret")
+vim.api.nvim_buf_set_lines(uri_buf, 0, -1, false, { "remote content" })
+vim.api.nvim_set_current_buf(uri_buf)
+
+reset_local_prompt_calls()
+key_callback("<leader>aor", "n")()
+last_local_prompt("URI named prompt", "Review this")
+
+local nonfile_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_name(nonfile_buf, "/virtual/prompt-context-secret")
+vim.api.nvim_buf_set_lines(nonfile_buf, 0, -1, false, { "generated content" })
+vim.api.nvim_set_current_buf(nonfile_buf)
+
+reset_local_prompt_calls()
+key_callback("<leader>aot", "n")()
+last_local_prompt("non-file named prompt", "Add tests")
+
 package.loaded["opencode.config"] = original_config
 package.loaded["config.opencode_prompt"] = original_prompt
 terminal_module.focus = original_focus
 vim.fn.getcwd = original_getcwd
 vim.api.nvim_buf_delete(ask_buffer, { force = true })
+vim.api.nvim_buf_delete(terminal_like_buf, { force = true })
+vim.api.nvim_buf_delete(uri_buf, { force = true })
+vim.api.nvim_buf_delete(nonfile_buf, { force = true })
 vim.api.nvim_buf_delete(modal_buf, { force = true })
+
+vim.env.OPENCODE_SERVER_USERNAME = original_auth_env.username
+vim.env.OPENCODE_SERVER_PASSWORD = original_auth_env.password
+vim.env.XDG_STATE_HOME = original_auth_env.state_home
 
 print("PASS local OpenCode prompt mappings route through the shared prompt facade and no longer expose aoM")

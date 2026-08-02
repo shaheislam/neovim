@@ -27,8 +27,12 @@ local defaults = {
 	ready_timeout_ms = 8000,
 	adopted_ready_timeout_ms = 500,
 	notify_title = "opencode",
-	cmd = function(dir)
-		return dir
+	launch = function(dir)
+		return {
+			cmd = dir,
+			env = {},
+			clear_env = false,
+		}
 	end,
 	project_root = function(explicit_dir)
 		return explicit_dir or vim.fn.getcwd()
@@ -232,11 +236,41 @@ local function scan_ready(term, data)
 	term._nvim_mini_stdout_tail = #chunk > keep and chunk:sub(-keep) or chunk
 end
 
-local function terminal_matches(term, cmd)
-	return term.display_name == opts.display_name and term.hidden == true and term.cmd == cmd
+local function normalize_dir(dir)
+	if type(dir) ~= "string" or dir == "" then
+		return nil
+	end
+	return vim.fs.normalize(vim.fn.fnamemodify(dir, ":p"))
 end
 
-local function discover_candidates(cmd)
+local function resolve_launch(dir)
+	local launch = opts.launch(dir)
+	if type(launch) ~= "table" or type(launch.cmd) ~= "string" or launch.cmd == "" then
+		error("OpenCode terminal launch must provide a non-empty cmd")
+	end
+	if launch.env ~= nil and type(launch.env) ~= "table" then
+		error("OpenCode terminal launch env must be a table")
+	end
+	return {
+		cmd = launch.cmd,
+		env = vim.deepcopy(launch.env or {}),
+		clear_env = launch.clear_env == true,
+	}
+end
+
+local function launch_matches(term, launch)
+	return term.cmd == launch.cmd
+		and vim.deep_equal(term.env or {}, launch.env)
+		and term.clear_env == launch.clear_env
+end
+
+local function terminal_owned_by_project(term, dir)
+	return term.display_name == opts.display_name
+		and term.hidden == true
+		and normalize_dir(term.dir) == normalize_dir(dir)
+end
+
+local function discover_candidates(dir)
 	local ok, toggleterm = pcall(require, "toggleterm.terminal")
 	if not ok or type(toggleterm.get_all) ~= "function" then
 		return {}
@@ -244,7 +278,7 @@ local function discover_candidates(cmd)
 	local all = toggleterm.get_all(true) -- include hidden
 	local matches = {}
 	for _, term in ipairs(all) do
-		if terminal_matches(term, cmd) then
+		if terminal_owned_by_project(term, dir) then
 			table.insert(matches, term)
 		end
 	end
@@ -279,9 +313,15 @@ end
 -- Retires every non-selected candidate that isn't a live, UI-open terminal
 -- (dead husks, and live-but-hidden duplicates from a prior adapter
 -- generation) while leaving any other visible terminal untouched.
-local function reconcile(cmd)
-	local candidates = discover_candidates(cmd)
-	local selected = choose_candidate(candidates)
+local function reconcile(dir, launch)
+	local candidates = discover_candidates(dir)
+	local exact = {}
+	for _, term in ipairs(candidates) do
+		if launch_matches(term, launch) then
+			table.insert(exact, term)
+		end
+	end
+	local selected = choose_candidate(exact)
 	for _, term in ipairs(candidates) do
 		if term ~= selected then
 			local live = terminal_live(term)
@@ -295,11 +335,13 @@ local function reconcile(cmd)
 	return selected
 end
 
-local function new_terminal(dir, cmd)
+local function new_terminal(dir, launch)
 	ensure_toggleterm_loaded()
 	local Terminal = require("toggleterm.terminal").Terminal
 	return Terminal:new({
-		cmd = cmd,
+		cmd = launch.cmd,
+		env = vim.deepcopy(launch.env),
+		clear_env = launch.clear_env,
 		direction = "vertical",
 		dir = dir,
 		display_name = opts.display_name,
@@ -330,23 +372,23 @@ local function new_terminal(dir, cmd)
 end
 
 -- Returns the cached/adopted terminal for `dir` (canonicalized via
--- opts.project_root), trusting an exact command match the same way the
--- original single-terminal cache did. Liveness is not re-checked here on
--- every call -- only at the two points where it actually matters: first
--- resolution (cold cache or changed command, via reconcile()) and right
+-- opts.project_root), trusting an exact launch snapshot match. Liveness is
+-- not re-checked here on every call -- only at the two points where it
+-- actually matters: first resolution (cold cache or changed launch, via
+-- reconcile()) and right
 -- before spawning/opening (via ensure_live() below), where a dead terminal
 -- must be explicitly replaced rather than reopened.
 function M.get_terminal(dir)
-	dir = dir or opts.project_root()
-	local cmd = opts.cmd(dir)
+	dir = opts.project_root(dir)
+	local launch = resolve_launch(dir)
 	local entry = state.by_project[dir]
 
-	if entry and entry.term and entry.cmd == cmd then
+	if entry and entry.term and launch_matches(entry.launch, launch) then
 		return entry.term
 	end
 
 	if entry and entry.term then
-		-- Command changed (e.g. an auth/env revision): retire the old
+		-- Launch changed (e.g. an auth/env revision): retire the old
 		-- generation before adopting/creating the new target.
 		pcall(function()
 			entry.term:shutdown()
@@ -358,10 +400,10 @@ function M.get_terminal(dir)
 		entry = { dir = dir }
 		state.by_project[dir] = entry
 	end
-	entry.cmd = cmd
+	entry.launch = launch
 
 	ensure_toggleterm_loaded()
-	local adopted = reconcile(cmd)
+	local adopted = reconcile(dir, launch)
 	local term
 	if adopted then
 		term = adopted
@@ -369,7 +411,7 @@ function M.get_terminal(dir)
 			start_adopted_fallback(term)
 		end
 	else
-		term = new_terminal(dir, cmd)
+		term = new_terminal(dir, launch)
 	end
 
 	entry.term = term
@@ -388,11 +430,12 @@ local function ensure_live(dir, term)
 		pcall(function()
 			term:shutdown()
 		end)
-		term = new_terminal(dir, opts.cmd(dir))
 		local entry = state.by_project[dir]
-		if entry then
-			entry.term = term
+		if not entry or not entry.launch then
+			error("OpenCode terminal cache lost its launch snapshot")
 		end
+		term = new_terminal(dir, entry.launch)
+		entry.term = term
 	end
 	return term
 end
@@ -430,7 +473,7 @@ function M.toggle(dir)
 end
 
 function M.close(dir)
-	local entry = state.by_project[dir or opts.project_root()]
+	local entry = state.by_project[opts.project_root(dir)]
 	if entry and entry.term then
 		entry.term:close()
 	end

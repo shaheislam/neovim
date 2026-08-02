@@ -7,8 +7,11 @@ local opencode_ready_delay = 500
 local opencode_startup_timeout = 30000
 local opencode_startup_poll = 500
 local opencode_service = "com.dotfiles.opencode-serve"
-local opencode_username = vim.env.OPENCODE_SERVER_USERNAME or "opencode"
 local terminal_adapter = require("config.opencode_terminal")
+
+local function opencode_username()
+	return vim.env.OPENCODE_SERVER_USERNAME or "opencode"
+end
 
 local function opencode_password()
 	if vim.env.OPENCODE_SERVER_PASSWORD and vim.env.OPENCODE_SERVER_PASSWORD ~= "" then
@@ -24,21 +27,54 @@ local function opencode_password()
 	return nil
 end
 
-local function opencode_env_prefix()
+local function current_opencode_auth()
+	return {
+		username = opencode_username(),
+		password = opencode_password(),
+	}
+end
+
+local function assign_server_auth(options, auth)
+	options.server = options.server or {}
+	options.server.username = auth.username
+	options.server.password = nil
+	if auth.password and auth.password ~= "" then
+		options.server.password = auth.password
+	end
+	return options
+end
+
+local function sync_opencode_auth(auth)
+	local global_opts = vim.g.opencode_opts or {}
+	assign_server_auth(global_opts, auth)
+	vim.g.opencode_opts = global_opts
+
+	local config = package.loaded["opencode.config"]
+	if config and config.opts then
+		assign_server_auth(config.opts, auth)
+	end
+end
+
+local function opencode_launch(dir)
 	-- The dotfiles opencode shim reroutes `attach` through tmux when $TMUX is set.
 	-- This terminal already owns the split, so bypass that wrapper and run ocv directly.
 	-- OPENTUI_GRAPHICS=0: suppress Kitty graphics probing which segfaults in nvim :terminal.
-	local base = "OPENCODE_TMUX_WRAPPER_ACTIVE=1 OPENTUI_GRAPHICS=0 OPENCODE_SERVER_USERNAME="
-		.. vim.fn.shellescape(opencode_username)
-	local password = opencode_password()
-	if not password or password == "" then
-		return base .. " "
+	local auth = current_opencode_auth()
+	sync_opencode_auth(auth)
+	local env = {
+		OPENCODE_TMUX_WRAPPER_ACTIVE = "1",
+		OPENTUI_GRAPHICS = "0",
+		OPENCODE_SERVER_USERNAME = auth.username,
+	}
+	if auth.password and auth.password ~= "" then
+		env.OPENCODE_SERVER_PASSWORD = auth.password
 	end
 
-	return base
-		.. " OPENCODE_SERVER_PASSWORD="
-		.. vim.fn.shellescape(password)
-		.. " "
+	return {
+		cmd = "ocv attach http://127.0.0.1:" .. opencode_port .. " --dir " .. vim.fn.shellescape(dir),
+		env = env,
+		clear_env = false,
+	}
 end
 
 -- Resolves the canonical project root a terminal/prompt-write should target:
@@ -55,14 +91,6 @@ local function project_root(explicit_dir)
 	local git_dir = vim.fs.find(".git", { path = cwd, upward = true })[1]
 	local root = git_dir and vim.fn.fnamemodify(git_dir, ":h") or cwd
 	return (canonical and canonical(root)) or root
-end
-
-local function opencode_command(dir)
-	return opencode_env_prefix()
-		.. "ocv attach http://127.0.0.1:"
-		.. opencode_port
-		.. " --dir "
-		.. vim.fn.shellescape(dir)
 end
 
 local function bind_opencode_terminal_picker(term, dir)
@@ -93,7 +121,7 @@ end
 
 terminal_adapter.setup({
 	display_name = "OpenCode",
-	cmd = opencode_command,
+	launch = opencode_launch,
 	project_root = project_root,
 	size = function()
 		return math.floor(vim.o.columns * 0.5)
@@ -109,9 +137,9 @@ local function check_opencode_ready(callback)
 		"--max-time",
 		"1",
 	}
-	local password = opencode_password()
-	if password and password ~= "" then
-		vim.list_extend(curl_args, { "-u", opencode_username .. ":" .. password })
+	local auth = current_opencode_auth()
+	if auth.password and auth.password ~= "" then
+		vim.list_extend(curl_args, { "-u", auth.username .. ":" .. auth.password })
 	end
 	table.insert(curl_args, "http://127.0.0.1:" .. opencode_port .. "/path")
 
@@ -274,12 +302,11 @@ local function resolve_opencode_url(callback)
 	poll()
 end
 
-local function opencode_opts()
-	return {
+local function opencode_opts(auth)
+	auth = auth or current_opencode_auth()
+	return assign_server_auth({
 		server = {
 			url = resolve_opencode_url,
-			username = opencode_username,
-			password = opencode_password(),
 			start = start_opencode_terminal,
 			toggle = toggle_opencode_terminal,
 			stop = close_opencode_terminal,
@@ -295,15 +322,20 @@ local function opencode_opts()
 		lsp = {
 			enabled = true,
 		},
-	}
+	}, auth)
 end
 
 local function apply_opencode_opts()
-	vim.g.opencode_opts = vim.tbl_deep_extend("force", vim.g.opencode_opts or {}, opencode_opts())
+	local auth = current_opencode_auth()
+	local resolved = opencode_opts(auth)
+	local global_opts = vim.tbl_deep_extend("force", vim.g.opencode_opts or {}, resolved)
+	assign_server_auth(global_opts, auth)
+	vim.g.opencode_opts = global_opts
 
 	local config = package.loaded["opencode.config"]
 	if config and config.opts then
-		config.opts = vim.tbl_deep_extend("force", config.opts, opencode_opts())
+		config.opts = vim.tbl_deep_extend("force", config.opts, resolved)
+		assign_server_auth(config.opts, auth)
 	end
 end
 
@@ -380,6 +412,30 @@ local function strip_vcs_prefix(bufname)
 		:gsub("^diffview://", "")
 		:gsub("^[a-f0-9]+:", "")
 		:gsub("^%.git/[a-f0-9]+/", "")
+end
+
+local function prompt_filepath(bufnr)
+	bufnr = bufnr or 0
+	local bufname = vim.api.nvim_buf_get_name(bufnr)
+	if bufname == "" then
+		return nil
+	end
+
+	local is_diffview = bufname:find("diffview://", 1, true) == 1
+	if not is_diffview then
+		if vim.api.nvim_get_option_value("buftype", { buf = bufnr }) ~= "" then
+			return nil
+		end
+		if bufname:match("^[%a][%w+.-]*://") then
+			return nil
+		end
+	end
+
+	local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
+	if filepath == "" or filepath == "." or filepath:match("^%[") then
+		return nil
+	end
+	return filepath
 end
 
 local function open_ask_prompt(opts)
@@ -508,13 +564,10 @@ end
 
 local function ask_locally()
 	return function()
-		local bufname = vim.api.nvim_buf_get_name(0)
-		local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
+		local filepath = prompt_filepath()
 		local line_number = vim.api.nvim_win_get_cursor(0)[1]
 		local line = vim.api.nvim_buf_get_lines(0, line_number - 1, line_number, false)[1] or ""
-		local file_ctx = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
-			and ("[file: " .. filepath .. ", line " .. line_number .. "]\n" .. line .. "\n")
-			or ""
+		local file_ctx = filepath and ("[file: " .. filepath .. ", line " .. line_number .. "]\n" .. line .. "\n") or ""
 
 		open_ask_prompt({
 			on_submit = function(input)
@@ -528,8 +581,7 @@ local function ask_locally()
 end
 
 local function ask_locally_visual()
-	local bufname = vim.api.nvim_buf_get_name(0)
-	local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
+	local filepath = prompt_filepath()
 	local sl, el = get_visual_range()
 	if not sl then
 		vim.notify("No selection", vim.log.levels.WARN, { title = "opencode" })
@@ -541,9 +593,7 @@ local function ask_locally_visual()
 		return
 	end
 
-	local header = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
-		and ("[file: " .. filepath .. ", lines " .. sl .. "-" .. el .. "]\n")
-		or ""
+	local header = filepath and ("[file: " .. filepath .. ", lines " .. sl .. "-" .. el .. "]\n") or ""
 	local selection_text = header .. table.concat(lines, "\n") .. "\n"
 
 	open_ask_prompt({
@@ -559,11 +609,8 @@ end
 local function run_named_prompt_locally(name, opts)
 	opts = opts or {}
 	return function()
-		local bufname = vim.api.nvim_buf_get_name(0)
-		local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
-		local file_ctx = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
-			and ("[file: " .. filepath .. "]\n")
-			or ""
+		local filepath = prompt_filepath()
+		local file_ctx = filepath and ("[file: " .. filepath .. "]\n") or ""
 
 		local selection_ctx = ""
 		if opts.with_selection then
@@ -634,11 +681,8 @@ local function send_visual_selection()
 		return
 	end
 
-	local bufname = vim.api.nvim_buf_get_name(0)
-	local filepath = vim.fn.fnamemodify(strip_vcs_prefix(bufname), ":.")
-	local header = (filepath ~= "" and filepath ~= "." and not filepath:match("^%["))
-		and ("[file: " .. filepath .. ", lines " .. start_line .. "-" .. end_line .. "]\n")
-		or ""
+	local filepath = prompt_filepath()
+	local header = filepath and ("[file: " .. filepath .. ", lines " .. start_line .. "-" .. end_line .. "]\n") or ""
 
 	require("config.opencode_prompt").append(header .. table.concat(lines, "\n"), {
 		title = "opencode",

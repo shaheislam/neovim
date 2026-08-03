@@ -25,6 +25,9 @@ function M.profiles(path)
 
 	for _, line in ipairs(lines) do
 		local profile_name = line:match("^%[profile%s+(.-)%]%s*$")
+		if line:match("^%[default%]%s*$") then
+			profile_name = "default"
+		end
 		if profile_name then
 			current = { profile = profile_name }
 			table.insert(result, current)
@@ -32,9 +35,9 @@ function M.profiles(path)
 			current = nil
 		elseif current then
 			local key, value = line:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
-			if key == "sso_account_id" then
+			if key == "sso_account_id" or key == "granted_sso_account_id" then
 				current.account_id = value
-			elseif key == "sso_role_name" then
+			elseif key == "sso_role_name" or key == "granted_sso_role_name" then
 				current.role = value
 			elseif key == "region" then
 				current.region = value

@@ -61,6 +61,41 @@ eq(profiles[3], {
 
 os.remove(fixture_path)
 
+local generated_fixture = [[
+[profile Yara-Staging/AdministratorAccess]
+granted_sso_start_url = https://example.awsapps.com/start/
+granted_sso_region = eu-west-2
+granted_sso_account_id = 796837506855
+granted_sso_role_name = AdministratorAccess
+credential_process = granted credential-process --profile Yara-Staging/AdministratorAccess
+[default]
+sso_account_id = 111122223333
+sso_role_name = ReadOnlyAccess
+region = eu-west-1
+]]
+
+local generated_fixture_path = vim.fn.tempname()
+local generated_fh = io.open(generated_fixture_path, "w")
+generated_fh:write(generated_fixture)
+generated_fh:close()
+
+eq(aws_profiles.profiles(generated_fixture_path), {
+	{
+		profile = "Yara-Staging/AdministratorAccess",
+		account_id = "796837506855",
+		role = "AdministratorAccess",
+		region = nil,
+	},
+	{
+		profile = "default",
+		account_id = "111122223333",
+		role = "ReadOnlyAccess",
+		region = "eu-west-1",
+	},
+}, "Granted profiles and the default profile are parsed")
+
+os.remove(generated_fixture_path)
+
 eq(aws_profiles.profiles("/nonexistent/path/for/testing"), {}, "a missing config file resolves to an empty list")
 
 -- profile names may contain spaces; the row/decode codec must round-trip regardless

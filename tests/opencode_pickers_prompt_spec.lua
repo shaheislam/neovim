@@ -23,10 +23,19 @@ vim.fs.find = function(name)
 end
 
 local pickers = {}
+local inherited_on_create
 package.loaded["fzf-lua"] = {
 	fzf_exec = function(entries, opts)
 		table.insert(pickers, { entries = entries, opts = opts })
 	end,
+}
+local original_fzf_config = package.loaded["fzf-lua.config"]
+package.loaded["fzf-lua.config"] = {
+	globals = {
+		winopts = {
+			on_create = function(event) inherited_on_create = event end,
+		},
+	},
 }
 package.loaded["fzf-lua.utils"] = {
 	strip_ansi_coloring = function(value) return value end,
@@ -92,6 +101,23 @@ assert(not message_picker.opts.actions.default, "prompt message picker removes i
 assert(not message_picker.opts.actions["ctrl-f"], "prompt message picker removes forking actions")
 assert(not message_picker.opts.actions["ctrl-w"], "prompt message picker removes worktree actions")
 assert(message_picker.opts.fzf_opts["--header"]:match("C%-l: live"), "prompt message picker advertises live navigation")
+assert(type(message_picker.opts.winopts.on_create) == "function", "message picker configures terminal key routing")
+local picker_buf = vim.api.nvim_create_buf(false, true)
+local picker_event = { bufnr = picker_buf, winid = 37 }
+message_picker.opts.winopts.on_create(picker_event)
+eq(inherited_on_create, picker_event, "message picker preserves the global fzf on_create behavior")
+local ctrl_l_map
+for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(picker_buf, "t")) do
+	if mapping.lhs == "<C-L>" then
+		ctrl_l_map = mapping
+		break
+	end
+end
+assert(ctrl_l_map, "message picker shadows the global terminal Ctrl-l mapping")
+eq(ctrl_l_map.rhs, "<C-L>", "message picker sends literal Ctrl-l to fzf")
+eq(ctrl_l_map.noremap, 1, "message picker passthrough cannot recurse into terminal navigation")
+eq(ctrl_l_map.buffer, picker_buf, "message picker Ctrl-l passthrough is buffer-local")
+vim.api.nvim_buf_delete(picker_buf, { force = true })
 
 message_picker.opts.winopts.on_close()
 eq(#scheduled, 1, "message picker defers prompt restoration until action dispatch")
@@ -170,5 +196,6 @@ vim.schedule = original_schedule
 vim.defer_fn = original_defer_fn
 vim.fn.getcwd = original_getcwd
 vim.fs.find = original_fs_find
+package.loaded["fzf-lua.config"] = original_fzf_config
 
 print("PASS OpenCode prompt pickers insert payloads and preserve nested lifecycle")

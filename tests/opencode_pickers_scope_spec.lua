@@ -133,6 +133,8 @@ package.loaded["fzf-lua"] = {
 		table.insert(grep_calls, { opts = opts })
 	end,
 }
+local original_fzf_config = package.loaded["fzf-lua.config"]
+package.loaded["fzf-lua.config"] = { globals = { winopts = {} } }
 package.loaded["fzf-lua.utils"] = { strip_ansi_coloring = function(value) return value end }
 package.loaded["fzf-lua.path"] = {
 	entry_to_file = function()
@@ -253,6 +255,19 @@ local grep_catalog_call = api_calls[#api_calls - 2]
 eq(grep_catalog_call.kind, "sessions", "global grep requests a session catalog before messages")
 eq(grep_catalog_call.opts and grep_catalog_call.opts.catalog, "global", "global grep shares the complete global catalog")
 eq(grep_catalog_call.opts and grep_catalog_call.opts.dir, "/repo/main", "global grep pins catalog routing to its launch context")
+assert(type(grep_picker.opts.winopts.on_create) == "function", "OpenCode grep configures terminal key routing")
+local grep_buf = vim.api.nvim_create_buf(false, true)
+grep_picker.opts.winopts.on_create({ bufnr = grep_buf, winid = 37 })
+local grep_ctrl_l_map
+for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(grep_buf, "t")) do
+	if mapping.lhs == "<C-L>" then
+		grep_ctrl_l_map = mapping
+		break
+	end
+end
+assert(grep_ctrl_l_map, "OpenCode grep shadows the global terminal Ctrl-l mapping")
+eq(grep_ctrl_l_map.rhs, "<C-L>", "OpenCode grep sends literal Ctrl-l to fzf")
+vim.api.nvim_buf_delete(grep_buf, { force = true })
 
 cwd = "/changed/after/grep-launch"
 local before_grep_switch = #http_calls
@@ -274,5 +289,6 @@ vim.fn.delete = original_delete
 vim.fn.executable = original_executable
 vim.fs.find = original_fs_find
 vim.system = original_system
+package.loaded["fzf-lua.config"] = original_fzf_config
 
 print("PASS OpenCode session picker scopes canonical paths and guards stable live routes")

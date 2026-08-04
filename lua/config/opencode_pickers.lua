@@ -150,6 +150,19 @@ local function prompt_lifecycle(prompt, cleanup)
 	return stage, on_close
 end
 
+local function message_picker_on_create(event)
+	local ok, config = pcall(require, "fzf-lua.config")
+	local inherited = ok and config.globals and config.globals.winopts and config.globals.winopts.on_create
+	if type(inherited) == "function" and inherited ~= message_picker_on_create then
+		inherited(event)
+	end
+	vim.keymap.set("t", "<C-l>", "<C-l>", {
+		buffer = event.bufnr,
+		silent = true,
+		desc = "Send Ctrl-l to the OpenCode picker",
+	})
+end
+
 local function restore_prompt(opts)
 	local owner = opts and opts.prompt and opts.prompt.owner
 	if owner and owner.restore then
@@ -1287,6 +1300,7 @@ local function open_message_picker(items, scope, opts)
 		query = opts.query or "",
 		preview = preview_command(preview_dir),
 		winopts = {
+			on_create = message_picker_on_create,
 			on_close = on_close,
 		},
 		fzf_opts = {
@@ -1709,6 +1723,7 @@ local function open_grep_picker(items, scope, opts)
 		query = opts.query or "",
 		rg_opts = "--column --line-number --no-heading --color=always --smart-case --max-columns=512",
 		winopts = {
+			on_create = message_picker_on_create,
 			on_close = function()
 				vim.fn.delete(temp_dir, "rf")
 			end,

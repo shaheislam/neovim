@@ -9,8 +9,17 @@ end
 
 local scheduled = {}
 local original_schedule = vim.schedule
+local original_defer_fn = vim.defer_fn
+local original_getcwd = vim.fn.getcwd
+local original_fs_find = vim.fs.find
 vim.schedule = function(callback)
 	table.insert(scheduled, callback)
+end
+vim.defer_fn = function(callback) callback() end
+vim.fn.getcwd = function() return "/repo" end
+vim.fs.find = function(name)
+	assert(name == ".git", "prompt picker context only searches for .git")
+	return { "/repo/.git" }
 end
 
 local pickers = {}
@@ -27,7 +36,7 @@ local session = {
 	id = "session-1",
 	title = "Prompt picker work",
 	agent = "build",
-	directory = vim.fn.getcwd(),
+	directory = "/repo",
 	time = { created = 1000, updated = 2000 },
 }
 local messages = {
@@ -45,6 +54,23 @@ package.loaded["config.opencode_messages"] = {
 	notify_error = function(err) error(err or "unexpected OpenCode API error") end,
 }
 
+local http_calls = {}
+package.loaded["config.opencode_http"] = {
+	canonical = function(path) return path and path:gsub("/+$", "") end,
+	post = function(path, body, callback, opts)
+		table.insert(http_calls, { kind = "post", path = path, body = body, opts = opts })
+		callback(true, "")
+	end,
+	publish_command = function(command, callback, opts)
+		table.insert(http_calls, { kind = "publish", command = command, opts = opts })
+		callback(true, "")
+	end,
+	publish_commands = function(commands, callback, opts)
+		table.insert(http_calls, { kind = "publish_commands", commands = commands, opts = opts })
+		callback(true, "")
+	end,
+}
+
 local inserted = {}
 local restored = 0
 local prompt = {
@@ -59,11 +85,13 @@ opencode.all({ prompt = prompt })
 eq(#pickers, 1, "prompt mode opens the message picker")
 local message_picker = pickers[1]
 assert(message_picker.opts.actions.enter, "prompt message picker exposes insertion Enter")
+assert(message_picker.opts.actions["ctrl-l"], "prompt message picker exposes live timeline navigation")
 assert(message_picker.opts.actions["alt-s"], "prompt message picker retains safe scope navigation")
 assert(message_picker.opts.actions["ctrl-s"], "prompt message picker retains safe session navigation")
 assert(not message_picker.opts.actions.default, "prompt message picker removes its normal open action")
 assert(not message_picker.opts.actions["ctrl-f"], "prompt message picker removes forking actions")
 assert(not message_picker.opts.actions["ctrl-w"], "prompt message picker removes worktree actions")
+assert(message_picker.opts.fzf_opts["--header"]:match("C%-l: live"), "prompt message picker advertises live navigation")
 
 message_picker.opts.winopts.on_close()
 eq(#scheduled, 1, "message picker defers prompt restoration until action dispatch")
@@ -74,6 +102,47 @@ assert(not inserted[1]:find("\n", 1, true), "message payload is flattened for pr
 assert(inserted[1]:match(" $"), "message payload ends in one continuation space")
 scheduled[1]()
 eq(restored, 0, "selection suppresses the deferred cancellation restore")
+
+pickers = {}
+scheduled = {}
+http_calls = {}
+opencode.all({ prompt = prompt })
+local live_picker = pickers[1]
+live_picker.opts.winopts.on_close()
+live_picker.opts.actions["ctrl-l"]({ live_picker.entries[1] })
+eq(#inserted, 1, "live navigation does not insert the selected message")
+eq(http_calls[1], {
+	kind = "post",
+	path = "/tui/select-session",
+	body = { sessionID = "session-1" },
+	opts = { dir = "/repo" },
+}, "live navigation selects the target session on the stable route")
+eq(http_calls[2], {
+	kind = "publish",
+	command = "session.timeline",
+	opts = { dir = "/repo" },
+}, "live navigation opens the target session timeline")
+eq(http_calls[3], {
+	kind = "publish_commands",
+	commands = { "dialog.select.home" },
+	opts = { dir = "/repo" },
+}, "live navigation selects the target conversation turn")
+scheduled[1]()
+eq(restored, 0, "accepted live navigation keeps the old prompt owner closed")
+
+pickers = {}
+scheduled = {}
+session.directory = "/foreign/repo"
+opencode.all({ prompt = prompt })
+local foreign_picker = pickers[1]
+local calls_before_rejection = #http_calls
+foreign_picker.opts.winopts.on_close()
+foreign_picker.opts.actions["ctrl-l"]({ foreign_picker.entries[1] })
+eq(#http_calls, calls_before_rejection, "foreign live navigation fails before publishing commands")
+scheduled[1]()
+eq(restored, 1, "rejected live navigation restores the prompt owner")
+session.directory = "/repo"
+restored = 0
 
 pickers = {}
 scheduled = {}
@@ -98,5 +167,8 @@ scheduled[3]()
 eq(restored, 1, "cancelling the terminal nested picker restores the prompt exactly once")
 
 vim.schedule = original_schedule
+vim.defer_fn = original_defer_fn
+vim.fn.getcwd = original_getcwd
+vim.fs.find = original_fs_find
 
 print("PASS OpenCode prompt pickers insert payloads and preserve nested lifecycle")

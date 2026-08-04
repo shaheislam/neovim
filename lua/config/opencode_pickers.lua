@@ -549,17 +549,17 @@ end
 
 local function sync_live_timeline(item, context)
 	if not item or not item.session or not item.session.id then
-		return
+		return false
 	end
 	if not live_target_allowed(item, context) then
 		notify_live_route_rejection()
-		return
+		return false
 	end
 
 	local anchor = resolve_timeline_anchor(item)
 	if not anchor then
 		vim.notify(tui_error("No OpenCode timeline anchor found for selection"), vim.log.levels.WARN, { title = "opencode" })
-		return
+		return false
 	end
 
 	local http = require("config.opencode_http")
@@ -615,6 +615,7 @@ local function sync_live_timeline(item, context)
 			end, 80)
 		end, { dir = context.route_dir })
 	end, { dir = context.route_dir })
+	return true
 end
 
 local function tool_text(part, mode)
@@ -1232,6 +1233,11 @@ local function open_message_picker(items, scope, opts)
 				stage.completed = true
 				opts.prompt.owner.insert(prompt_payload(item))
 			end,
+			["ctrl-l"] = function(selected)
+				if sync_live_timeline(first_item(selected), opts.session_context) then
+					stage.completed = true
+				end
+			end,
 			["alt-s"] = function(_, action_opts)
 				transition(function() pick_scope(action_opts) end)
 			end,
@@ -1270,7 +1276,7 @@ local function open_message_picker(items, scope, opts)
 	end
 
 	local header = opts.prompt
-			and "Enter: insert | A-s: scopes | A-a/p/m/r/t/o: scope | C-s: sessions | C-r: refresh | C-/: preview"
+			and "Enter: insert | C-l: live | A-s: scopes | A-a/p/m/r/t/o: scope | C-s: sessions | C-r: refresh | C-/: preview"
 		or "Enter: transcript | A-l: transcript+live | C-l: live | C-f: forkpane | C-w: gwtfork | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview"
 	if opts.all_sessions then
 		header = header .. " | A-g: location"

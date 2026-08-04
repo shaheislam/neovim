@@ -11,6 +11,16 @@ local scopes = {
 
 local scope_order = { "all", "prompts", "assistant", "reasoning", "tools", "tool_output" }
 
+local session_scopes = {
+	["local"] = "Local",
+	repo = "Git",
+	global = "Global",
+}
+
+local session_scope_order = { "local", "repo", "global" }
+local aggregate_revision = 0
+local aggregate_concurrency = 8
+
 local part_filters = {
 	all = function(_, part)
 		return part.type == "text" or part.type == "reasoning" or part.type == "tool"
@@ -203,6 +213,10 @@ local function session_preview_lines(session)
 		"ID: " .. (session.id or ""),
 		"Slug: " .. (session.slug or ""),
 		"Agent: " .. (session.agent or ""),
+		"Directory: " .. (session.directory or ""),
+		"Project: " .. ((session.project and (session.project.name or session.project.id)) or ""),
+		"Project ID: " .. (session.projectID or (session.project and session.project.id) or ""),
+		"Project worktree: " .. ((session.project and session.project.worktree) or ""),
 		"Created: " .. timestamp(session.time and session.time.created),
 		"Updated: " .. timestamp(session.time and session.time.updated),
 	}
@@ -236,6 +250,148 @@ local function session_preview_lines(session)
 	end
 
 	return lines
+end
+
+local function action_query(action_opts, fallback)
+	return (action_opts and action_opts.last_query)
+		or (action_opts and action_opts.__call_opts and action_opts.__call_opts.query)
+		or fallback
+		or ""
+end
+
+local function canonical(path)
+	if not path or path == "" then
+		return nil
+	end
+	local normalized = path == "/" and path or path:gsub("/+$", "")
+	local http = require("config.opencode_http")
+	local resolved = http.canonical(normalized)
+	if resolved ~= normalized or normalized == "/" then
+		return resolved
+	end
+
+	local current = normalized
+	local suffix = {}
+	while current ~= "/" do
+		local parent, name = current:match("^(.*)/([^/]+)$")
+		if not parent or not name then
+			break
+		end
+		if parent == "" then
+			parent = "/"
+		end
+		table.insert(suffix, 1, name)
+		local resolved_parent = http.canonical(parent)
+		if resolved_parent and resolved_parent ~= parent then
+			return (resolved_parent:gsub("/+$", "")) .. "/" .. table.concat(suffix, "/")
+		end
+		current = parent
+	end
+	return resolved
+end
+
+local function git_root(path)
+	local git_dir = vim.fs.find(".git", { path = path, upward = true })[1]
+	return git_dir and canonical(vim.fn.fnamemodify(git_dir, ":h")) or nil
+end
+
+local function session_context(opts)
+	if opts and opts.session_context then
+		return opts.session_context
+	end
+	local cwd = canonical((opts and opts.cwd) or vim.fn.getcwd()) or ((opts and opts.cwd) or vim.fn.getcwd())
+	local worktree_root = git_root(cwd)
+	return {
+		cwd = cwd,
+		worktree_root = worktree_root,
+		route_dir = worktree_root or cwd,
+	}
+end
+
+local function path_within(path, root)
+	if not path or not root then
+		return false
+	end
+	if root == "/" then
+		return vim.startswith(path, "/")
+	end
+	return path == root or vim.startswith(path, root .. "/")
+end
+
+local function resolve_worktree_roots(context, callback, refresh)
+	if context.worktree_roots and not refresh then
+		callback(context.worktree_roots)
+		return
+	end
+	if not context.worktree_root then
+		callback(nil, "Current directory is not in a Git repository")
+		return
+	end
+
+	vim.system({ "git", "-C", context.worktree_root, "worktree", "list", "--porcelain" }, { text = true }, function(result)
+		vim.schedule(function()
+			if result.code ~= 0 then
+				callback(nil, "Could not list Git worktrees")
+				return
+			end
+
+			local roots = {}
+			local seen = {}
+			for line in (result.stdout or ""):gmatch("[^\n]+") do
+				local root = line:match("^worktree (.+)$")
+				root = root and canonical(root) or nil
+				if root and not seen[root] then
+					seen[root] = true
+					table.insert(roots, root)
+				end
+			end
+			if #roots == 0 then
+				callback(nil, "Could not parse Git worktrees")
+				return
+			end
+
+			context.worktree_roots = roots
+			callback(roots)
+		end)
+	end)
+end
+
+local function session_matches_scope(session, scope, context)
+	if scope == "global" then
+		return true
+	end
+	local dir = canonical(session and session.directory)
+	if not dir then
+		return false
+	end
+	if scope == "local" then
+		return dir == context.cwd
+	end
+	for _, root in ipairs(context.worktree_roots or {}) do
+		if path_within(dir, root) then
+			return true
+		end
+	end
+	return false
+end
+
+local function live_target_allowed(item, context)
+	local dir = canonical(item and item.session and item.session.directory)
+	if not dir or not context then
+		return false
+	end
+	if context.worktree_root then
+		return path_within(dir, context.worktree_root)
+	end
+	return dir == context.cwd
+end
+
+local function notify_live_route_rejection()
+	vim.notify(
+		"OpenCode session is outside the current live route",
+		vim.log.levels.WARN,
+		{ title = "opencode" }
+	)
 end
 
 local function preview_command(temp_dir)
@@ -307,8 +463,12 @@ local function yank_references(items)
 	vim.notify("Copied OpenCode reference", vim.log.levels.INFO, { title = "opencode" })
 end
 
-local function switch_tui_session(item)
+local function switch_tui_session(item, context)
 	if not item or not item.session or not item.session.id then
+		return
+	end
+	if not live_target_allowed(item, context) then
+		notify_live_route_rejection()
 		return
 	end
 	require("config.opencode_http").post("/tui/select-session", { sessionID = item.session.id }, function(ok, output)
@@ -325,7 +485,7 @@ local function switch_tui_session(item)
 			message = "Could not switch OpenCode session"
 		end
 		vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
-	end)
+	end, { dir = context.route_dir })
 end
 
 local function timeline_anchor_for_message(message, message_idx)
@@ -387,36 +547,12 @@ resolve_timeline_anchor = function(item)
 	return nil
 end
 
-local function publish_commands(commands, callback)
-	local http = require("config.opencode_http")
-	local index = 1
-
-	local function next_command()
-		local command = commands[index]
-		if not command then
-			if callback then
-				callback(true)
-			end
-			return
-		end
-
-		http.publish_command(command, function(ok, output)
-			if not ok then
-				if callback then
-					callback(false, output)
-				end
-				return
-			end
-			index = index + 1
-			next_command()
-		end)
-	end
-
-	next_command()
-end
-
-local function sync_live_timeline(item)
+local function sync_live_timeline(item, context)
 	if not item or not item.session or not item.session.id then
+		return
+	end
+	if not live_target_allowed(item, context) then
+		notify_live_route_rejection()
 		return
 	end
 
@@ -427,7 +563,7 @@ local function sync_live_timeline(item)
 	end
 
 	local http = require("config.opencode_http")
-		http.post("/tui/select-session", { sessionID = item.session.id }, function(ok, output)
+	http.post("/tui/select-session", { sessionID = item.session.id }, function(ok, output)
 		if not ok then
 			local message = vim.trim(output or "")
 			if message == "" then
@@ -437,7 +573,7 @@ local function sync_live_timeline(item)
 			return
 		end
 
-			http.publish_command("session.timeline", function(timeline_ok, timeline_output)
+		http.publish_command("session.timeline", function(timeline_ok, timeline_output)
 			if not timeline_ok then
 				local message = vim.trim(timeline_output or "")
 				if message == "" then
@@ -463,7 +599,7 @@ local function sync_live_timeline(item)
 					end
 				end
 
-				publish_commands(commands, function(move_ok, move_output)
+				http.publish_commands(commands, function(move_ok, move_output)
 					if not move_ok then
 						local message = vim.trim(move_output or "")
 						if message == "" then
@@ -475,10 +611,10 @@ local function sync_live_timeline(item)
 
 					local message = anchor.exact and "Synced live OpenCode pane" or "Synced live OpenCode pane to previous user prompt"
 					vim.notify(message, vim.log.levels.INFO, { title = "opencode" })
-				end)
+				end, { dir = context.route_dir })
 			end, 80)
-		end)
-	end)
+		end, { dir = context.route_dir })
+	end, { dir = context.route_dir })
 end
 
 local function tool_text(part, mode)
@@ -852,10 +988,12 @@ local function fork_worktree_from_item(item, branch_name)
 end
 
 local function open_message_picker(items, scope, opts)
-	opts = opts or {}
+	opts = vim.tbl_extend("force", {}, opts or {})
+	opts.session_scope = opts.session_scope or "local"
+	opts.session_context = session_context(opts)
 	local fzf = require("fzf-lua")
 	local label = opts.label or scopes[scope] or scopes.all
-	if #items == 0 then
+	if #items == 0 and not opts.allow_empty then
 		vim.notify("No OpenCode " .. label:lower() .. " found", vim.log.levels.WARN, { title = "opencode" })
 		restore_prompt(opts)
 		return
@@ -913,19 +1051,30 @@ local function open_message_picker(items, scope, opts)
 		vim.schedule(callback)
 	end
 
-	local function launch_scope(new_scope)
+	local function route_opts(action_opts, extra)
+		return vim.tbl_extend("force", {
+			prompt = opts.prompt,
+			query = action_query(action_opts, opts.query),
+			session = opts.session,
+			session_scope = opts.session_scope,
+			session_context = opts.session_context,
+		}, extra or {})
+	end
+
+	local function launch_scope(new_scope, action_opts)
 		if opts.all_sessions then
-			M.all_sessions(new_scope, { prompt = opts.prompt })
+			M.all_sessions(new_scope, route_opts(action_opts))
 		else
-			M.messages(new_scope, { session = opts.session, prompt = opts.prompt })
+			M.messages(new_scope, route_opts(action_opts))
 		end
 	end
 
-	local function reopen(new_scope)
-		transition(function() launch_scope(new_scope) end)
+	local function reopen(new_scope, action_opts)
+		transition(function() launch_scope(new_scope, action_opts) end)
 	end
 
-	local function pick_scope()
+	local function pick_scope(action_opts)
+		local parent_query = action_query(action_opts, opts.query)
 		local scope_entries = {}
 		local scope_map = {}
 		for _, scope_name in ipairs(scope_order) do
@@ -946,7 +1095,57 @@ local function open_message_picker(items, scope, opts)
 					local new_scope = key and scope_map[key]
 					if new_scope then
 						scope_stage.transitioned = true
-						vim.schedule(function() launch_scope(new_scope) end)
+						vim.schedule(function() launch_scope(new_scope, { last_query = parent_query }) end)
+					end
+				end,
+			},
+		})
+	end
+
+	local function launch_location(new_scope, query)
+		local function launch()
+			M.all_sessions(scope, route_opts({ last_query = query }, { session_scope = new_scope }))
+		end
+		if new_scope ~= "repo" then
+			launch()
+			return
+		end
+		resolve_worktree_roots(opts.session_context, function(_, err)
+			if err then
+				vim.notify(
+					("Git scope unavailable; keeping %s (not widened to Global)"):format(session_scopes[opts.session_scope]),
+					vim.log.levels.WARN,
+					{ title = "opencode" }
+				)
+				M.all_sessions(scope, route_opts({ last_query = query }))
+				return
+			end
+			launch()
+		end)
+	end
+
+	local function pick_location(action_opts)
+		local parent_query = action_query(action_opts, opts.query)
+		local entries = {}
+		local entry_map = {}
+		for _, name in ipairs(session_scope_order) do
+			local entry = ("%-12s %s sessions"):format(name, session_scopes[name])
+			table.insert(entries, entry)
+			entry_map[entry] = name
+		end
+		local location_stage, location_close = prompt_lifecycle(opts.prompt)
+		fzf.fzf_exec(entries, {
+			prompt = "OpenCode Location> ",
+			winopts = { on_close = location_close },
+			fzf_opts = { ["--header"] = "Enter: filter aggregate search by location" },
+			actions = {
+				enter = function(selected)
+					local utils = require("fzf-lua.utils")
+					local key = selected and selected[1] and utils.strip_ansi_coloring(selected[1])
+					local new_scope = key and (entry_map[key] or key:match("^(%S+)"))
+					if session_scopes[new_scope] then
+						location_stage.transitioned = true
+						vim.schedule(function() launch_location(new_scope, parent_query) end)
 					end
 				end,
 			},
@@ -981,10 +1180,10 @@ local function open_message_picker(items, scope, opts)
 			yank_references(selected_items(selected, entry_map))
 		end,
 		["ctrl-o"] = function(selected)
-			switch_tui_session(first_item(selected))
+			switch_tui_session(first_item(selected), opts.session_context)
 		end,
 		["ctrl-l"] = function(selected)
-			sync_live_timeline(first_item(selected))
+			sync_live_timeline(first_item(selected), opts.session_context)
 		end,
 		["ctrl-f"] = function(selected)
 			fork_pane_from_item(first_item(selected))
@@ -1004,23 +1203,23 @@ local function open_message_picker(items, scope, opts)
 				vim.schedule(function()
 					open_transcript(item)
 				end)
-				sync_live_timeline(item)
+				sync_live_timeline(item, opts.session_context)
 			end
 		end,
-		["alt-s"] = function()
-			pick_scope()
+		["alt-s"] = function(_, action_opts)
+			transition(function() pick_scope(action_opts) end)
 		end,
-		["ctrl-s"] = function()
-			vim.schedule(function()
-				M.sessions(scope)
+		["ctrl-s"] = function(_, action_opts)
+			transition(function()
+				M.sessions(scope, route_opts(action_opts))
 			end)
 		end,
-		["ctrl-r"] = function()
-			vim.schedule(function()
+		["ctrl-r"] = function(_, action_opts)
+			transition(function()
 				if opts.all_sessions then
-					M.all_sessions(scope, { refresh = true })
+					M.all_sessions(scope, route_opts(action_opts, { refresh = true }))
 				else
-					M.messages(scope, { session = opts.session, refresh = true })
+					M.messages(scope, route_opts(action_opts, { refresh = true }))
 				end
 			end)
 		end,
@@ -1033,18 +1232,18 @@ local function open_message_picker(items, scope, opts)
 				stage.completed = true
 				opts.prompt.owner.insert(prompt_payload(item))
 			end,
-			["alt-s"] = function()
-				transition(pick_scope)
+			["alt-s"] = function(_, action_opts)
+				transition(function() pick_scope(action_opts) end)
 			end,
-			["ctrl-s"] = function()
-				transition(function() M.sessions(scope, { prompt = opts.prompt }) end)
+			["ctrl-s"] = function(_, action_opts)
+				transition(function() M.sessions(scope, route_opts(action_opts)) end)
 			end,
-			["ctrl-r"] = function()
+			["ctrl-r"] = function(_, action_opts)
 				transition(function()
 					if opts.all_sessions then
-						M.all_sessions(scope, { refresh = true, prompt = opts.prompt })
+						M.all_sessions(scope, route_opts(action_opts, { refresh = true }))
 					else
-						M.messages(scope, { session = opts.session, refresh = true, prompt = opts.prompt })
+						M.messages(scope, route_opts(action_opts, { refresh = true }))
 					end
 				end)
 			end,
@@ -1060,22 +1259,33 @@ local function open_message_picker(items, scope, opts)
 		["alt-o"] = "tool_output",
 	}
 	for key, new_scope in pairs(scope_actions) do
-		actions[key] = function()
-			reopen(new_scope)
+		actions[key] = function(_, action_opts)
+			reopen(new_scope, action_opts)
 		end
+	end
+	if opts.all_sessions then
+		actions["alt-g"] = function(_, action_opts)
+			transition(function() pick_location(action_opts) end)
+		end
+	end
+
+	local header = opts.prompt
+			and "Enter: insert | A-s: scopes | A-a/p/m/r/t/o: scope | C-s: sessions | C-r: refresh | C-/: preview"
+		or "Enter: transcript | A-l: transcript+live | C-l: live | C-f: forkpane | C-w: gwtfork | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview"
+	if opts.all_sessions then
+		header = header .. " | A-g: location"
 	end
 
 	fzf.fzf_exec(entries, {
 		prompt = "OpenCode " .. label .. "> ",
+		query = opts.query or "",
 		preview = preview_command(preview_dir),
 		winopts = {
 			on_close = on_close,
 		},
 		fzf_opts = {
 			["--multi"] = true,
-			["--header"] = opts.prompt
-					and "Enter: insert | A-s: scopes | A-a/p/m/r/t/o: scope | C-s: sessions | C-r: refresh | C-/: preview"
-				or "Enter: transcript | A-l: transcript+live | C-l: live | C-f: forkpane | C-w: gwtfork | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview",
+			["--header"] = header,
 		},
 		actions = actions,
 	})
@@ -1083,7 +1293,9 @@ end
 
 function M.messages(scope, opts)
 	scope = scope or "all"
-	opts = opts or {}
+	opts = vim.tbl_extend("force", {}, opts or {})
+	opts.session_scope = opts.session_scope or "local"
+	opts.session_context = session_context(opts)
 	local api = require("config.opencode_messages")
 
 	local function fetch_for_session(session)
@@ -1098,7 +1310,10 @@ function M.messages(scope, opts)
 				scope,
 				vim.tbl_extend("force", opts, { session = session })
 			)
-		end, { refresh = opts.refresh })
+		end, {
+			dir = canonical(session.directory) or opts.session_context.route_dir,
+			refresh = opts.refresh,
+		})
 	end
 
 	if opts.session then
@@ -1113,128 +1328,282 @@ function M.messages(scope, opts)
 			return
 		end
 		fetch_for_session(session)
-	end, { refresh = opts.refresh })
+	end, { dir = opts.session_context.route_dir, refresh = opts.refresh })
 end
 
 function M.all_sessions(scope, opts)
 	scope = scope or "all"
-	opts = opts or {}
+	opts = vim.tbl_extend("force", {}, opts or {})
+	opts.session_scope = opts.session_scope or "local"
+	opts.session_context = session_context(opts)
+	aggregate_revision = aggregate_revision + 1
+	local revision = aggregate_revision
 	local api = require("config.opencode_messages")
-	api.sessions(function(sessions, err)
-		if not sessions then
-			api.notify_error(err)
-			restore_prompt(opts)
-			return
-		end
-		if #sessions == 0 then
-			vim.notify("No OpenCode sessions found", vim.log.levels.WARN, { title = "opencode" })
-			restore_prompt(opts)
-			return
-		end
 
-		local pending = #sessions
-		local all_items = {}
-		for _, session in ipairs(sessions) do
-			api.messages(session.id, function(messages)
-				if messages then
-					vim.list_extend(all_items, build_items(session, messages, scope))
+	local function open_aggregate(items)
+		if revision ~= aggregate_revision then
+			return
+		end
+		open_message_picker(items, scope, vim.tbl_extend("force", opts, {
+			label = ("All sessions (%s) %s"):format(session_scopes[opts.session_scope], scopes[scope] or scopes.all),
+			all_sessions = true,
+			allow_empty = true,
+		}))
+	end
+
+	local function fetch_catalog()
+		api.sessions(function(sessions, err)
+			if revision ~= aggregate_revision then
+				return
+			end
+			if not sessions then
+				api.notify_error(err)
+				restore_prompt(opts)
+				return
+			end
+
+			local filtered = vim.tbl_filter(function(session)
+				return session_matches_scope(session, opts.session_scope, opts.session_context)
+			end, sessions)
+			if #filtered == 0 then
+				open_aggregate({})
+				return
+			end
+
+			local buckets = {}
+			local next_index = 1
+			local active = 0
+			local remaining = #filtered
+			local failed = 0
+			local pumping = false
+			local opened = false
+			local pump
+
+			local function finish()
+				if opened or remaining ~= 0 or revision ~= aggregate_revision then
+					return
 				end
-				pending = pending - 1
-				if pending == 0 then
-					open_message_picker(
-						all_items,
-						scope,
-						vim.tbl_extend("force", opts, {
-							label = "All sessions " .. (scopes[scope] or scopes.all),
-							all_sessions = true,
-						})
+				opened = true
+				local items = {}
+				for index = 1, #filtered do
+					vim.list_extend(items, buckets[index] or {})
+				end
+				if failed > 0 then
+					vim.notify(
+						("OpenCode aggregate loaded %d sessions; %d failed"):format(#filtered - failed, failed),
+						vim.log.levels.WARN,
+						{ title = "opencode" }
 					)
 				end
-			end, { refresh = opts.refresh })
-		end
-	end, { refresh = opts.refresh })
+				open_aggregate(items)
+			end
+
+			pump = function()
+				if pumping or revision ~= aggregate_revision then
+					return
+				end
+				pumping = true
+				while active < aggregate_concurrency and next_index <= #filtered do
+					local index = next_index
+					local session = filtered[index]
+					next_index = next_index + 1
+					active = active + 1
+					api.messages(session.id, function(messages)
+						if revision ~= aggregate_revision then
+							return
+						end
+						active = active - 1
+						remaining = remaining - 1
+						if messages then
+							buckets[index] = build_items(session, messages, scope)
+						else
+							failed = failed + 1
+						end
+						if not pumping then
+							if remaining == 0 then
+								finish()
+							else
+								pump()
+							end
+						end
+					end, {
+						dir = canonical(session.directory) or opts.session_context.route_dir,
+						refresh = opts.refresh,
+					})
+				end
+				pumping = false
+				if remaining == 0 then
+					finish()
+				end
+			end
+
+			pump()
+		end, {
+			catalog = "global",
+			dir = opts.session_context.route_dir,
+			refresh = opts.refresh,
+		})
+	end
+
+	if opts.session_scope == "repo" and not opts.session_context.worktree_roots then
+		resolve_worktree_roots(opts.session_context, function(_, err)
+			if revision ~= aggregate_revision then
+				return
+			end
+			if err then
+				vim.notify(err, vim.log.levels.WARN, { title = "opencode" })
+				restore_prompt(opts)
+				return
+			end
+			fetch_catalog()
+		end)
+		return
+	end
+	fetch_catalog()
 end
 
 function M.sessions(scope, opts)
 	scope = scope or "all"
-	opts = opts or {}
+	opts = vim.tbl_extend("force", {}, opts or {})
+	opts.session_scope = opts.session_scope or "local"
+	opts.session_context = session_context(opts)
 	local api = require("config.opencode_messages")
+
+	local function fetch_catalog()
 	api.sessions(function(sessions, err)
 		if not sessions then
 			api.notify_error(err)
 			restore_prompt(opts)
 			return
 		end
-		if #sessions == 0 then
-			vim.notify("No OpenCode sessions found", vim.log.levels.WARN, { title = "opencode" })
-			restore_prompt(opts)
-			return
-		end
+
+		sessions = vim.tbl_filter(function(session)
+			return session_matches_scope(session, opts.session_scope, opts.session_context)
+		end, sessions)
 
 		local fzf = require("fzf-lua")
 		local entries = {}
 		local entry_map = {}
 		local preview_dir = vim.fn.tempname()
-		vim.fn.mkdir(preview_dir, "p")
+		if not pcall(vim.fn.mkdir, preview_dir, "p") then
+			vim.notify("Could not create OpenCode preview directory", vim.log.levels.ERROR, { title = "opencode" })
+			restore_prompt(opts)
+			return
+		end
 		for idx, session in ipairs(sessions) do
-			local entry = ("%04d  %s  %s  %s"):format(
+			local project = (session.project and (session.project.name or session.project.id)) or session.projectID or ""
+			local entry = ("%04d  %s  %-10s %-18s %-36s %s"):format(
 				idx,
 				timestamp(session.time and session.time.updated),
 				session.agent or "",
+				one_line(project, 18),
+				one_line(session.directory or "", 36),
 				session.title or session.id
 			)
 			table.insert(entries, entry)
 			entry_map[entry] = session
-			vim.fn.writefile(session_preview_lines(session), ("%s/%04d.md"):format(preview_dir, idx))
+			if not pcall(vim.fn.writefile, session_preview_lines(session), ("%s/%04d.md"):format(preview_dir, idx)) then
+				vim.fn.delete(preview_dir, "rf")
+				vim.notify("Could not write OpenCode preview", vim.log.levels.ERROR, { title = "opencode" })
+				restore_prompt(opts)
+				return
+			end
 		end
 
 		local stage, on_close = prompt_lifecycle(opts.prompt, function()
 			vim.fn.delete(preview_dir, "rf")
 		end)
+		local function route_opts(action_opts, extra)
+			return vim.tbl_extend("force", {
+				prompt = opts.prompt,
+				query = action_query(action_opts, opts.query),
+				session_scope = opts.session_scope,
+				session_context = opts.session_context,
+			}, extra or {})
+		end
+
+		local function transition(callback)
+			stage.transitioned = true
+			vim.schedule(callback)
+		end
+
+		local function relaunch(new_scope, action_opts)
+			local next_opts = route_opts(action_opts, { session_scope = new_scope })
+			if new_scope ~= "repo" then
+				transition(function() M.sessions(scope, next_opts) end)
+				return
+			end
+			stage.transitioned = true
+			resolve_worktree_roots(opts.session_context, function(_, resolve_err)
+				if resolve_err then
+					vim.notify(
+						("Git scope unavailable; keeping %s (not widened to Global)"):format(session_scopes[opts.session_scope]),
+						vim.log.levels.WARN,
+						{ title = "opencode" }
+					)
+					next_opts.session_scope = opts.session_scope
+				end
+				vim.schedule(function() M.sessions(scope, next_opts) end)
+			end, true)
+		end
+
 		local actions = {
 			["default"] = function(selected)
 				local item = selected_items(selected, entry_map)[1]
 				if not item then
 					return
 				end
-				vim.schedule(function()
-					M.messages(scope, { session = item })
-				end)
+				transition(function() M.messages(scope, route_opts(nil, { session = item })) end)
 			end,
 			["ctrl-o"] = function(selected)
 				local item = selected_items(selected, entry_map)[1]
 				if item then
-					switch_tui_session({ session = item })
+					switch_tui_session({ session = item }, opts.session_context)
 				end
 			end,
 		}
 		if opts.prompt then
 			actions = {
-				["enter"] = function(selected)
+				["enter"] = function(selected, action_opts)
 					local item = selected_items(selected, entry_map)[1]
 					if not item then return end
-					stage.transitioned = true
-					vim.schedule(function()
-						M.messages(scope, { session = item, prompt = opts.prompt })
-					end)
+					transition(function() M.messages(scope, route_opts(action_opts, { session = item })) end)
 				end,
 			}
 		end
+		actions["alt-g"] = function(_, action_opts) relaunch("global", action_opts) end
+		actions["alt-s"] = function(_, action_opts) relaunch("repo", action_opts) end
+		actions["alt-l"] = function(_, action_opts) relaunch("local", action_opts) end
 
 		fzf.fzf_exec(entries, {
-			prompt = "OpenCode Sessions> ",
+			prompt = ("OpenCode Sessions (%s)> "):format(session_scopes[opts.session_scope]),
+			query = opts.query or "",
 			preview = preview_command(preview_dir),
 			winopts = {
 				on_close = on_close,
 			},
 			fzf_opts = {
 				["--header"] = opts.prompt
-					and "Enter: browse selected session | C-/: preview"
-					or "Enter: search selected session | C-o: switch live pane",
+					and "A-g: global | A-s: git | A-l: local | Enter: browse selected session | C-/: preview"
+					or "A-g: global | A-s: git | A-l: local | Enter: search selected session | C-o: switch live pane",
 			},
 			actions = actions,
 		})
-	end, { refresh = opts.refresh })
+	end, { catalog = "global", dir = opts.session_context.route_dir, refresh = opts.refresh })
+	end
+
+	if opts.session_scope == "repo" and not opts.session_context.worktree_roots then
+		resolve_worktree_roots(opts.session_context, function(_, err)
+			if err then
+				vim.notify(err, vim.log.levels.WARN, { title = "opencode" })
+				restore_prompt(opts)
+				return
+			end
+			fetch_catalog()
+		end)
+		return
+	end
+	fetch_catalog()
 end
 
 function M.all(opts)
@@ -1260,44 +1629,13 @@ end
 -- Grep: live ripgrep over session message content
 -- ============================================================
 
-local function grep_git_root()
-	local git_dir = vim.fs.find(".git", { path = vim.fn.getcwd(), upward = true })[1]
-	return git_dir and vim.fn.fnamemodify(git_dir, ":h") or nil
-end
-
-local function grep_worktree_roots(callback)
-	local root = grep_git_root()
-	if not root then
-		callback({})
-		return
-	end
-	vim.system({ "git", "-C", root, "worktree", "list", "--porcelain" }, { text = true }, function(result)
-		vim.schedule(function()
-			if result.code ~= 0 then
-				callback({ root })
-				return
-			end
-			local roots = {}
-			for line in (result.stdout or ""):gmatch("[^\n]+") do
-				local wt = line:match("^worktree (.+)$")
-				if wt then
-					table.insert(roots, wt)
-				end
-			end
-			callback(#roots > 0 and roots or { root })
-		end)
-	end)
-end
-
 local function grep_session_matches(session, scope, context)
-	local dir = (session.directory or ""):gsub("/+$", "")
+	local dir = canonical(session.directory)
 	if scope == "worktree" then
-		local wt = (context.worktree_root or ""):gsub("/+$", "")
-		return dir == wt or vim.startswith(dir, wt .. "/")
+		return path_within(dir, context.worktree_root)
 	elseif scope == "repo" then
 		for _, wt in ipairs(context.worktree_roots or {}) do
-			wt = wt:gsub("/+$", "")
-			if dir == wt or vim.startswith(dir, wt .. "/") then
+			if path_within(dir, wt) then
 				return true
 			end
 		end
@@ -1307,7 +1645,8 @@ local function grep_session_matches(session, scope, context)
 end
 
 local function open_grep_picker(items, scope, opts)
-	opts = opts or {}
+	opts = vim.tbl_extend("force", {}, opts or {})
+	opts.session_context = session_context(opts)
 	local fzf = require("fzf-lua")
 
 	if #items == 0 then
@@ -1352,9 +1691,9 @@ local function open_grep_picker(items, scope, opts)
 	end
 
 	local function reopen(new_scope, ao)
-		local q = ao and ao.__call_opts and ao.__call_opts.query or ""
+		local q = action_query(ao, opts.query)
 		vim.schedule(function()
-			M.grep({ scope = new_scope, query = q })
+			M.grep({ scope = new_scope, query = q, session_context = opts.session_context })
 		end)
 	end
 
@@ -1379,11 +1718,11 @@ local function open_grep_picker(items, scope, opts)
 				end
 				vim.schedule(function()
 					open_transcript(item)
-					switch_tui_session(item)
+					switch_tui_session(item, opts.session_context)
 				end)
 			end,
 			["ctrl-l"] = function(selected)
-				switch_tui_session(get_item(selected))
+				switch_tui_session(get_item(selected), opts.session_context)
 			end,
 			["ctrl-a"] = function(selected)
 				local item = get_item(selected)
@@ -1406,7 +1745,8 @@ local function open_grep_picker(items, scope, opts)
 end
 
 function M.grep(opts)
-	opts = opts or {}
+	opts = vim.tbl_extend("force", {}, opts or {})
+	opts.session_context = session_context(opts)
 	local scope = opts.scope or "session"
 	local api = require("config.opencode_messages")
 
@@ -1422,8 +1762,8 @@ function M.grep(opts)
 					return
 				end
 				open_grep_picker(build_items(session, messages, "all"), scope, opts)
-			end)
-		end)
+			end, { dir = canonical(session.directory) or opts.session_context.route_dir })
+		end, { dir = opts.session_context.route_dir })
 		return
 	end
 
@@ -1444,30 +1784,72 @@ function M.grep(opts)
 				)
 				return
 			end
-			local pending = #filtered
 			local all_items = {}
-			for _, session in ipairs(filtered) do
-				api.messages(session.id, function(messages)
-					if messages then
-						vim.list_extend(all_items, build_items(session, messages, "all"))
-					end
-					pending = pending - 1
-					if pending == 0 then
-						open_grep_picker(all_items, scope, opts)
-					end
-				end)
+			local next_index = 1
+			local active = 0
+			local remaining = #filtered
+			local pumping = false
+			local opened = false
+			local pump
+
+			local function finish()
+				if opened or remaining ~= 0 then
+					return
+				end
+				opened = true
+				open_grep_picker(all_items, scope, opts)
 			end
-		end)
+
+			pump = function()
+				if pumping then
+					return
+				end
+				pumping = true
+				while active < aggregate_concurrency and next_index <= #filtered do
+					local session = filtered[next_index]
+					next_index = next_index + 1
+					active = active + 1
+					api.messages(session.id, function(messages)
+						active = active - 1
+						remaining = remaining - 1
+						if messages then
+							vim.list_extend(all_items, build_items(session, messages, "all"))
+						end
+						if not pumping then
+							if remaining == 0 then
+								finish()
+							else
+								pump()
+							end
+						end
+					end, { dir = canonical(session.directory) or opts.session_context.route_dir })
+				end
+				pumping = false
+				if remaining == 0 then
+					finish()
+				end
+			end
+
+			pump()
+		end, { catalog = "global", dir = opts.session_context.route_dir })
 	end
 
 	if scope == "worktree" then
-		fetch_and_open({ worktree_root = grep_git_root() })
+		if not opts.session_context.worktree_root then
+			vim.notify("Current directory is not in a Git repository", vim.log.levels.WARN, { title = "opencode" })
+			return
+		end
+		fetch_and_open(opts.session_context)
 	elseif scope == "repo" then
-		grep_worktree_roots(function(roots)
-			fetch_and_open({ worktree_roots = roots })
+		resolve_worktree_roots(opts.session_context, function(_, err)
+			if err then
+				vim.notify(err, vim.log.levels.WARN, { title = "opencode" })
+				return
+			end
+			fetch_and_open(opts.session_context)
 		end)
 	else
-		fetch_and_open({})
+		fetch_and_open(opts.session_context)
 	end
 end
 

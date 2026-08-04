@@ -1033,18 +1033,18 @@ return {
 			{
 				"<leader>aoG",
 				function()
-					require("config.opencode_pickers").all_sessions("all")
+					require("config.opencode_pickers").all_sessions("all", { session_scope = "local" })
 				end,
 				mode = "n",
-				desc = "Search all opencode sessions",
+				desc = "Search local opencode messages across sessions",
 			},
 		{
 			"<leader>aoH",
 			function()
-				require("config.opencode_pickers").sessions("all")
+				require("config.opencode_pickers").sessions("all", { session_scope = "local" })
 			end,
 			mode = "n",
-			desc = "Search opencode session history",
+			desc = "Browse local opencode session history",
 		},
 		{
 			"<leader>aoF",

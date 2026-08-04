@@ -106,6 +106,38 @@ for _, key in ipairs(plugin_specs[1].keys) do
 end
 assert(toggle_terminal, "<leader>aoc toggle mapping is present")
 
+local history_mapping
+local aggregate_mapping
+local history_desc
+local aggregate_desc
+for _, key in ipairs(plugin_specs[1].keys) do
+	if key[1] == "<leader>aoH" and mode_includes(key.mode, "n") then
+		history_mapping = key[2]
+		history_desc = key.desc
+	elseif key[1] == "<leader>aoG" and mode_includes(key.mode, "n") then
+		aggregate_mapping = key[2]
+		aggregate_desc = key.desc
+	end
+end
+assert(history_mapping and aggregate_mapping, "OpenCode history mappings are present")
+local picker_dispatches = {}
+local original_pickers = package.loaded["config.opencode_pickers"]
+package.loaded["config.opencode_pickers"] = {
+	sessions = function(scope, opts)
+		table.insert(picker_dispatches, { kind = "history", scope = scope, opts = opts })
+	end,
+	all_sessions = function(scope, opts)
+		table.insert(picker_dispatches, { kind = "aggregate", scope = scope, opts = opts })
+	end,
+}
+history_mapping()
+aggregate_mapping()
+eq(picker_dispatches[1], { kind = "history", scope = "all", opts = { session_scope = "local" } }, "session history starts in Local scope")
+eq(picker_dispatches[2], { kind = "aggregate", scope = "all", opts = { session_scope = "local" } }, "aggregate message search starts in Local scope")
+assert(history_desc:match("local"), "session history description documents its Local default")
+assert(aggregate_desc:match("local"), "aggregate search description documents its Local default")
+package.loaded["config.opencode_pickers"] = original_pickers
+
 vim.o.columns = 200
 toggle_terminal() -- starts closed -> opens
 eq(#recorded_terminal_calls, 2, "first <leader>aoc press spawns once and performs one visible terminal action")

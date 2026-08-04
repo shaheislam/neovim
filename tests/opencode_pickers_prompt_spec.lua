@@ -27,6 +27,7 @@ local session = {
 	id = "session-1",
 	title = "Prompt picker work",
 	agent = "build",
+	directory = vim.fn.getcwd(),
 	time = { created = 1000, updated = 2000 },
 }
 local messages = {
@@ -53,7 +54,7 @@ local prompt = {
 	},
 }
 
-local opencode = require("config.opencode_pickers")
+local opencode = dofile("lua/config/opencode_pickers.lua")
 opencode.all({ prompt = prompt })
 eq(#pickers, 1, "prompt mode opens the message picker")
 local message_picker = pickers[1]
@@ -79,7 +80,11 @@ scheduled = {}
 opencode.sessions("all", { prompt = prompt })
 eq(#pickers, 1, "prompt mode opens the session picker")
 local session_picker = pickers[1]
-eq(vim.tbl_keys(session_picker.opts.actions), { "enter" }, "prompt session picker exposes navigation-only Enter")
+assert(session_picker.opts.actions.enter, "prompt session picker exposes navigation Enter")
+assert(session_picker.opts.actions["alt-g"], "prompt session picker can widen to Global")
+assert(session_picker.opts.actions["alt-s"], "prompt session picker can switch to Git")
+assert(session_picker.opts.actions["alt-l"], "prompt session picker can return to Local")
+assert(not session_picker.opts.actions["ctrl-o"], "prompt session picker excludes live switching")
 session_picker.opts.winopts.on_close()
 session_picker.opts.actions.enter({ session_picker.entries[1] })
 eq(#scheduled, 2, "session transition queues close restoration before the next picker")

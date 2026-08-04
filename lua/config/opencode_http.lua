@@ -249,15 +249,48 @@ end
 -- Neovim process. publish_command below remains directory-broadcast and must
 -- not be used for prompt append/submit.
 
-function M.publish_command(command, callback)
+function M.publish_command(command, callback, opts)
   if not command or command == "" then
     if callback then callback(false, "Missing OpenCode TUI command") end
     return
   end
 
-  M.post("/tui/publish", { type = "tui.command.execute", properties = { command = command } }, function(ok, output)
-    if callback then callback(ok, output) end
-  end)
+  M.post(
+    "/tui/publish",
+    { type = "tui.command.execute", properties = { command = command } },
+    function(ok, output)
+      if callback then callback(ok, output) end
+    end,
+    opts
+  )
+end
+
+function M.publish_commands(commands, callback, opts)
+  local index = 1
+
+  local function next_command()
+    local command = commands[index]
+    if not command then
+      if callback then
+        callback(true)
+      end
+      return
+    end
+
+    M.publish_command(command, function(ok, output)
+      if not ok then
+        if callback then
+          callback(false, output)
+        end
+        return
+      end
+
+      index = index + 1
+      next_command()
+    end, opts)
+  end
+
+  next_command()
 end
 
 function M.fork_session(session_id, opts, callback)

@@ -244,6 +244,45 @@ eq(
 	"the prompt-mode AWS picker's header documents all three insertion actions"
 )
 
+local opencode_dispatches = {}
+package.loaded["config.opencode_pickers"] = {
+	all = function() end,
+	prompts = function() end,
+	assistant = function() end,
+	reasoning = function() end,
+	tools = function() end,
+	tool_output = function() end,
+	sessions = function(scope, opts)
+		table.insert(opencode_dispatches, { kind = "history", scope = scope, opts = opts })
+	end,
+	all_sessions = function(scope, opts)
+		table.insert(opencode_dispatches, { kind = "aggregate", scope = scope, opts = opts })
+	end,
+}
+prompt.launch("opencode_sessions", owner)
+prompt.launch("opencode_all_sessions", owner)
+eq(opencode_dispatches[1].scope, "all", "prompt session history retains the all-message content scope")
+eq(opencode_dispatches[1].opts.session_scope, "local", "prompt session history starts in Local scope")
+eq(opencode_dispatches[1].opts.prompt.owner, owner, "prompt session history retains its owner")
+eq(opencode_dispatches[2].scope, "all", "prompt aggregate search retains the all-message content scope")
+eq(opencode_dispatches[2].opts.session_scope, "local", "prompt aggregate search starts in Local scope")
+eq(opencode_dispatches[2].opts.prompt.owner, owner, "prompt aggregate search retains its owner")
+
+scheduled = {}
+picker_calls = {}
+prompt.open_menu()
+local opencode_menu = picker_calls[#picker_calls]
+opencode_menu.opts.actions.enter({ "opencode_sessions" })
+scheduled[1]()
+eq(opencode_dispatches[3], { kind = "history", scope = "all", opts = { session_scope = "local" } }, "normal prompt catalog history starts Local")
+
+scheduled = {}
+prompt.open_menu()
+opencode_menu = picker_calls[#picker_calls]
+opencode_menu.opts.actions.enter({ "opencode_all_sessions" })
+scheduled[1]()
+eq(opencode_dispatches[4], { kind = "aggregate", scope = "all", opts = { session_scope = "local" } }, "normal prompt catalog aggregate search starts Local")
+
 inserted = {}
 prompt.launch("git_worktrees", owner)
 eq(wrapped.command, "command:git_worktrees", "the worktree provider is relaunched for prompt insertion")

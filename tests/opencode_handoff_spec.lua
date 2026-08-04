@@ -172,7 +172,7 @@ assert(vim.wait(1000, function()
 	return #handoffs == 1
 end, 10), "queued handoff did not run")
 
-eq(terminal_closes, { { project = root, generation = generation } }, "idle closes only the bridge-owned terminal generation")
+eq(terminal_closes, {}, "idle keeps the bridge-owned terminal generation open")
 eq(reloads, { { root .. "/alpha.txt", root .. "/.plan.md", root .. "/beta.txt" } }, "idle reloads one ordered deduplicated batch")
 eq(canonical(vim.api.nvim_buf_get_name(0)), root .. "/beta.txt", "idle focuses the latest changed non-plan file")
 
@@ -188,25 +188,74 @@ eq(handoffs[1].provenance.generation, generation, "plan provenance records the e
 
 vim.bo.modified = true
 eq(batch({ "alpha.txt" }).status, "queued", "a batch received over a modified buffer remains queued")
+local deferred_attempt_serviced = false
+vim.schedule(function()
+	deferred_attempt_serviced = true
+end)
 assert(vim.wait(1000, function()
-	return #terminal_closes >= 2
-end, 10), "deferred handoff did not reach its safety gate")
+	return deferred_attempt_serviced
+end, 10), "deferred handoff callback was not serviced")
 eq(#reloads, 1, "a modified current buffer defers reload and focus work")
+eq(terminal_closes, {}, "a deferred idle handoff keeps the terminal generation open")
 vim.bo.modified = false
 vim.api.nvim_exec_autocmds("BufWritePost", { buffer = 0 })
 assert(vim.wait(1000, function()
 	return #reloads == 2
 end, 10), "deferred handoff did not retry after the editor became safe")
 eq(reloads[2], { root .. "/alpha.txt" }, "retry preserves the deferred path batch")
+eq(terminal_closes, {}, "a retried idle handoff keeps the terminal generation open")
 
 local route = handoff.resolve_plan_route(handoffs[1].provenance)
 eq(route.sessionID, "ses_two", "a live native plan route resolves to its exact session")
+
+vim.bo.modified = true
+eq(batch({ "alpha.txt" }).status, "queued", "the old route can queue work while the editor is unsafe")
+local old_route_attempt_serviced = false
+vim.schedule(function()
+	old_route_attempt_serviced = true
+end)
+assert(vim.wait(1000, function()
+	return old_route_attempt_serviced
+end, 10), "old-route deferred callback was not serviced")
+eq(#reloads, 2, "old-route work remains deferred while the editor is unsafe")
+
+local rebound = handoff.receive({
+	version = 1,
+	type = "bind",
+	directory = root,
+	generation = generation,
+	lease = hello.lease,
+	sessionID = "ses_three",
+	routeRevision = 3,
+})
+eq(rebound.status, "handled", "a newer route replaces the session while old work is deferred")
+eq(handoff.active_bindings()[root].sessionID, "ses_three", "the replacement route becomes active")
+eq(handoff.resolve_plan_route(handoffs[1].provenance), nil, "the previous route provenance becomes stale")
+
+vim.bo.modified = false
+vim.api.nvim_exec_autocmds("BufWritePost", { buffer = 0 })
+local replaced_route_retry_serviced = false
+vim.schedule(function()
+	replaced_route_retry_serviced = true
+end)
+assert(vim.wait(1000, function()
+	return replaced_route_retry_serviced
+end, 10), "replacement-route retry callback was not serviced")
+eq(#reloads, 2, "replacing a route discards accepted pending work from the old route")
+
+eq(batch({ "beta.txt" }, { sessionID = "ses_three", routeRevision = 3 }).status, "queued", "the replacement route queues fresh work")
+assert(vim.wait(1000, function()
+	return #reloads == 3
+end, 10), "fresh work for the replacement route did not run")
+eq(reloads[3], { root .. "/beta.txt" }, "the replacement route processes only its fresh path batch")
+eq(terminal_closes, {}, "route replacement and fresh idle work keep the terminal generation open")
+
 handoff.unregister_terminal(root, generation)
 eq(handoff.resolve_plan_route(handoffs[1].provenance), nil, "native plan provenance fails closed after terminal exit")
 eq(handoff.active_bindings(), {}, "terminal exit removes the active binding")
-eq(binding_changes, 3, "removing a bound terminal reports one binding change")
+eq(binding_changes, 4, "removing a bound terminal reports one binding change")
 eq(handoff.unregister_terminal(root, generation), false, "a stale unregister remains rejected")
-eq(binding_changes, 3, "a rejected unregister does not report a binding change")
+eq(binding_changes, 4, "a rejected unregister does not report a binding change")
 
 local encoded = vim.base64.encode(vim.json.encode({
 	version = 1,

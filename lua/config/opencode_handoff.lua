@@ -98,19 +98,7 @@ local function emit_binding_changed()
 	})
 end
 
-local function focus_buffer(buf)
-	for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
-		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
-			if vim.api.nvim_win_get_buf(win) == buf then
-				vim.api.nvim_set_current_tabpage(tab)
-				vim.api.nvim_set_current_win(win)
-				return
-			end
-		end
-	end
-	vim.cmd("tabnew")
-	vim.api.nvim_win_set_buf(0, buf)
-end
+local focus_buffer = require("config.bufutil").focus_buffer_preserving_terminal
 
 local function focus_path(path)
 	if vim.fn.filereadable(path) ~= 1 then
@@ -148,9 +136,6 @@ local function process_project(project)
 	end
 	project_state.process_scheduled = false
 
-	pcall(function()
-		require("config.opencode_terminal").close_generation(project, project_state.generation)
-	end)
 	if not can_interrupt_editor() then
 		return
 	end
@@ -236,6 +221,8 @@ local function receive_bind(payload)
 		return response("rejected", "stale_route_revision")
 	end
 	if payload.routeRevision > project_state.routeRevision then
+		project_state.pending = nil
+		project_state.process_scheduled = false
 		project_state.sessionID = payload.sessionID
 		project_state.routeRevision = payload.routeRevision
 		project_state.routeToken = token("route_")

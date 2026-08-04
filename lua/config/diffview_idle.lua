@@ -321,20 +321,7 @@ local function find_plan_buffer(path)
 	end
 end
 
-local function focus_buffer(buf)
-	for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
-		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
-			if vim.api.nvim_win_get_buf(win) == buf then
-				vim.api.nvim_set_current_tabpage(tab)
-				vim.api.nvim_set_current_win(win)
-				return
-			end
-		end
-	end
-
-	vim.cmd("tabnew")
-	vim.api.nvim_win_set_buf(0, buf)
-end
+local focus_buffer = require("config.bufutil").focus_buffer_preserving_terminal
 
 local function git_succeeds(args)
 	return vim.system(args, { text = true }):wait().code == 0

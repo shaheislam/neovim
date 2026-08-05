@@ -50,7 +50,7 @@ local function sync_opencode_auth(auth)
 	vim.g.opencode_opts = global_opts
 
 	local config = package.loaded["opencode.config"]
-	if config and config.opts then
+	if type(config) == "table" and type(config.opts) == "table" then
 		assign_server_auth(config.opts, auth)
 	end
 end
@@ -383,7 +383,7 @@ local function apply_opencode_opts()
 	vim.g.opencode_opts = global_opts
 
 	local config = package.loaded["opencode.config"]
-	if config and config.opts then
+	if type(config) == "table" and type(config.opts) == "table" then
 		config.opts = vim.tbl_deep_extend("force", config.opts, resolved)
 		assign_server_auth(config.opts, auth)
 	end
@@ -1072,7 +1072,11 @@ return {
 		config = function()
 			apply_opencode_opts()
 			local config_ok, config = pcall(require, "opencode.config")
-			local commands = config_ok and config.opts and config.opts.select and config.opts.select.commands
+			local commands = config_ok
+				and type(config) == "table"
+				and type(config.opts) == "table"
+				and config.opts.select
+				and config.opts.select.commands
 			if commands then
 				commands["session.select"] = nil
 			end

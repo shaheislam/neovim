@@ -237,6 +237,21 @@ eq(
 )
 
 local original_auth_config = package.loaded["opencode.config"]
+package.loaded["opencode.config"] = 0
+local sentinel_launch_ok, sentinel_launch_err = pcall(
+	terminal_adapter.get_terminal,
+	"/tmp/opencode-plugin-spec/config-loader-sentinel"
+)
+assert(
+	sentinel_launch_ok,
+	"terminal launch ignores a non-table opencode config loader sentinel: " .. tostring(sentinel_launch_err)
+)
+local sentinel_init_ok, sentinel_init_err = pcall(plugin_specs[1].init)
+assert(
+	sentinel_init_ok,
+	"plugin init ignores a non-table opencode config loader sentinel: " .. tostring(sentinel_init_err)
+)
+
 local loaded_auth_config = {
 	opts = {
 		server = {
@@ -383,6 +398,14 @@ package.loaded["opencode.server.discovery"] = {
 }
 
 local original_action_config = package.loaded["opencode.config"]
+package.loaded["opencode.config"] = 0
+local sentinel_config_ok, sentinel_config_err = pcall(plugin_specs[1].config)
+assert(
+	sentinel_config_ok,
+	"plugin config ignores a non-table opencode config loader sentinel: " .. tostring(sentinel_config_err)
+)
+status_setup_calls = 0
+
 local action_config = {
 	opts = {
 		select = {

@@ -20,91 +20,6 @@ local function merge_style(group, new_style)
   vim.api.nvim_set_hl(0, group, merged)
 end
 
--- Atlas.nvim (pilot, see lua/plugins/atlas.lua) ships opaque status chips.
--- Promoting the chip's background color to its foreground keeps the text
--- readable while dropping the background block, matching this config's
--- transparent-UI requirement without hard-coding Atlas's default palette.
-local function promote_bg_to_fg(group)
-  local hl = vim.api.nvim_get_hl(0, { name = group, link = false })
-  if not hl.bg then
-    return
-  end
-  vim.api.nvim_set_hl(0, group, vim.tbl_extend("force", hl, { fg = hl.bg, bg = "NONE" }))
-end
-
--- Groups that already have a readable fg on their dark default bg (header
--- bars, not chips) — clear the bg only, keep the existing fg untouched.
-local atlas_header_groups = {
-  "AtlasPanelHeaderBg",
-  "AtlasFooterBackground",
-  "AtlasTabInactive",
-  "AtlasGitHubTheme",
-  "AtlasGHIssuesTheme",
-}
-
--- Chip groups with predictable names (dark fg on a bright bg — GitHub-only,
--- matching the pilot's enabled providers in lua/plugins/atlas.lua). Verified
--- against the installed plugin source (atlas/{pulls,issues,ui/shared}/**
--- highlights.lua), not just the README, since group names and fg/bg pairing
--- there don't perfectly match public docs.
-local atlas_chip_groups = {
-  "AtlasChipActive",
-  "AtlasDynBgColor01",
-  "AtlasDynBgColor02",
-  "AtlasDynBgColor03",
-  "AtlasDynBgColor04",
-  "AtlasDynBgColor05",
-  "AtlasDynBgColor06",
-  "AtlasDynBgColor07",
-  "AtlasDynBgColor08",
-  "AtlasDynBgColor09",
-  "AtlasDynBgColor10",
-  "AtlasDynBgColor11",
-  "AtlasPROpenChip",
-  "AtlasPRMergedChip",
-  "AtlasPRDeclinedChip",
-  "AtlasPRDraftChip",
-  "AtlasGitHubPROpen",
-  "AtlasGitHubPRMerged",
-  "AtlasGitHubPRClosed",
-  "AtlasGitHubPRDraft",
-  "AtlasGHIssueOpenChip",
-  "AtlasGHIssueClosedChip",
-  "AtlasGHIssueChipRepo",
-}
-
--- Provider-generated label/type chips use hex-suffixed names (e.g.
--- AtlasGHLabel_ff0000) that can't be listed up front, so they're swept by
--- pattern instead.
-local atlas_dynamic_patterns = {
-  "^AtlasGHLabel_",
-  "^AtlasGHIssueLabel_",
-  "^AtlasGHIssueType_",
-}
-
--- Re-applies transparent styling to Atlas.nvim's highlight groups. Atlas is
--- cmd-lazy loaded and (re)defines these groups on setup and on render, so
--- callers must re-invoke this after opening Atlas UI, not just on
--- ColorScheme (see lua/plugins/atlas.lua for the deferred re-apply calls).
-function M.apply_atlas_transparency()
-  for _, group in ipairs(atlas_header_groups) do
-    merge_style(group, { bg = "NONE" })
-  end
-
-  for _, group in ipairs(atlas_chip_groups) do
-    promote_bg_to_fg(group)
-  end
-
-  for name in pairs(vim.api.nvim_get_hl(0, {})) do
-    for _, pattern in ipairs(atlas_dynamic_patterns) do
-      if name:match(pattern) then
-        promote_bg_to_fg(name)
-        break
-      end
-    end
-  end
-end
-
 -- Standardized highlight overrides for consistent styling
 local function apply_consistent_styles()
   -- Tree-sitter highlight groups (modern, preferred method)
@@ -226,8 +141,6 @@ local function apply_consistent_styles()
   vim.api.nvim_set_hl(0, "DiffviewGutterAdd", { fg = "#4f7d43", bg = "NONE" })
   vim.api.nvim_set_hl(0, "DiffviewGutterDelete", { fg = "#f7768e", bg = "NONE" })
   vim.api.nvim_set_hl(0, "DiffviewGutterChange", { fg = "#e0af68", bg = "NONE" })
-
-  M.apply_atlas_transparency()
 end
 
 M.apply_consistent_styles = apply_consistent_styles

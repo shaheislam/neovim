@@ -583,17 +583,28 @@ assert(type(opencode_terminal_opts.on_create) == "function", "the OpenCode termi
 local terminal_buf = vim.api.nvim_create_buf(false, true)
 opencode_terminal_opts.on_create({ bufnr = terminal_buf })
 
+local terminal_escape
+for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(terminal_buf, "t")) do
+	if mapping.lhs == "<Esc>" then
+		terminal_escape = mapping
+		break
+	end
+end
+assert(terminal_escape, "the OCV terminal uses a single Escape to enter Neovim Normal mode")
+eq(terminal_escape.rhs, [[<C-\><C-N>]], "the OCV Escape mapping leaves terminal-input mode")
+eq(terminal_escape.nowait, 1, "the OCV Escape mapping does not wait for the global double-Escape mapping")
+
 eq(#prompt_bindings, 1, "the OCV composer binds the shared prompt picker catalog")
 eq(prompt_bindings[1].buf, terminal_buf, "the OCV picker catalog is local to its terminal buffer")
 eq(
 	prompt_bindings[1].owner.mode,
-	"t",
-	"the OCV picker catalog uses direct terminal mappings instead of an outer Normal-mode transition"
+	"n",
+	"the OCV picker catalog uses ordinary Neovim Normal-mode mappings"
 )
 eq(
 	prompt_bindings[1].owner.prefix,
-	"<C-Space>",
-	"the OCV picker catalog requires an explicit Ctrl-Space prefix so ordinary prompt text cannot trigger pickers"
+	nil,
+	"the OCV picker catalog uses the standard leader without a terminal-only prefix"
 )
 
 local appended

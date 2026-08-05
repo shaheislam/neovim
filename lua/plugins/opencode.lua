@@ -109,11 +109,17 @@ local function bind_opencode_terminal_picker(term, dir)
 			vim.cmd("startinsert")
 		end
 	end
-	-- OCV's Vim mode is internal to the child process. Use an explicit terminal
-	-- prefix so prompt text cannot overlap with the shared picker catalog.
+	-- Keep the single-Escape transition local to OCV; other terminal TUIs still
+	-- receive Escape and use the global double-Escape fallback.
+	vim.keymap.set("t", "<Esc>", [[<C-\><C-n>]], {
+		buffer = term.bufnr,
+		nowait = true,
+		desc = "Enter Normal mode from OpenCode",
+	})
+	-- Bind the shared picker catalog in Neovim's Normal mode so OCV prompt text
+	-- remains untouched and the usual leader sequences work after Escape.
 	require("config.fzf_prompt").bind(term.bufnr, {
-		mode = "t",
-		prefix = "<C-Space>",
+		mode = "n",
 		source = function()
 			return require("config.return_target").last()
 		end,

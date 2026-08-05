@@ -37,9 +37,16 @@ return {
 			end
 
 			local stl_escape = require("lualine.utils.utils").stl_escape
-			local function buffer_label()
-				if vim.bo.buftype == "terminal" then
-					local id = vim.b.toggle_number
+			local opencode_terminal = require("config.opencode_terminal")
+			local remembered_label_by_tab = {}
+
+			local function render_buffer_label(bufnr)
+				if not vim.api.nvim_buf_is_valid(bufnr) then
+					return ""
+				end
+
+				if vim.bo[bufnr].buftype == "terminal" then
+					local id = vim.b[bufnr].toggle_number
 					if id then
 						local ok, toggleterm = pcall(require, "toggleterm.terminal")
 						if ok and type(toggleterm.get) == "function" then
@@ -53,10 +60,10 @@ return {
 				end
 
 				-- Handle Oil buffers specially
-				if vim.bo.filetype == "oil" then
+				if vim.bo[bufnr].filetype == "oil" then
 					local ok, oil = pcall(require, "oil")
 					if ok then
-						local oil_dir = oil.get_current_dir()
+						local oil_dir = oil.get_current_dir(bufnr)
 						if oil_dir then
 							local home = os.getenv("HOME")
 							if home and oil_dir:find(home, 1, true) == 1 then
@@ -67,7 +74,7 @@ return {
 					end
 				end
 
-				local path = vim.fn.expand("%:p")
+				local path = vim.api.nvim_buf_get_name(bufnr)
 				if path == "" then
 					return ""
 				end
@@ -77,10 +84,35 @@ return {
 					path = path:sub(#cwd + 2)
 				end
 
-				local modified_sign = vim.bo.modified and " " or ""
-				local readonly_sign = vim.bo.readonly and " 󰌾" or ""
+				local modified_sign = vim.bo[bufnr].modified and " " or ""
+				local readonly_sign = vim.bo[bufnr].readonly and " 󰌾" or ""
 				return stl_escape(path .. modified_sign .. readonly_sign)
 			end
+
+			local function remember_current_label()
+				local bufnr = vim.api.nvim_get_current_buf()
+				if not opencode_terminal.is_buffer(bufnr) then
+					remembered_label_by_tab[vim.api.nvim_get_current_tabpage()] = render_buffer_label(bufnr)
+				end
+			end
+
+			local function buffer_label()
+				local bufnr = vim.api.nvim_get_current_buf()
+				if opencode_terminal.is_buffer(bufnr) then
+					local remembered = remembered_label_by_tab[vim.api.nvim_get_current_tabpage()]
+					if type(remembered) == "string" and remembered ~= "" then
+						return remembered
+					end
+				end
+				return render_buffer_label(bufnr)
+			end
+
+			local label_group = vim.api.nvim_create_augroup("NvimMiniLualineBufferLabel", { clear = true })
+			vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter", "BufLeave", "WinLeave" }, {
+				group = label_group,
+				callback = remember_current_label,
+			})
+			remember_current_label()
 
 			require("lualine").setup({
 				options = {

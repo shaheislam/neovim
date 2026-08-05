@@ -44,6 +44,7 @@ jobs:
           nvim --headless -l tests/opencode_terminal_spec.lua
           nvim --headless -l tests/opencode_status_spec.lua
           nvim --headless -l tests/opencode_plugin_spec.lua
+          nvim --headless -l tests/lualine_spec.lua
           nvim --headless -l tests/opencode_attach_registry_spec.lua
           nvim --headless -l tests/project_terminal_spec.lua
           nvim --headless -l tests/plan_idle_spec.lua

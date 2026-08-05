@@ -161,7 +161,13 @@ end
 -- ===== Section 1: cache reuse across repeated resolution =====
 
 setup_adapter()
+local unrelated_buf = vim.api.nvim_create_buf(false, true)
+eq(terminal_adapter.is_buffer(unrelated_buf), false, "an unrelated buffer is not owned by the OpenCode adapter")
+local invalid_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_delete(invalid_buf, { force = true })
+eq(terminal_adapter.is_buffer(invalid_buf), false, "an invalid buffer is not owned by the OpenCode adapter")
 local term1 = terminal_adapter.get_terminal("/tmp/opencode-terminal-spec/project-a")
+eq(terminal_adapter.is_buffer(term1.bufnr), true, "a created OpenCode terminal buffer is owned by the adapter")
 term1.__alive = true
 term1:open(10)
 local term2 = terminal_adapter.get_terminal("/tmp/opencode-terminal-spec/project-a")
@@ -204,6 +210,7 @@ eq(#package.loaded["toggleterm.terminal"].get_all(true), 2, "two pre-existing ca
 
 local adopted = terminal_adapter.get_terminal(dir)
 assert(adopted == legacy_open, "reconciliation adopts the live, UI-open candidate over a live-but-hidden one")
+eq(terminal_adapter.is_buffer(adopted.bufnr), true, "an adopted OpenCode terminal buffer is owned by the adapter")
 assert(registry[legacy_open.id] ~= nil, "the adopted, UI-open terminal is left running")
 assert(registry[legacy_hidden.id] == nil, "the live-but-UI-closed duplicate is shut down")
 
@@ -642,6 +649,7 @@ local close_term = terminal_adapter.open(close_dir)
 close_term.__alive = true
 terminal_adapter.close(close_dir)
 assert(not vim.api.nvim_buf_is_valid(close_term.bufnr), "close() wipes the OpenCode terminal buffer")
+eq(terminal_adapter.is_buffer(close_term.bufnr), false, "a retired terminal buffer is no longer owned by the adapter")
 eq(close_term.__shutdown_count, 1, "close() shuts the terminal down exactly once")
 eq(close_exits, { "close-generation-1" }, "close() finalizes its generation exactly once")
 terminal_adapter.close(close_dir)

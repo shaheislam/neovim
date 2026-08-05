@@ -538,6 +538,20 @@ local function new_terminal(dir, launch, generation)
 	return term
 end
 
+-- Passive ownership check for consumers that must distinguish this adapter's
+-- terminal from unrelated ToggleTerm buffers without parsing terminal names.
+function M.is_buffer(bufnr)
+	if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+		return false
+	end
+	for _, entry in pairs(state.by_project) do
+		if entry.term and entry.term.bufnr == bufnr then
+			return true
+		end
+	end
+	return false
+end
+
 -- Returns the cached/adopted terminal for `dir` (canonicalized via
 -- opts.project_root), trusting an exact launch snapshot match. Liveness is
 -- not re-checked here on every call -- only at the two points where it

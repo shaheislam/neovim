@@ -11,6 +11,7 @@ local scheduled = {}
 local original_schedule = vim.schedule
 local original_defer_fn = vim.defer_fn
 local original_getcwd = vim.fn.getcwd
+local original_confirm = vim.fn.confirm
 local original_fs_find = vim.fs.find
 local original_system = vim.system
 local original_fs_stat = vim.uv.fs_stat
@@ -19,6 +20,15 @@ vim.schedule = function(callback)
 end
 vim.defer_fn = function(callback) callback() end
 vim.fn.getcwd = function() return "/repo" end
+local confirm_result = 1
+local confirm_calls = 0
+vim.fn.confirm = function(message, choices, default)
+	confirm_calls = confirm_calls + 1
+	assert(message:match("unsent"), "prompt restart warns that unsent composer text will be lost")
+	eq(choices, "&Restart\n&Cancel", "prompt restart offers explicit Restart and Cancel choices")
+	eq(default, 2, "prompt restart defaults to Cancel")
+	return confirm_result
+end
 vim.fs.find = function(name)
 	assert(name == ".git", "prompt picker context only searches for .git")
 	return { "/repo/.git" }
@@ -88,20 +98,15 @@ package.loaded["config.opencode_messages"] = {
 	notify_error = function(err) error(err or "unexpected OpenCode API error") end,
 }
 
-local http_calls = {}
 package.loaded["config.opencode_http"] = {
 	canonical = function(path) return path and path:gsub("/+$", "") end,
-	post = function(path, body, callback, opts)
-		table.insert(http_calls, { kind = "post", path = path, body = body, opts = opts })
-		callback(true, "")
-	end,
-	publish_command = function(command, callback, opts)
-		table.insert(http_calls, { kind = "publish", command = command, opts = opts })
-		callback(true, "")
-	end,
-	publish_commands = function(commands, callback, opts)
-		table.insert(http_calls, { kind = "publish_commands", commands = commands, opts = opts })
-		callback(true, "")
+}
+local restart_calls = {}
+local restart_outcome = { ok = true, term = { id = 1 }, owner_retired = true }
+package.loaded["config.opencode_terminal"] = {
+	restart_owned = function(dir, launch_context)
+		table.insert(restart_calls, { dir = dir, launch_context = vim.deepcopy(launch_context) })
+		return vim.deepcopy(restart_outcome)
 	end,
 }
 
@@ -119,13 +124,13 @@ opencode.all({ prompt = prompt })
 eq(#pickers, 1, "prompt mode opens the message picker")
 local message_picker = pickers[1]
 assert(message_picker.opts.actions.enter, "prompt message picker exposes insertion Enter")
-assert(message_picker.opts.actions["ctrl-l"], "prompt message picker exposes live timeline navigation")
+assert(message_picker.opts.actions["ctrl-l"], "prompt message picker exposes owned-session restart")
 assert(message_picker.opts.actions["alt-s"], "prompt message picker retains safe scope navigation")
 assert(message_picker.opts.actions["ctrl-s"], "prompt message picker retains safe session navigation")
 assert(not message_picker.opts.actions.default, "prompt message picker removes its normal open action")
 assert(not message_picker.opts.actions["ctrl-f"], "prompt message picker removes forking actions")
 assert(not message_picker.opts.actions["ctrl-w"], "prompt message picker removes worktree actions")
-assert(message_picker.opts.fzf_opts["--header"]:match("C%-l: live"), "prompt message picker advertises live navigation")
+assert(message_picker.opts.fzf_opts["--header"]:match("C%-l: restart"), "prompt message picker advertises session restart")
 assert(type(message_picker.opts.winopts.on_create) == "function", "message picker configures terminal key routing")
 local picker_buf = vim.api.nvim_create_buf(false, true)
 local picker_event = { bufnr = picker_buf, winid = 37 }
@@ -156,55 +161,83 @@ eq(restored, 0, "selection suppresses the deferred cancellation restore")
 
 pickers = {}
 scheduled = {}
-http_calls = {}
+restart_calls = {}
 session.directory = "/repo-linked"
 opencode.all({ prompt = prompt })
 local live_picker = pickers[1]
 live_picker.opts.winopts.on_close()
 live_picker.opts.actions["ctrl-l"]({ live_picker.entries[1] })
-eq(#inserted, 1, "live navigation does not insert the selected message")
-eq(http_calls[1], {
-	kind = "post",
-	path = "/tui/select-session",
-	body = { sessionID = "session-1" },
-	opts = { dir = "/repo" },
-}, "live navigation selects the target session on the stable route")
-eq(http_calls[2], {
-	kind = "publish",
-	command = "session.timeline",
-	opts = { dir = "/repo" },
-}, "live navigation opens the target session timeline")
-eq(http_calls[3], {
-	kind = "publish_commands",
-	commands = { "dialog.select.home" },
-	opts = { dir = "/repo" },
-}, "live navigation selects the target conversation turn")
 scheduled[1]()
-eq(restored, 0, "accepted live navigation keeps the old prompt owner closed")
+eq(restored, 0, "pending restart suppresses the automatic close restoration")
+scheduled[2]()
+eq(#inserted, 1, "session restart does not insert the selected message")
+eq(restart_calls[1], {
+	dir = "/repo",
+	launch_context = { session_id = "session-1" },
+}, "prompt restart replaces only the exact initiating terminal on its stable route")
+eq(restored, 0, "accepted session restart keeps the old prompt owner closed")
+
+pickers = {}
+scheduled = {}
+confirm_result = 2
+opencode.all({ prompt = prompt })
+local cancelled_picker = pickers[1]
+cancelled_picker.opts.winopts.on_close()
+cancelled_picker.opts.actions["ctrl-l"]({ cancelled_picker.entries[1] })
+scheduled[1]()
+scheduled[2]()
+eq(#restart_calls, 1, "cancelled prompt restart never mutates the owned terminal")
+eq(restored, 1, "cancelled prompt restart restores the old prompt owner exactly once")
+confirm_result = 1
+
+pickers = {}
+scheduled = {}
+restart_outcome = { ok = false, error = "preflight failed", owner_retired = false }
+opencode.all({ prompt = prompt })
+local preflight_picker = pickers[1]
+preflight_picker.opts.winopts.on_close()
+preflight_picker.opts.actions["ctrl-l"]({ preflight_picker.entries[1] })
+scheduled[1]()
+scheduled[2]()
+eq(restored, 2, "pre-retirement restart failure restores the still-valid prompt owner")
+
+pickers = {}
+scheduled = {}
+restart_outcome = { ok = false, error = "spawn failed", owner_retired = true }
+opencode.all({ prompt = prompt })
+local retired_picker = pickers[1]
+retired_picker.opts.winopts.on_close()
+retired_picker.opts.actions["ctrl-l"]({ retired_picker.entries[1] })
+scheduled[1]()
+scheduled[2]()
+eq(restored, 2, "post-retirement failure never restores an invalid terminal owner")
+restart_outcome = { ok = true, term = { id = 2 }, owner_retired = true }
 
 pickers = {}
 scheduled = {}
 session.directory = "/foreign/repo"
 opencode.all({ prompt = prompt })
 local foreign_picker = pickers[1]
-local calls_before_rejection = #http_calls
+local calls_before_rejection = #restart_calls
+local confirms_before_rejection = confirm_calls
 foreign_picker.opts.winopts.on_close()
 foreign_picker.opts.actions["ctrl-l"]({ foreign_picker.entries[1] })
-eq(#http_calls, calls_before_rejection, "foreign live navigation fails before publishing commands")
+eq(#restart_calls, calls_before_rejection, "foreign restart fails before mutating the owned terminal")
+eq(confirm_calls, confirms_before_rejection, "foreign restart is rejected before confirmation")
 scheduled[1]()
-eq(restored, 1, "rejected live navigation restores the prompt owner")
+eq(restored, 3, "rejected restart restores the prompt owner")
 
 pickers = {}
 scheduled = {}
 session.directory = "/repo-deleted"
 opencode.all({ prompt = prompt })
 local deleted_picker = pickers[1]
-calls_before_rejection = #http_calls
+calls_before_rejection = #restart_calls
 deleted_picker.opts.winopts.on_close()
 deleted_picker.opts.actions["ctrl-l"]({ deleted_picker.entries[1] })
-eq(#http_calls, calls_before_rejection, "deleted live navigation fails before publishing commands")
+eq(#restart_calls, calls_before_rejection, "deleted restart fails before mutating the owned terminal")
 scheduled[1]()
-eq(restored, 2, "deleted live navigation restores the prompt owner exactly once")
+eq(restored, 4, "deleted restart restores the prompt owner exactly once")
 session.directory = "/repo"
 restored = 0
 
@@ -233,6 +266,7 @@ eq(restored, 1, "cancelling the terminal nested picker restores the prompt exact
 vim.schedule = original_schedule
 vim.defer_fn = original_defer_fn
 vim.fn.getcwd = original_getcwd
+vim.fn.confirm = original_confirm
 vim.fs.find = original_fs_find
 vim.system = original_system
 vim.uv.fs_stat = original_fs_stat

@@ -419,8 +419,8 @@ local function ensure_rpc_server()
 	return vim.v.servername
 end
 
-local function resolve_launch(dir, generation)
-	local launch = opts.launch(dir, generation)
+local function resolve_launch(dir, generation, launch_context)
+	local launch = opts.launch(dir, generation, launch_context)
 	if type(launch) ~= "table" or type(launch.cmd) ~= "string" or launch.cmd == "" then
 		error("OpenCode terminal launch must provide a non-empty cmd")
 	end
@@ -566,7 +566,7 @@ function M.get_terminal(dir)
 		entry = { dir = dir, generation = new_generation() }
 		state.by_project[dir] = entry
 	end
-	local launch = resolve_launch(dir, entry.generation)
+	local launch = resolve_launch(dir, entry.generation, entry.launch_context)
 
 	if entry and entry.term and launch_matches(entry.launch, launch) then
 		return entry.term
@@ -575,10 +575,11 @@ function M.get_terminal(dir)
 	if entry and entry.term then
 		-- Launch changed (e.g. an auth/env revision): retire the old
 		-- generation before adopting/creating the new target.
+		local launch_context = vim.deepcopy(entry.launch_context)
 		retire_generation(entry.term, dir, entry.generation)
-		entry = { dir = dir, generation = new_generation() }
+		entry = { dir = dir, generation = new_generation(), launch_context = launch_context }
 		state.by_project[dir] = entry
-		launch = resolve_launch(dir, entry.generation)
+		launch = resolve_launch(dir, entry.generation, entry.launch_context)
 	end
 
 	entry.launch = launch
@@ -617,8 +618,9 @@ local function ensure_live(dir, term)
 		return M.get_terminal(dir)
 	end
 	local launch = vim.deepcopy(entry.launch)
+	local launch_context = vim.deepcopy(entry.launch_context)
 	retire_generation(term, dir, entry.generation)
-	entry = { dir = dir, generation = new_generation(), launch = launch }
+	entry = { dir = dir, generation = new_generation(), launch = launch, launch_context = launch_context }
 	entry.launch.env.OPENCODE_NVIM_GENERATION = entry.generation
 	state.by_project[dir] = entry
 	term = new_terminal(dir, entry.launch, entry.generation)
@@ -690,6 +692,82 @@ function M.close_generation(dir, generation)
 		return false
 	end
 	return retire_generation(entry.term, dir, generation)
+end
+
+local function restart_failure(message, owner_retired)
+	return {
+		ok = false,
+		error = message,
+		owner_retired = owner_retired == true,
+	}
+end
+
+-- Replaces only the live terminal owned by this adapter instance. Unlike
+-- get_terminal(), this never discovers, adopts, or creates a fallback owner.
+function M.restart_owned(dir, launch_context)
+	dir = opts.project_root(dir)
+	local current = state.by_project[dir]
+	if not current or not current.term or not terminal_live(current.term) then
+		return restart_failure("No running OpenCode terminal is owned by this Neovim for this route", false)
+	end
+
+	local prepared, generation, launch = pcall(function()
+		ensure_rpc_server()
+		local next_generation = new_generation()
+		return next_generation, resolve_launch(dir, next_generation, launch_context)
+	end)
+	if not prepared then
+		return restart_failure(generation, false)
+	end
+
+	local was_open = current.term:is_open()
+	retire_generation(current.term, dir, current.generation)
+	local owner_retired = true
+	if terminal_live(current.term) then
+		return restart_failure("Could not stop the existing OpenCode terminal", owner_retired)
+	end
+
+	local entry = {
+		dir = dir,
+		generation = generation,
+		launch = launch,
+		launch_context = vim.deepcopy(launch_context),
+	}
+	state.by_project[dir] = entry
+
+	local replacement
+	local restarted, restart_err = pcall(function()
+		replacement = new_terminal(dir, launch, generation)
+		entry.term = replacement
+		if opts.on_start then
+			opts.on_start(replacement, dir, generation)
+		end
+		ensure_spawned(replacement)
+		if type(replacement.job_id) ~= "number" or replacement.job_id <= 0 or not terminal_live(replacement) then
+			error("OpenCode replacement terminal did not start")
+		end
+		if was_open then
+			replacement:open(resolve_size(replacement))
+			if not replacement:is_open() or not terminal_live(replacement) then
+				error("OpenCode replacement terminal did not reopen")
+			end
+		end
+	end)
+
+	if not restarted then
+		if replacement then
+			retire_generation(replacement, dir, generation)
+		elseif state.by_project[dir] == entry then
+			state.by_project[dir] = nil
+		end
+		return restart_failure(restart_err, owner_retired)
+	end
+
+	return {
+		ok = true,
+		term = replacement,
+		owner_retired = owner_retired,
+	}
 end
 
 function M.generation_for(dir)

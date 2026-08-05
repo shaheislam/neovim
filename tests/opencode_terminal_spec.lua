@@ -13,6 +13,7 @@ end
 -- UI-closed, and shutdown() closes+deletes+deregisters.
 local registry = {}
 local next_id = 1
+local terminal_factory_hook
 
 local function make_terminal(term)
 	term.id = next_id
@@ -27,6 +28,8 @@ local function make_terminal(term)
 
 	function term:spawn()
 		self.__spawn_count = (self.__spawn_count or 0) + 1
+		self.job_id = self.job_id or (1000 + self.id)
+		self.__alive = true
 		registry[self.id] = self
 		if self.on_create then
 			self:on_create()
@@ -84,6 +87,9 @@ local function make_terminal(term)
 		end
 	end
 
+	if terminal_factory_hook then
+		terminal_factory_hook(term)
+	end
 	return term
 end
 
@@ -133,6 +139,7 @@ terminal_adapter.__set_test_hooks({
 
 local function setup_adapter(overrides)
 	registry = {}
+	terminal_factory_hook = nil
 	terminal_adapter.__reset()
 	terminal_adapter.setup(vim.tbl_extend("force", {
 		display_name = "OpenCode",
@@ -744,6 +751,215 @@ generation_term:on_exit(generation_term.job_id, 0)
 eq(exited, { { project = generation_dir, generation = "test-generation", code = 0 } }, "exit invalidates only the matching generation")
 
 print("PASS terminal generation remains stable and is registered before spawn")
+
+-- ===== Section 14: process-local session restart replaces only the owned terminal =====
+
+local restart_generation = 0
+local restart_order = {}
+setup_adapter({
+	generation = function()
+		restart_generation = restart_generation + 1
+		return "restart-generation-" .. restart_generation
+	end,
+	launch = function(dir, _, launch_context)
+		local command = "TESTCMD --dir " .. dir
+		if launch_context and launch_context.session_id then
+			command = command .. " --session " .. launch_context.session_id
+		end
+		return {
+			cmd = command,
+			env = { OPENCODE_TEST_REVISION = "1" },
+			clear_env = false,
+		}
+	end,
+})
+local restart_dir = "/tmp/opencode-terminal-spec/project-restart"
+terminal_factory_hook = function(term)
+	local spawn = term.spawn
+	term.spawn = function(self)
+		table.insert(restart_order, "spawn-" .. self._nvim_mini_generation)
+		return spawn(self)
+	end
+	local shutdown = term.shutdown
+	term.shutdown = function(self)
+		table.insert(restart_order, "shutdown-" .. self._nvim_mini_generation)
+		return shutdown(self)
+	end
+end
+local restart_original = terminal_adapter.open(restart_dir)
+local restart_result = terminal_adapter.restart_owned(restart_dir, { session_id = "ses_target" })
+terminal_factory_hook = nil
+
+assert(restart_result.ok, "restart_owned() succeeds for this Neovim's live owned terminal")
+assert(restart_result.term ~= restart_original, "restart_owned() creates a replacement terminal")
+eq(restart_result.term.cmd, "TESTCMD --dir " .. restart_dir .. " --session ses_target", "restart launch receives the selected session")
+eq(restart_result.term._nvim_mini_generation, "restart-generation-2", "restart allocates a fresh terminal generation")
+eq(restart_order, {
+	"spawn-restart-generation-1",
+	"shutdown-restart-generation-1",
+	"spawn-restart-generation-2",
+}, "the old process is shut down before the replacement starts")
+assert(restart_result.term:is_open(), "a visible owned terminal remains visible after restart")
+eq(#package.loaded["toggleterm.terminal"].get_all(true), 1, "restart leaves exactly one registered OpenCode terminal")
+
+print("PASS process-local restart replaces only the visible owned terminal")
+
+-- ===== Section 15: restart fails closed without a live local owner =====
+
+setup_adapter()
+local absent_dir = "/tmp/opencode-terminal-spec/project-restart-absent"
+local absent_result = terminal_adapter.restart_owned(absent_dir, { session_id = "ses_absent" })
+eq(absent_result.ok, false, "restart rejects an absent local owner")
+eq(absent_result.owner_retired, false, "absent-owner rejection does not claim to retire anything")
+eq(terminal_adapter.generation_for(absent_dir), nil, "absent-owner rejection does not create adapter state")
+eq(#package.loaded["toggleterm.terminal"].get_all(true), 0, "absent-owner rejection does not create or adopt a terminal")
+
+local dead_owned = terminal_adapter.get_terminal(absent_dir)
+local dead_generation = terminal_adapter.generation_for(absent_dir)
+local dead_result = terminal_adapter.restart_owned(absent_dir, { session_id = "ses_dead" })
+eq(dead_result.ok, false, "restart rejects a cached owner whose process is not live")
+eq(dead_result.owner_retired, false, "dead-owner rejection preserves the cached owner")
+assert(terminal_adapter.get_terminal(absent_dir) == dead_owned, "dead-owner rejection does not replace cached state")
+eq(terminal_adapter.generation_for(absent_dir), dead_generation, "dead-owner rejection preserves its generation")
+
+print("PASS process-local restart fails closed without a live owned terminal")
+
+-- ===== Section 16: hidden restart and launch preflight preserve safe state =====
+
+local hidden_restart_generation = 0
+setup_adapter({
+	generation = function()
+		hidden_restart_generation = hidden_restart_generation + 1
+		return "hidden-restart-" .. hidden_restart_generation
+	end,
+	launch = function(dir, _, launch_context)
+		if launch_context and launch_context.session_id == "ses_invalid" then
+			error("invalid selected session launch")
+		end
+		return {
+			cmd = "TESTCMD --dir " .. dir .. (launch_context and (" --session " .. launch_context.session_id) or ""),
+			env = {},
+			clear_env = false,
+		}
+	end,
+})
+local hidden_restart_dir = "/tmp/opencode-terminal-spec/project-restart-hidden"
+local hidden_original = terminal_adapter.start(hidden_restart_dir)
+assert(not hidden_original:is_open(), "the restart fixture starts with a hidden owner")
+local preflight_result = terminal_adapter.restart_owned(hidden_restart_dir, { session_id = "ses_invalid" })
+eq(preflight_result.ok, false, "launch resolution errors fail the restart")
+eq(preflight_result.owner_retired, false, "launch resolution errors happen before owner retirement")
+assert(terminal_adapter.get_terminal(hidden_restart_dir) == hidden_original, "preflight failure preserves the old owner")
+assert(hidden_original.__alive, "preflight failure leaves the old process running")
+
+local hidden_restart_result = terminal_adapter.restart_owned(hidden_restart_dir, { session_id = "ses_hidden" })
+assert(hidden_restart_result.ok, "a hidden owned terminal can restart")
+assert(not hidden_restart_result.term:is_open(), "a hidden owned terminal remains hidden after restart")
+
+print("PASS process-local restart preserves hidden state and preflights before retirement")
+
+-- ===== Section 17: non-throwing replacement failures are detected and cleaned =====
+
+local function restart_with_terminal_failure(name, configure_replacement, hidden)
+	local generation = 0
+	setup_adapter({
+		generation = function()
+			generation = generation + 1
+			return name .. "-generation-" .. generation
+		end,
+		launch = function(dir, _, launch_context)
+			return {
+				cmd = "TESTCMD --dir " .. dir .. (launch_context and (" --session " .. launch_context.session_id) or ""),
+				env = {},
+				clear_env = false,
+			}
+		end,
+	})
+	local failure_dir = "/tmp/opencode-terminal-spec/" .. name
+	if hidden then
+		terminal_adapter.start(failure_dir)
+	else
+		terminal_adapter.open(failure_dir)
+	end
+	terminal_factory_hook = configure_replacement
+	local result = terminal_adapter.restart_owned(failure_dir, { session_id = "ses_failure" })
+	terminal_factory_hook = nil
+	return result, failure_dir
+end
+
+local invalid_job_result, invalid_job_dir = restart_with_terminal_failure("restart-invalid-job", function(term)
+	local spawn = term.spawn
+	term.spawn = function(self)
+		spawn(self)
+		self.job_id = 0
+	end
+end)
+eq(invalid_job_result.ok, false, "a non-positive replacement job ID is not reported as success")
+eq(invalid_job_result.owner_retired, true, "spawn validation failure reports that the old owner was retired")
+eq(terminal_adapter.generation_for(invalid_job_dir), nil, "invalid replacement spawn state is cleaned")
+eq(#package.loaded["toggleterm.terminal"].get_all(true), 0, "invalid replacement spawn leaves no registered process")
+
+local dead_job_result, dead_job_dir = restart_with_terminal_failure("restart-dead-job", function(term)
+	local spawn = term.spawn
+	term.spawn = function(self)
+		spawn(self)
+		self.__alive = false
+	end
+end, true)
+eq(dead_job_result.ok, false, "a positive job ID without a live process is not reported as success")
+eq(dead_job_result.owner_retired, true, "dead replacement reports that the old owner was retired")
+eq(terminal_adapter.generation_for(dead_job_dir), nil, "dead replacement state is cleaned")
+eq(#package.loaded["toggleterm.terminal"].get_all(true), 0, "dead replacement leaves no registered process")
+
+local failed_open_result, failed_open_dir = restart_with_terminal_failure("restart-failed-open", function(term)
+	term.open = function(self)
+		self.__open_count = (self.__open_count or 0) + 1
+	end
+end)
+eq(failed_open_result.ok, false, "an open() call that leaves no visible window is not reported as success")
+eq(failed_open_result.owner_retired, true, "visible-open validation failure reports that the old owner was retired")
+eq(terminal_adapter.generation_for(failed_open_dir), nil, "failed visible replacement is cleaned")
+eq(#package.loaded["toggleterm.terminal"].get_all(true), 0, "failed visible replacement leaves no registered process")
+
+print("PASS process-local restart detects non-throwing spawn and open failures")
+
+-- ===== Section 18: selected-session launch context persists only across automatic replacement =====
+
+local context_generation = 0
+local context_revision = "1"
+setup_adapter({
+	generation = function()
+		context_generation = context_generation + 1
+		return "context-generation-" .. context_generation
+	end,
+	launch = function(dir, _, launch_context)
+		return {
+			cmd = "TESTCMD --dir " .. dir .. (launch_context and (" --session " .. launch_context.session_id) or ""),
+			env = { OPENCODE_TEST_REVISION = context_revision },
+			clear_env = false,
+		}
+	end,
+})
+local context_dir = "/tmp/opencode-terminal-spec/project-restart-context"
+terminal_adapter.start(context_dir)
+local selected_restart = terminal_adapter.restart_owned(context_dir, { session_id = "ses_persist" })
+assert(selected_restart.ok, "selected-session restart succeeds before persistence checks")
+
+selected_restart.term.__alive = false
+local reconstructed_context = terminal_adapter.open(context_dir)
+assert(reconstructed_context.cmd:match("%-%-session ses_persist$"), "dead reconstruction preserves the selected session launch context")
+
+context_revision = "2"
+local auth_replacement = terminal_adapter.get_terminal(context_dir)
+assert(auth_replacement ~= reconstructed_context, "an environment revision replaces the reconstructed process")
+assert(auth_replacement.cmd:match("%-%-session ses_persist$"), "environment replacement preserves the selected session launch context")
+
+auth_replacement.__alive = true
+terminal_adapter.close(context_dir)
+local default_reopen = terminal_adapter.start(context_dir)
+assert(not default_reopen.cmd:find("--session", 1, true), "deliberate close clears the selected session launch context")
+
+print("PASS selected-session launch context survives automatic replacement but not deliberate close")
 
 for _, term in pairs(registry) do
 	pcall(function()

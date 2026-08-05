@@ -49,6 +49,7 @@ package.loaded["toggleterm.terminal"] = {
 			end
 			term.spawn = function(self)
 				table.insert(recorded_terminal_calls, { action = "spawn" })
+				self.job_id = self.job_id or 1001
 				self.__alive = true
 			end
 			term.open = function(self, size)
@@ -108,6 +109,7 @@ assert(toggle_terminal, "<leader>aoc toggle mapping is present")
 
 local history_mapping
 local aggregate_mapping
+local select_session_mapping
 local history_desc
 local aggregate_desc
 for _, key in ipairs(plugin_specs[1].keys) do
@@ -117,9 +119,11 @@ for _, key in ipairs(plugin_specs[1].keys) do
 	elseif key[1] == "<leader>aoG" and mode_includes(key.mode, "n") then
 		aggregate_mapping = key[2]
 		aggregate_desc = key.desc
+	elseif key[1] == "<leader>aop" and mode_includes(key.mode, "n") then
+		select_session_mapping = key[2]
 	end
 end
-assert(history_mapping and aggregate_mapping, "OpenCode history mappings are present")
+assert(history_mapping and aggregate_mapping and select_session_mapping, "OpenCode history and session mappings are present")
 local picker_dispatches = {}
 local original_pickers = package.loaded["config.opencode_pickers"]
 package.loaded["config.opencode_pickers"] = {
@@ -130,13 +134,20 @@ package.loaded["config.opencode_pickers"] = {
 		table.insert(picker_dispatches, { kind = "aggregate", scope = scope, opts = opts })
 	end,
 }
+local original_discovery_for_session_mapping = package.loaded["opencode.server.discovery"]
+package.loaded["opencode.server.discovery"] = {
+	get = function() error("the custom session mapping must not use upstream discovery") end,
+}
 history_mapping()
 aggregate_mapping()
+select_session_mapping()
 eq(picker_dispatches[1], { kind = "history", scope = "all", opts = { session_scope = "local" } }, "session history starts in Local scope")
 eq(picker_dispatches[2], { kind = "aggregate", scope = "all", opts = { session_scope = "local" } }, "aggregate message search starts in Local scope")
+eq(picker_dispatches[3], { kind = "history", scope = "all", opts = { session_scope = "local" } }, "session selection uses the guarded Local history picker")
 assert(history_desc:match("local"), "session history description documents its Local default")
 assert(aggregate_desc:match("local"), "aggregate search description documents its Local default")
 package.loaded["config.opencode_pickers"] = original_pickers
+package.loaded["opencode.server.discovery"] = original_discovery_for_session_mapping
 
 vim.o.columns = 200
 toggle_terminal() -- starts closed -> opens
@@ -264,6 +275,22 @@ eq(passwordless_terminal.env.OPENCODE_SERVER_PASSWORD, nil, "the cleared passwor
 eq(vim.g.opencode_opts.server.password, nil, "the cleared password is removed from global opencode options")
 eq(loaded_auth_config.opts.server.password, nil, "the cleared password is removed from loaded opencode options")
 
+local selected_session_id = "ses_'quoted value'"
+local selected_terminal = terminal_adapter.start(first_auth_terminal.dir)
+local selected_restart = terminal_adapter.restart_owned(first_auth_terminal.dir, { session_id = selected_session_id })
+assert(selected_restart.ok, "plugin launch supports restarting the exact owned terminal into a selected session")
+assert(selected_restart.term ~= selected_terminal, "selected-session launch replaces the prior owned terminal")
+eq(
+	selected_restart.term.cmd,
+	"ocv attach http://127.0.0.1:4096 --dir "
+		.. vim.fn.shellescape(first_auth_terminal.dir)
+		.. " --session "
+		.. vim.fn.shellescape(selected_session_id),
+	"selected-session launch shell-escapes both route and session ID"
+)
+assert(not selected_restart.term.cmd:find("opencode-spec-user-2", 1, true), "selected-session command still excludes the username")
+assert(not selected_restart.term.cmd:find("opencode-spec-password-2", 1, true), "selected-session command still excludes the password")
+
 package.loaded["opencode.config"] = original_auth_config
 
 print("PASS opencode terminal resize-on-reopen always resolves a fresh explicit size")
@@ -355,8 +382,22 @@ package.loaded["opencode.server.discovery"] = {
 	end,
 }
 
+local original_action_config = package.loaded["opencode.config"]
+local action_config = {
+	opts = {
+		select = {
+			commands = {
+				["session.select"] = "Select session",
+				["session.new"] = "New session",
+			},
+		},
+	},
+}
+package.loaded["opencode.config"] = action_config
 plugin_specs[1].config()
 eq(status_setup_calls, 1, "opencode config delegates status ownership to the exact-session bridge")
+eq(action_config.opts.select.commands["session.select"], nil, "plugin config removes the upstream broadcast session selector")
+eq(action_config.opts.select.commands["session.new"], "New session", "plugin config preserves unrelated safe action commands")
 
 eq(
 	vim.fn.maparg("<leader>ff", "c"),
@@ -371,6 +412,7 @@ assert(adapted_input ~= native_plugin_input, "the plugin Promise input function 
 plugin_specs[1].config()
 eq(promise_ui.input, adapted_input, "config is idempotent and does not wrap the Promise input adapter twice")
 eq(status_setup_calls, 2, "repeated config delegates to the bridge's idempotent setup instead of adding raw autocmds")
+package.loaded["opencode.config"] = original_action_config
 
 assert(
 	vim.fn.exists(":OpenCodeFocus") == 2,

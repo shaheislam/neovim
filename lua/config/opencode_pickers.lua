@@ -42,7 +42,6 @@ local part_filters = {
 	end,
 }
 
-local resolve_timeline_anchor
 local surrounding_payload
 
 ---@class OpenCodePickerItem
@@ -113,10 +112,6 @@ local function append_lines(lines, text)
 	end
 end
 
-local function tui_error(message)
-	return message .. "\nHint: requires an active OpenCode TUI/server; restart OpenCode if the TUI command state is stale."
-end
-
 local function item_payload(item)
 	local header = ("[%s %s] %s"):format(item.role, item.kind, item.time)
 	if item.session and item.session.title then
@@ -182,14 +177,6 @@ local function item_reference(item)
 	}, "\n")
 end
 
-local function live_sync_label(item)
-	local anchor = resolve_timeline_anchor and resolve_timeline_anchor(item) or nil
-	if not anchor then
-		return "none"
-	end
-	return anchor.exact and "exact" or "previous prompt"
-end
-
 local function preview_lines(item)
 	local lines = {
 		"# OpenCode Selection",
@@ -199,7 +186,6 @@ local function preview_lines(item)
 		"Role: " .. (item.role or "unknown"),
 		"Kind: " .. (item.kind or "unknown"),
 		"Time: " .. (item.time or ""),
-		"Live sync: " .. live_sync_label(item),
 		"Message ID: " .. (item.message_id or ""),
 		"Part ID: " .. (item.part_id or ""),
 	}
@@ -533,160 +519,60 @@ local function yank_references(items)
 	vim.notify("Copied OpenCode reference", vim.log.levels.INFO, { title = "opencode" })
 end
 
-local function switch_tui_session(item, context)
+local function restart_owned_session(item, context, lifecycle)
+	lifecycle = lifecycle or {}
 	if not item or not item.session or not item.session.id then
-		return
+		return false
 	end
 	local allowed, rejection = live_target_allowed(item, context)
 	if not allowed then
 		notify_live_route_rejection(rejection)
-		return
+		return false
 	end
-	require("config.opencode_http").post("/tui/select-session", { sessionID = item.session.id }, function(ok, output)
-		if ok then
+
+	if lifecycle.stage then
+		lifecycle.stage.transitioned = true
+	end
+	vim.schedule(function()
+		local session = item.session
+		local choice = vim.fn.confirm(
+			("Restart this Neovim's OpenCode terminal in session '%s'?\n\nThis discards unsent composer text and transient TUI state."):format(
+				session.title or session.id
+			),
+			"&Restart\n&Cancel",
+			2
+		)
+		if choice ~= 1 then
+			restore_prompt({ prompt = lifecycle.prompt })
+			return
+		end
+
+		local result = require("config.opencode_terminal").restart_owned(context.route_dir, {
+			session_id = session.id,
+		})
+		if result.ok then
+			if lifecycle.stage then
+				lifecycle.stage.completed = true
+			end
 			vim.notify(
-				"Switched OpenCode pane to " .. (item.session.title or item.session.id),
+				"Restarted this Neovim's OpenCode terminal in " .. (session.title or session.id),
 				vim.log.levels.INFO,
 				{ title = "opencode" }
 			)
+			if lifecycle.on_success then
+				lifecycle.on_success()
+			end
 			return
 		end
-		local message = vim.trim(output or "")
-		if message == "" then
-			message = "Could not switch OpenCode session"
+
+		local message = result.error or "Could not restart the owned OpenCode terminal"
+		if result.owner_retired then
+			message = message .. "\nRun :OpenCodeFocus to create a fresh terminal."
+		else
+			restore_prompt({ prompt = lifecycle.prompt })
 		end
 		vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
-	end, { dir = context.route_dir })
-end
-
-local function timeline_anchor_for_message(message, message_idx)
-	local info = message.info or {}
-	if info.role ~= "user" then
-		return nil
-	end
-
-	for _, part in ipairs(message.parts or {}) do
-		if part.type == "text" and not part.synthetic and vim.trim(part.text or "") ~= "" then
-			return {
-				message_idx = message_idx,
-				message_id = info.id or part.messageID,
-			}
-		end
-	end
-
-	return nil
-end
-
-local function timeline_anchors(messages)
-	local anchors = {}
-	for message_idx, message in ipairs(messages or {}) do
-		local anchor = timeline_anchor_for_message(message, message_idx)
-		if anchor and anchor.message_id then
-			table.insert(anchors, anchor)
-		end
-	end
-	return anchors
-end
-
-resolve_timeline_anchor = function(item)
-	if not item or not item.messages then
-		return nil
-	end
-
-	local anchors = timeline_anchors(item.messages)
-	local previous_anchor
-	for idx, anchor in ipairs(anchors) do
-		anchor.index = idx
-		if anchor.message_id == item.message_id then
-			anchor.exact = true
-			anchor.total = #anchors
-			return anchor
-		end
-		if anchor.message_idx <= item.message_idx then
-			previous_anchor = anchor
-		else
-			break
-		end
-	end
-
-	if previous_anchor then
-		previous_anchor.exact = false
-		previous_anchor.total = #anchors
-		return previous_anchor
-	end
-
-	return nil
-end
-
-local function sync_live_timeline(item, context)
-	if not item or not item.session or not item.session.id then
-		return false
-	end
-	local allowed, rejection = live_target_allowed(item, context)
-	if not allowed then
-		notify_live_route_rejection(rejection)
-		return false
-	end
-
-	local anchor = resolve_timeline_anchor(item)
-	if not anchor then
-		vim.notify(tui_error("No OpenCode timeline anchor found for selection"), vim.log.levels.WARN, { title = "opencode" })
-		return false
-	end
-
-	local http = require("config.opencode_http")
-	http.post("/tui/select-session", { sessionID = item.session.id }, function(ok, output)
-		if not ok then
-			local message = vim.trim(output or "")
-			if message == "" then
-				message = "Could not switch OpenCode session"
-			end
-			vim.notify(tui_error(message), vim.log.levels.ERROR, { title = "opencode" })
-			return
-		end
-
-		http.publish_command("session.timeline", function(timeline_ok, timeline_output)
-			if not timeline_ok then
-				local message = vim.trim(timeline_output or "")
-				if message == "" then
-					message = "Could not open OpenCode timeline"
-				end
-				vim.notify(tui_error(message), vim.log.levels.ERROR, { title = "opencode" })
-				return
-			end
-
-			vim.defer_fn(function()
-				local commands = {}
-				local from_start = anchor.index - 1
-				local from_end = anchor.total - anchor.index
-				if from_end < from_start then
-					table.insert(commands, "dialog.select.end")
-					for _ = 1, from_end do
-						table.insert(commands, "dialog.select.prev")
-					end
-				else
-					table.insert(commands, "dialog.select.home")
-					for _ = 1, from_start do
-						table.insert(commands, "dialog.select.next")
-					end
-				end
-
-				http.publish_commands(commands, function(move_ok, move_output)
-					if not move_ok then
-						local message = vim.trim(move_output or "")
-						if message == "" then
-							message = "Could not move OpenCode timeline selection"
-						end
-						vim.notify(tui_error(message), vim.log.levels.ERROR, { title = "opencode" })
-						return
-					end
-
-					local message = anchor.exact and "Synced live OpenCode pane" or "Synced live OpenCode pane to previous user prompt"
-					vim.notify(message, vim.log.levels.INFO, { title = "opencode" })
-				end, { dir = context.route_dir })
-			end, 80)
-		end, { dir = context.route_dir })
-	end, { dir = context.route_dir })
+	end)
 	return true
 end
 
@@ -1118,6 +1004,24 @@ local function open_message_picker(items, scope, opts)
 	local stage, on_close = prompt_lifecycle(opts.prompt, function()
 		vim.fn.delete(preview_dir, "rf")
 	end)
+	local function restart_selected(item, on_success)
+		return restart_owned_session(item, opts.session_context, {
+			stage = stage,
+			prompt = opts.prompt,
+			on_success = on_success,
+		})
+	end
+	local function restart_and_open_transcript(item)
+		if not item then
+			return
+		end
+		local return_target = require("config.return_target")
+		local target = return_target.last()
+		restart_selected(item, function()
+			return_target.restore(target, { fallback = false })
+			open_transcript(item)
+		end)
+	end
 
 	local function transition(callback)
 		stage.transitioned = true
@@ -1253,10 +1157,10 @@ local function open_message_picker(items, scope, opts)
 			yank_references(selected_items(selected, entry_map))
 		end,
 		["ctrl-o"] = function(selected)
-			switch_tui_session(first_item(selected), opts.session_context)
+			restart_selected(first_item(selected))
 		end,
 		["ctrl-l"] = function(selected)
-			sync_live_timeline(first_item(selected), opts.session_context)
+			restart_selected(first_item(selected))
 		end,
 		["ctrl-f"] = function(selected)
 			fork_pane_from_item(first_item(selected))
@@ -1271,13 +1175,7 @@ local function open_message_picker(items, scope, opts)
 			end)
 		end,
 		["alt-l"] = function(selected)
-			local item = first_item(selected)
-			if item then
-				vim.schedule(function()
-					open_transcript(item)
-				end)
-				sync_live_timeline(item, opts.session_context)
-			end
+			restart_and_open_transcript(first_item(selected))
 		end,
 		["alt-s"] = function(_, action_opts)
 			transition(function() pick_scope(action_opts) end)
@@ -1306,9 +1204,7 @@ local function open_message_picker(items, scope, opts)
 				opts.prompt.owner.insert(prompt_payload(item))
 			end,
 			["ctrl-l"] = function(selected)
-				if sync_live_timeline(first_item(selected), opts.session_context) then
-					stage.completed = true
-				end
+				restart_selected(first_item(selected))
 			end,
 			["alt-s"] = function(_, action_opts)
 				transition(function() pick_scope(action_opts) end)
@@ -1348,8 +1244,8 @@ local function open_message_picker(items, scope, opts)
 	end
 
 	local header = opts.prompt
-			and "Enter: insert | C-l: live | A-s: scopes | A-a/p/m/r/t/o: scope | C-s: sessions | C-r: refresh | C-/: preview"
-		or "Enter: transcript | A-l: transcript+live | C-l: live | C-f: forkpane | C-w: gwtfork | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | C-o: session | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview"
+			and "Enter: insert | C-l: restart session | A-s: scopes | A-a/p/m/r/t/o: scope | C-s: sessions | C-r: refresh | C-/: preview"
+		or "Enter: transcript | A-l: transcript+restart | C-l/C-o: restart session | C-f: forkpane | C-w: gwtfork | C-a: append | C-x: context | C-u: resume | C-y: copy | C-b: ref | A-s: scopes | A-a/p/m/r/t/o: scope | C-/: preview"
 	if opts.all_sessions then
 		header = header .. " | A-g: location"
 	end
@@ -1637,7 +1533,10 @@ function M.sessions(scope, opts)
 			["ctrl-o"] = function(selected)
 				local item = selected_items(selected, entry_map)[1]
 				if item then
-					switch_tui_session({ session = item }, opts.session_context)
+					restart_owned_session({ session = item }, opts.session_context, {
+						stage = stage,
+						prompt = opts.prompt,
+					})
 				end
 			end,
 		}
@@ -1664,7 +1563,7 @@ function M.sessions(scope, opts)
 			fzf_opts = {
 				["--header"] = opts.prompt
 					and "A-g: global | A-s: git | A-l: local | Enter: browse selected session | C-/: preview"
-					or "A-g: global | A-s: git | A-l: local | Enter: search selected session | C-o: switch live pane",
+					or "A-g: global | A-s: git | A-l: local | Enter: search selected session | C-o: restart session",
 			},
 			actions = actions,
 		})
@@ -1775,6 +1674,19 @@ local function open_grep_picker(items, scope, opts)
 			M.grep({ scope = new_scope, query = q, session_context = opts.session_context })
 		end)
 	end
+	local function restart_and_open(item)
+		if not item then
+			return
+		end
+		local return_target = require("config.return_target")
+		local target = return_target.last()
+		restart_owned_session(item, opts.session_context, {
+			on_success = function()
+				return_target.restore(target, { fallback = false })
+				open_transcript(item)
+			end,
+		})
+	end
 
 	fzf.live_grep({
 		cwd = temp_dir,
@@ -1788,21 +1700,14 @@ local function open_grep_picker(items, scope, opts)
 			end,
 		},
 		fzf_opts = {
-			["--header"] = "Enter: transcript+switch | C-l: switch live | C-a: append | C-y: yank | A-s: session | A-l: worktree | A-r: repo | A-g: global",
+			["--header"] = "Enter: transcript+restart | C-l: restart session | C-a: append | C-y: yank | A-s: session | A-l: worktree | A-r: repo | A-g: global",
 		},
 		actions = {
 			["default"] = function(selected)
-				local item = get_item(selected)
-				if not item then
-					return
-				end
-				vim.schedule(function()
-					open_transcript(item)
-					switch_tui_session(item, opts.session_context)
-				end)
+				restart_and_open(get_item(selected))
 			end,
 			["ctrl-l"] = function(selected)
-				switch_tui_session(get_item(selected), opts.session_context)
+				restart_owned_session(get_item(selected), opts.session_context)
 			end,
 			["ctrl-a"] = function(selected)
 				local item = get_item(selected)

@@ -55,7 +55,7 @@ local function sync_opencode_auth(auth)
 	end
 end
 
-local function opencode_launch(dir)
+local function opencode_launch(dir, _, launch_context)
 	-- The dotfiles opencode shim reroutes `attach` through tmux when $TMUX is set.
 	-- This terminal already owns the split, so bypass that wrapper and run ocv directly.
 	-- Clear multiplexer markers so ocv emits bare OSC52 for Neovim to forward.
@@ -73,8 +73,13 @@ local function opencode_launch(dir)
 		env.OPENCODE_SERVER_PASSWORD = auth.password
 	end
 
+	local command = "ocv attach http://127.0.0.1:" .. opencode_port .. " --dir " .. vim.fn.shellescape(dir)
+	if launch_context and launch_context.session_id then
+		command = command .. " --session " .. vim.fn.shellescape(launch_context.session_id)
+	end
+
 	return {
-		cmd = "ocv attach http://127.0.0.1:" .. opencode_port .. " --dir " .. vim.fn.shellescape(dir),
+		cmd = command,
 		env = env,
 		clear_env = false,
 	}
@@ -706,14 +711,7 @@ local function run_command(command)
 end
 
 local function select_opencode_session()
-	with_opencode_ready(function(server)
-		require("opencode.ui.select_session")
-			.select_session(server)
-			:next(function(session)
-				return server:select_session(session.id)
-			end)
-			:catch(notify_opencode_error)
-	end)
+	require("config.opencode_pickers").sessions("all", { session_scope = "local" })
 end
 
 
@@ -1073,6 +1071,11 @@ return {
 		},
 		config = function()
 			apply_opencode_opts()
+			local config_ok, config = pcall(require, "opencode.config")
+			local commands = config_ok and config.opts and config.opts.select and config.opts.select.commands
+			if commands then
+				commands["session.select"] = nil
+			end
 			patch_opencode_server_disconnect()
 			patch_opencode_server_prompt_delivery()
 			setup_opencode_prompt_input()

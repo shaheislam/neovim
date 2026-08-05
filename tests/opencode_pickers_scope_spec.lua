@@ -16,6 +16,7 @@ local original_mkdir = vim.fn.mkdir
 local original_writefile = vim.fn.writefile
 local original_delete = vim.fn.delete
 local original_executable = vim.fn.executable
+local original_confirm = vim.fn.confirm
 local original_fs_find = vim.fs.find
 local original_system = vim.system
 local original_fs_stat = vim.uv.fs_stat
@@ -39,6 +40,12 @@ vim.fn.mkdir = function() return 1 end
 vim.fn.writefile = function() return 0 end
 vim.fn.delete = function() return 0 end
 vim.fn.executable = function() return 0 end
+local confirm_result = 1
+local confirmations = {}
+vim.fn.confirm = function(message, choices, default)
+	table.insert(confirmations, { message = message, choices = choices, default = default })
+	return confirm_result
+end
 vim.fs.find = function(name)
 	assert(name == ".git", "scope context only searches for .git")
 	return { "/repo/main/.git" }
@@ -107,22 +114,16 @@ vim.uv.fs_stat = function(path)
 	local kind = existing_directories[path]
 	return kind and { type = kind == true and "directory" or kind } or nil
 end
-local http_calls = {}
 package.loaded["config.opencode_http"] = {
 	canonical = function(path)
 		return aliases[path] or (path and path:gsub("/+$", ""))
 	end,
-	post = function(path, body, callback, opts)
-		table.insert(http_calls, { kind = "post", path = path, body = body, opts = opts })
-		callback(true, "")
-	end,
-	publish_command = function(command, callback, opts)
-		table.insert(http_calls, { kind = "publish", command = command, opts = opts })
-		callback(true, "")
-	end,
-	publish_commands = function(commands, callback, opts)
-		table.insert(http_calls, { kind = "publish_commands", commands = commands, opts = opts })
-		callback(true, "")
+}
+local restart_calls = {}
+package.loaded["config.opencode_terminal"] = {
+	restart_owned = function(dir, launch_context)
+		table.insert(restart_calls, { dir = dir, launch_context = vim.deepcopy(launch_context) })
+		return { ok = true, term = { id = #restart_calls }, owner_retired = true }
 	end,
 }
 
@@ -224,15 +225,22 @@ eq(#global_picker.entries, 10, "Global scope includes every catalog session")
 eq(global_picker.opts.query, "typed query", "scope relaunch prefers fzf-lua's live last_query")
 eq(global_picker.opts.prompt, "OpenCode Sessions (Global)> ", "session prompt shows active Global scope")
 
-local before_linked_switch = #http_calls
+local before_linked_switch = #restart_calls
 global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Linked worktree") })
-eq(#http_calls, before_linked_switch + 1, "Global history can switch to an active linked-worktree session")
-eq(http_calls[#http_calls].opts.dir, "/repo/main", "linked-worktree switching stays on the current TUI route")
+eq(#restart_calls, before_linked_switch + 1, "Global history can restart into an active linked-worktree session")
+eq(restart_calls[#restart_calls], {
+	dir = "/repo/main",
+	launch_context = { session_id = "linked" },
+}, "linked-worktree restart targets only the stable initiating terminal")
+eq(confirmations[#confirmations].default, 2, "session restart confirmation defaults to Cancel")
+assert(confirmations[#confirmations].message:match("unsent"), "restart confirmation warns about unsent composer text")
 
 for _, blocked in ipairs({ "Prefix collision", "Foreign project", "Removed worktree", "Prunable worktree", "Deleted directory", "File path", "Missing directory" }) do
-	local before = #http_calls
+	local before = #restart_calls
+	local confirms_before = #confirmations
 	global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, blocked) })
-	eq(#http_calls, before, blocked .. " cannot switch the live TUI")
+	eq(#restart_calls, before, blocked .. " cannot restart the owned TUI")
+	eq(#confirmations, confirms_before, blocked .. " is rejected before confirmation")
 	local rejection = notifications[#notifications].message
 	if blocked == "Deleted directory" or blocked == "File path" then
 		assert(rejection:match("unavailable"), blocked .. " reports an unavailable session directory")
@@ -244,11 +252,17 @@ for _, blocked in ipairs({ "Prefix collision", "Foreign project", "Removed workt
 end
 
 git_should_fail = true
-local before_unverified = #http_calls
+local before_unverified = #restart_calls
 global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Linked worktree") })
-eq(#http_calls, before_unverified, "linked sessions fail closed when Git membership cannot be verified")
+eq(#restart_calls, before_unverified, "linked sessions fail closed when Git membership cannot be verified")
 assert(notifications[#notifications].message:match("verify"), "failed linked-worktree verification is explicit")
 git_should_fail = false
+
+confirm_result = 2
+local before_cancelled_restart = #restart_calls
+global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Current worktree child") })
+eq(#restart_calls, before_cancelled_restart, "cancelling confirmation leaves the owned terminal untouched")
+confirm_result = 1
 
 global_picker.opts.actions["alt-s"]({}, { last_query = "repo query" })
 local repo_picker = picker_calls[3]
@@ -260,10 +274,10 @@ eq(repo_picker.opts.query, "repo query", "Git scope preserves the current query"
 eq(repo_picker.opts.prompt, "OpenCode Sessions (Git)> ", "session prompt shows active Git scope")
 
 linked_registered = false
-local before_stale_cache = #http_calls
+local before_stale_cache = #restart_calls
 local waits_before_stale_cache = live_waits
 global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Linked worktree") })
-eq(#http_calls, before_stale_cache, "an unregistered linked worktree is rejected even after scope discovery cached it")
+eq(#restart_calls, before_stale_cache, "an unregistered linked worktree is rejected even after scope discovery cached it")
 eq(live_waits, waits_before_stale_cache + 1, "linked authorization refreshes Git membership instead of trusting cached roots")
 assert(notifications[#notifications].message:match("active worktree"), "stale linked membership explains the rejection")
 linked_registered = true
@@ -278,21 +292,25 @@ git_should_fail = false
 
 cwd = "/changed/after/launch"
 global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Foreign project") })
-eq(#http_calls, before_unverified, "foreign sessions cannot switch the live TUI")
+eq(#restart_calls, before_unverified, "foreign sessions cannot restart the owned TUI")
 assert(notifications[#notifications].message:match("repository"), "foreign live switch explains the repository rejection")
 
 global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Current worktree child") })
-eq(http_calls[#http_calls].path, "/tui/select-session", "current-worktree sessions may switch the live TUI")
-eq(http_calls[#http_calls].opts.dir, "/repo/main", "live switch remains pinned after cwd changes")
+eq(restart_calls[#restart_calls], {
+	dir = "/repo/main",
+	launch_context = { session_id = "child" },
+}, "current-worktree restart remains pinned after cwd changes")
 
 global_picker.opts.actions.default({ entry_named(global_picker, "Linked worktree") })
 local message_picker = picker_calls[#picker_calls]
-local before_timeline = #http_calls
+local before_message_restart = #restart_calls
 message_picker.opts.actions["ctrl-l"]({ message_picker.entries[1] })
-eq(#http_calls, before_timeline + 3, "linked-worktree timeline navigation publishes every command")
-eq(http_calls[before_timeline + 1].opts.dir, "/repo/main", "timeline session selection uses the stable route")
-eq(http_calls[before_timeline + 2].opts.dir, "/repo/main", "timeline opening uses the stable route")
-eq(http_calls[before_timeline + 3].opts.dir, "/repo/main", "timeline navigation uses the stable route")
+eq(#restart_calls, before_message_restart + 1, "message restart replaces only one owned terminal")
+eq(restart_calls[#restart_calls], {
+	dir = "/repo/main",
+	launch_context = { session_id = "linked" },
+}, "message restart is session-level and uses the stable route")
+assert(not message_picker.opts.fzf_opts["--header"]:match("timeline"), "message picker makes no exact timeline claim")
 
 sessions = { { id = "only-foreign", title = "Only foreign", directory = "/elsewhere", time = { updated = 1 } } }
 cwd = "/alias/repo/main"
@@ -356,10 +374,13 @@ eq(grep_ctrl_l_map.rhs, "<C-L>", "OpenCode grep sends literal Ctrl-l to fzf")
 vim.api.nvim_buf_delete(grep_buf, { force = true })
 
 cwd = "/changed/after/grep-launch"
-local before_grep_switch = #http_calls
+local before_grep_switch = #restart_calls
 grep_picker.opts.actions["ctrl-l"]({ "000001.md:1:payload" })
-eq(#http_calls, before_grep_switch + 1, "grep can switch a session in an active linked worktree")
-eq(http_calls[#http_calls].opts.dir, "/repo/main", "grep live switching remains on the stable launch route")
+eq(#restart_calls, before_grep_switch + 1, "grep can restart into a session in an active linked worktree")
+eq(restart_calls[#restart_calls], {
+	dir = "/repo/main",
+	launch_context = { session_id = "grep-linked" },
+}, "grep restart remains on the stable launch route")
 
 grep_picker.opts.actions["alt-g"]({}, { last_query = "live grep query", __call_opts = { query = "stale grep query" } })
 eq(grep_calls[#grep_calls].opts.query, "live grep query", "grep scope relaunch prefers the live fzf query")
@@ -373,6 +394,7 @@ vim.fn.mkdir = original_mkdir
 vim.fn.writefile = original_writefile
 vim.fn.delete = original_delete
 vim.fn.executable = original_executable
+vim.fn.confirm = original_confirm
 vim.fs.find = original_fs_find
 vim.system = original_system
 vim.uv.fs_stat = original_fs_stat

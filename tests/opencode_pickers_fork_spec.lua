@@ -15,6 +15,7 @@ local original_mkdir = vim.fn.mkdir
 local original_writefile = vim.fn.writefile
 local original_delete = vim.fn.delete
 local original_executable = vim.fn.executable
+local original_confirm = vim.fn.confirm
 local original_fs_find = vim.fs.find
 local original_fs_stat = vim.uv.fs_stat
 local original_ui_input = vim.ui.input
@@ -44,6 +45,10 @@ vim.fn.mkdir = function() return 1 end
 vim.fn.writefile = function() return 0 end
 vim.fn.delete = function() return 0 end
 vim.fn.executable = function() return 0 end
+vim.fn.confirm = function(_, _, default)
+	eq(default, 2, "fork picker restart confirmation defaults to Cancel")
+	return 1
+end
 
 local pickers = {}
 package.loaded["fzf-lua"] = {
@@ -54,20 +59,14 @@ package.loaded["fzf-lua"] = {
 package.loaded["fzf-lua.utils"] = { strip_ansi_coloring = function(value) return value end }
 package.loaded["fzf-lua.config"] = { globals = { winopts = {} } }
 
-local http_calls = {}
 package.loaded["config.opencode_http"] = {
 	canonical = function(path) return path and path:gsub("/+$", "") end,
-	post = function(path, body, callback, opts)
-		table.insert(http_calls, { kind = "post", path = path, body = body, opts = opts })
-		callback(true, "")
-	end,
-	publish_command = function(command, callback, opts)
-		table.insert(http_calls, { kind = "publish", command = command, opts = opts })
-		callback(true, "")
-	end,
-	publish_commands = function(commands, callback, opts)
-		table.insert(http_calls, { kind = "publish_commands", commands = commands, opts = opts })
-		callback(true, "")
+}
+local restart_calls = {}
+package.loaded["config.opencode_terminal"] = {
+	restart_owned = function(dir, launch_context)
+		table.insert(restart_calls, { dir = dir, launch_context = vim.deepcopy(launch_context) })
+		return { ok = true, term = { id = #restart_calls }, owner_retired = true }
 	end,
 }
 
@@ -106,7 +105,10 @@ eq(message_calls[1].opts.dir, "/repo/original", "forkpane routes message retriev
 message_calls[1].callback(vim.deepcopy(messages))
 local forkpane_picker = pickers[1]
 forkpane_picker.opts.actions["ctrl-l"]({ forkpane_picker.entries[1] })
-eq(http_calls[1].opts.dir, "/repo/original", "forkpane live actions retain the invocation route after cwd changes")
+eq(restart_calls[1], {
+	dir = "/repo/original",
+	launch_context = { session_id = "session-fork" },
+}, "forkpane restart retains the invocation route after cwd changes")
 
 local input_callback
 vim.ui.input = function(_, callback) input_callback = callback end
@@ -120,9 +122,12 @@ latest_calls[2].callback(vim.deepcopy(session))
 eq(message_calls[2].opts.dir, "/repo/original", "gwtfork routes message retrieval through the selected session")
 message_calls[2].callback(vim.deepcopy(messages))
 local gwtfork_picker = pickers[2]
-local before_gwt_live = #http_calls
+local before_gwt_live = #restart_calls
 gwtfork_picker.opts.actions["ctrl-l"]({ gwtfork_picker.entries[1] })
-eq(http_calls[before_gwt_live + 1].opts.dir, "/repo/original", "gwtfork live actions retain the pre-prompt route")
+eq(restart_calls[before_gwt_live + 1], {
+	dir = "/repo/original",
+	launch_context = { session_id = "session-fork" },
+}, "gwtfork restart retains the pre-prompt route")
 
 vim.schedule = original_schedule
 vim.defer_fn = original_defer_fn
@@ -132,6 +137,7 @@ vim.fn.mkdir = original_mkdir
 vim.fn.writefile = original_writefile
 vim.fn.delete = original_delete
 vim.fn.executable = original_executable
+vim.fn.confirm = original_confirm
 vim.fs.find = original_fs_find
 vim.uv.fs_stat = original_fs_stat
 vim.ui.input = original_ui_input

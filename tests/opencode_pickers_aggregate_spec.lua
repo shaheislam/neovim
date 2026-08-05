@@ -125,8 +125,11 @@ assert(aggregate_picker.entries[1]:find("Session 01", 1, true), "aggregate resul
 assert(aggregate_picker.entries[#aggregate_picker.entries]:find("Session 10", 1, true), "late callbacks do not reorder results")
 eq(aggregate_picker.opts.query, "initial", "aggregate picker receives its launch query")
 assert(aggregate_picker.opts.actions["alt-g"], "aggregate picker exposes a location selector")
-assert(aggregate_picker.opts.actions["alt-l"], "aggregate picker preserves transcript-plus-live Alt-l")
+assert(aggregate_picker.opts.actions["alt-l"], "aggregate picker preserves transcript-plus-restart Alt-l")
 assert(aggregate_picker.opts.actions["alt-r"], "aggregate picker preserves reasoning Alt-r")
+local aggregate_header = aggregate_picker.opts.fzf_opts["--header"]
+assert(aggregate_header:match("restart"), "aggregate picker documents process-local session restart")
+assert(not aggregate_header:match("live") and not aggregate_header:match("timeline"), "aggregate picker makes no broadcast or exact-anchor claim")
 assert(notifications[#notifications].message:match("1 failed"), "partial aggregate failures are summarized")
 for _, call in ipairs(message_calls) do
 	eq(call.opts.dir, "/repo/main", "aggregate message requests carry each session directory")

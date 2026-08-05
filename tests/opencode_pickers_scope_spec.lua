@@ -18,6 +18,7 @@ local original_delete = vim.fn.delete
 local original_executable = vim.fn.executable
 local original_fs_find = vim.fs.find
 local original_system = vim.system
+local original_fs_stat = vim.uv.fs_stat
 
 vim.schedule = function(callback) callback() end
 vim.defer_fn = function(callback) callback() end
@@ -44,24 +45,68 @@ vim.fs.find = function(name)
 end
 
 local git_should_fail = false
+local linked_registered = true
+local live_waits = 0
 vim.system = function(args, _, callback)
 	assert(vim.deep_equal(args, { "git", "-C", "/repo/main", "worktree", "list", "--porcelain" }), "Git scope uses stable launch root")
+	local result
 	if git_should_fail then
-		callback({ code = 1, stdout = "", stderr = "failed" })
+		result = { code = 1, stdout = "", stderr = "failed" }
 	else
-		callback({
-			code = 0,
-			stdout = "worktree /alias/repo/main\nHEAD aaa\n\nworktree /alias/repo/linked\nHEAD bbb\n",
-			stderr = "",
+		local lines = {
+			"worktree /alias/repo/main",
+			"HEAD aaa",
+			"",
+		}
+		if linked_registered then
+			vim.list_extend(lines, {
+				"worktree /alias/repo/linked",
+				"HEAD bbb",
+				"",
+			})
+		end
+		vim.list_extend(lines, {
+			"worktree /repo/prunable",
+			"HEAD ccc",
+			"prunable gitdir file points to non-existent location",
+			"",
 		})
+		result = {
+			code = 0,
+			stdout = table.concat(lines, "\n"),
+			stderr = "",
+		}
 	end
-	return {}
+	if callback then
+		callback(result)
+	end
+	return {
+		wait = function(_, timeout)
+			assert(timeout and timeout > 0, "live authorization bounds Git worktree discovery")
+			live_waits = live_waits + 1
+			return result
+		end,
+	}
 end
 
 local aliases = {
 	["/alias/repo/main"] = "/repo/main",
 	["/alias/repo/linked"] = "/repo/linked",
 }
+local existing_directories = {
+	["/repo/main"] = true,
+	["/repo/main/subdir"] = true,
+	["/repo/linked/feature"] = true,
+	["/repo/main-other"] = true,
+	["/other/project"] = true,
+	["/repo/removed"] = true,
+	["/repo/prunable"] = true,
+	["/repo/file"] = "file",
+}
+vim.uv.fs_stat = function(path)
+	local kind = existing_directories[path]
+	return kind and { type = kind == true and "directory" or kind } or nil
+end
 local http_calls = {}
 package.loaded["config.opencode_http"] = {
 	canonical = function(path)
@@ -94,6 +139,10 @@ local sessions = {
 	{ id = "linked", title = "Linked worktree", directory = "/alias/repo/linked/feature", time = { updated = 40 } },
 	{ id = "prefix", title = "Prefix collision", directory = "/repo/main-other", time = { updated = 30 } },
 	{ id = "foreign", title = "Foreign project", directory = "/other/project", time = { updated = 20 } },
+	{ id = "removed", title = "Removed worktree", directory = "/repo/removed", time = { updated = 19 } },
+	{ id = "prunable", title = "Prunable worktree", directory = "/repo/prunable", time = { updated = 18 } },
+	{ id = "deleted", title = "Deleted directory", directory = "/repo/deleted", time = { updated = 17 } },
+	{ id = "file", title = "File path", directory = "/repo/file", time = { updated = 16 } },
 	{ id = "missing", title = "Missing directory", time = { updated = 10 } },
 }
 
@@ -171,9 +220,35 @@ assert(local_picker.opts.actions["alt-g"] and local_picker.opts.actions["alt-s"]
 
 local_picker.opts.actions["alt-g"]({}, { last_query = "typed query", __call_opts = { query = "stale query" } })
 local global_picker = picker_calls[2]
-eq(#global_picker.entries, 6, "Global scope includes every catalog session")
+eq(#global_picker.entries, 10, "Global scope includes every catalog session")
 eq(global_picker.opts.query, "typed query", "scope relaunch prefers fzf-lua's live last_query")
 eq(global_picker.opts.prompt, "OpenCode Sessions (Global)> ", "session prompt shows active Global scope")
+
+local before_linked_switch = #http_calls
+global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Linked worktree") })
+eq(#http_calls, before_linked_switch + 1, "Global history can switch to an active linked-worktree session")
+eq(http_calls[#http_calls].opts.dir, "/repo/main", "linked-worktree switching stays on the current TUI route")
+
+for _, blocked in ipairs({ "Prefix collision", "Foreign project", "Removed worktree", "Prunable worktree", "Deleted directory", "File path", "Missing directory" }) do
+	local before = #http_calls
+	global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, blocked) })
+	eq(#http_calls, before, blocked .. " cannot switch the live TUI")
+	local rejection = notifications[#notifications].message
+	if blocked == "Deleted directory" or blocked == "File path" then
+		assert(rejection:match("unavailable"), blocked .. " reports an unavailable session directory")
+	elseif blocked == "Missing directory" then
+		assert(rejection:match("no directory"), "missing session metadata reports the absent directory")
+	else
+		assert(rejection:match("repository"), blocked .. " reports failed repository membership")
+	end
+end
+
+git_should_fail = true
+local before_unverified = #http_calls
+global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Linked worktree") })
+eq(#http_calls, before_unverified, "linked sessions fail closed when Git membership cannot be verified")
+assert(notifications[#notifications].message:match("verify"), "failed linked-worktree verification is explicit")
+git_should_fail = false
 
 global_picker.opts.actions["alt-s"]({}, { last_query = "repo query" })
 local repo_picker = picker_calls[3]
@@ -183,6 +258,15 @@ assert(entry_named(repo_picker, "Current worktree child"), "Git scope includes d
 assert(entry_named(repo_picker, "Linked worktree"), "Git scope includes linked worktrees")
 eq(repo_picker.opts.query, "repo query", "Git scope preserves the current query")
 eq(repo_picker.opts.prompt, "OpenCode Sessions (Git)> ", "session prompt shows active Git scope")
+
+linked_registered = false
+local before_stale_cache = #http_calls
+local waits_before_stale_cache = live_waits
+global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Linked worktree") })
+eq(#http_calls, before_stale_cache, "an unregistered linked worktree is rejected even after scope discovery cached it")
+eq(live_waits, waits_before_stale_cache + 1, "linked authorization refreshes Git membership instead of trusting cached roots")
+assert(notifications[#notifications].message:match("active worktree"), "stale linked membership explains the rejection")
+linked_registered = true
 
 git_should_fail = true
 repo_picker.opts.actions["alt-s"]({}, { last_query = "keep me" })
@@ -194,19 +278,21 @@ git_should_fail = false
 
 cwd = "/changed/after/launch"
 global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Foreign project") })
-eq(#http_calls, 0, "foreign sessions cannot switch the live TUI")
-assert(notifications[#notifications].message:match("outside"), "foreign live switch explains the route rejection")
+eq(#http_calls, before_unverified, "foreign sessions cannot switch the live TUI")
+assert(notifications[#notifications].message:match("repository"), "foreign live switch explains the repository rejection")
 
 global_picker.opts.actions["ctrl-o"]({ entry_named(global_picker, "Current worktree child") })
-eq(http_calls[1].path, "/tui/select-session", "current-worktree sessions may switch the live TUI")
-eq(http_calls[1].opts.dir, "/repo/main", "live switch remains pinned after cwd changes")
+eq(http_calls[#http_calls].path, "/tui/select-session", "current-worktree sessions may switch the live TUI")
+eq(http_calls[#http_calls].opts.dir, "/repo/main", "live switch remains pinned after cwd changes")
 
-local_picker.opts.actions.default({ local_picker.entries[1] })
+global_picker.opts.actions.default({ entry_named(global_picker, "Linked worktree") })
 local message_picker = picker_calls[#picker_calls]
+local before_timeline = #http_calls
 message_picker.opts.actions["ctrl-l"]({ message_picker.entries[1] })
-eq(http_calls[2].opts.dir, "/repo/main", "timeline session selection uses the stable route")
-eq(http_calls[3].opts.dir, "/repo/main", "timeline opening uses the stable route")
-eq(http_calls[4].opts.dir, "/repo/main", "timeline navigation uses the stable route")
+eq(#http_calls, before_timeline + 3, "linked-worktree timeline navigation publishes every command")
+eq(http_calls[before_timeline + 1].opts.dir, "/repo/main", "timeline session selection uses the stable route")
+eq(http_calls[before_timeline + 2].opts.dir, "/repo/main", "timeline opening uses the stable route")
+eq(http_calls[before_timeline + 3].opts.dir, "/repo/main", "timeline navigation uses the stable route")
 
 sessions = { { id = "only-foreign", title = "Only foreign", directory = "/elsewhere", time = { updated = 1 } } }
 cwd = "/alias/repo/main"
@@ -242,7 +328,7 @@ eq(#grep_calls, 1, "global grep opens once after its bounded queue drains")
 defer_messages = false
 
 sessions = {
-	{ id = "grep-local", title = "Grep local", directory = "/repo/main", time = { updated = 2 } },
+	{ id = "grep-linked", title = "Grep linked", directory = "/repo/linked/feature", time = { updated = 2 } },
 	{ id = "grep-foreign", title = "Grep foreign", directory = "/other/project", time = { updated = 1 } },
 }
 cwd = "/alias/repo/main"
@@ -272,7 +358,7 @@ vim.api.nvim_buf_delete(grep_buf, { force = true })
 cwd = "/changed/after/grep-launch"
 local before_grep_switch = #http_calls
 grep_picker.opts.actions["ctrl-l"]({ "000001.md:1:payload" })
-eq(#http_calls, before_grep_switch + 1, "grep can switch a session in the launch worktree")
+eq(#http_calls, before_grep_switch + 1, "grep can switch a session in an active linked worktree")
 eq(http_calls[#http_calls].opts.dir, "/repo/main", "grep live switching remains on the stable launch route")
 
 grep_picker.opts.actions["alt-g"]({}, { last_query = "live grep query", __call_opts = { query = "stale grep query" } })
@@ -289,6 +375,7 @@ vim.fn.delete = original_delete
 vim.fn.executable = original_executable
 vim.fs.find = original_fs_find
 vim.system = original_system
+vim.uv.fs_stat = original_fs_stat
 package.loaded["fzf-lua.config"] = original_fzf_config
 
 print("PASS OpenCode session picker scopes canonical paths and guards stable live routes")

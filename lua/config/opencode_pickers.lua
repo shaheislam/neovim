@@ -331,6 +331,25 @@ local function path_within(path, root)
 	return path == root or vim.startswith(path, root .. "/")
 end
 
+local function parse_worktree_roots(output)
+	local roots = {}
+	local seen = {}
+	local normalized = (output or ""):gsub("\r\n", "\n") .. "\n\n"
+	for stanza in normalized:gmatch("(.-)\n\n") do
+		local prunable = stanza:match("^prunable") or stanza:find("\nprunable", 1, true)
+		local root = not prunable and stanza:match("^worktree ([^\n]+)") or nil
+		root = root and canonical(root) or nil
+		if root and not seen[root] then
+			seen[root] = true
+			table.insert(roots, root)
+		end
+	end
+	if #roots == 0 then
+		return nil, "Could not parse active Git worktrees"
+	end
+	return roots
+end
+
 local function resolve_worktree_roots(context, callback, refresh)
 	if context.worktree_roots and not refresh then
 		callback(context.worktree_roots)
@@ -348,18 +367,9 @@ local function resolve_worktree_roots(context, callback, refresh)
 				return
 			end
 
-			local roots = {}
-			local seen = {}
-			for line in (result.stdout or ""):gmatch("[^\n]+") do
-				local root = line:match("^worktree (.+)$")
-				root = root and canonical(root) or nil
-				if root and not seen[root] then
-					seen[root] = true
-					table.insert(roots, root)
-				end
-			end
-			if #roots == 0 then
-				callback(nil, "Could not parse Git worktrees")
+			local roots, parse_err = parse_worktree_roots(result.stdout)
+			if not roots then
+				callback(nil, parse_err)
 				return
 			end
 
@@ -367,6 +377,28 @@ local function resolve_worktree_roots(context, callback, refresh)
 			callback(roots)
 		end)
 	end)
+end
+
+local function live_worktree_roots(context)
+	local args = { "git", "-C", context.worktree_root, "worktree", "list", "--porcelain" }
+	local started, process = pcall(vim.system, args, { text = true })
+	if not started or not process or type(process.wait) ~= "function" then
+		return nil, "could not start Git worktree discovery"
+	end
+
+	local waited, result = pcall(process.wait, process, 1000)
+	if not waited or not result then
+		return nil, "Git worktree discovery timed out"
+	end
+	if result.code ~= 0 then
+		return nil, "Git could not list worktrees"
+	end
+
+	local roots, err = parse_worktree_roots(result.stdout)
+	if roots then
+		context.worktree_roots = roots
+	end
+	return roots, err
 end
 
 local function session_matches_scope(session, scope, context)
@@ -389,19 +421,44 @@ local function session_matches_scope(session, scope, context)
 end
 
 local function live_target_allowed(item, context)
-	local dir = canonical(item and item.session and item.session.directory)
-	if not dir or not context then
-		return false
+	if not context then
+		return false, "OpenCode live route is unavailable"
 	end
-	if context.worktree_root then
-		return path_within(dir, context.worktree_root)
+	local session_dir = item and item.session and item.session.directory
+	if not session_dir or session_dir == "" then
+		return false, "OpenCode session has no directory"
 	end
-	return dir == context.cwd
+	local dir = canonical(session_dir)
+	local stat = dir and vim.uv.fs_stat(dir) or nil
+	if not stat or stat.type ~= "directory" then
+		return false, "OpenCode session directory is unavailable"
+	end
+	if not context.worktree_root then
+		if dir == context.cwd then
+			return true
+		end
+		return false, "OpenCode session is outside the current live directory"
+	end
+	if path_within(dir, context.worktree_root) then
+		return true
+	end
+
+	-- Sibling worktrees must still be registered when the live action runs.
+	local roots, err = live_worktree_roots(context)
+	if not roots then
+		return false, "Could not verify linked OpenCode worktrees: " .. (err or "unknown error")
+	end
+	for _, root in ipairs(roots) do
+		if path_within(dir, root) then
+			return true
+		end
+	end
+	return false, "OpenCode session is not in an active worktree for the current Git repository"
 end
 
-local function notify_live_route_rejection()
+local function notify_live_route_rejection(reason)
 	vim.notify(
-		"OpenCode session is outside the current live route",
+		reason or "OpenCode session is outside the current live route",
 		vim.log.levels.WARN,
 		{ title = "opencode" }
 	)
@@ -480,8 +537,9 @@ local function switch_tui_session(item, context)
 	if not item or not item.session or not item.session.id then
 		return
 	end
-	if not live_target_allowed(item, context) then
-		notify_live_route_rejection()
+	local allowed, rejection = live_target_allowed(item, context)
+	if not allowed then
+		notify_live_route_rejection(rejection)
 		return
 	end
 	require("config.opencode_http").post("/tui/select-session", { sessionID = item.session.id }, function(ok, output)
@@ -564,8 +622,9 @@ local function sync_live_timeline(item, context)
 	if not item or not item.session or not item.session.id then
 		return false
 	end
-	if not live_target_allowed(item, context) then
-		notify_live_route_rejection()
+	local allowed, rejection = live_target_allowed(item, context)
+	if not allowed then
+		notify_live_route_rejection(rejection)
 		return false
 	end
 
@@ -1875,6 +1934,7 @@ function M.grep(opts)
 end
 
 function M.forkpane()
+	local context = session_context()
 	local api = require("config.opencode_messages")
 	api.latest_session(function(session, err)
 		if not session then
@@ -1888,14 +1948,16 @@ function M.forkpane()
 			end
 			open_message_picker(build_items(session, messages, "prompts"), "prompts", {
 				session = session,
+				session_context = context,
 				label = "Fork Point",
 				enter_action = fork_pane_from_item,
 			})
-		end)
-	end)
+		end, { dir = canonical(session.directory) or context.route_dir })
+	end, { dir = context.route_dir })
 end
 
 function M.gwtfork()
+	local context = session_context()
 	vim.ui.input({ prompt = "Fork branch name: " }, function(branch_name)
 		if not branch_name or branch_name == "" then
 			return
@@ -1913,13 +1975,14 @@ function M.gwtfork()
 				end
 				open_message_picker(build_items(session, messages, "prompts"), "prompts", {
 					session = session,
+					session_context = context,
 					label = "gwtfork: " .. branch_name,
 					enter_action = function(item)
 						fork_worktree_from_item(item, branch_name)
 					end,
 				})
-			end)
-		end)
+			end, { dir = canonical(session.directory) or context.route_dir })
+		end, { dir = context.route_dir })
 	end)
 end
 

@@ -12,6 +12,8 @@ local original_schedule = vim.schedule
 local original_defer_fn = vim.defer_fn
 local original_getcwd = vim.fn.getcwd
 local original_fs_find = vim.fs.find
+local original_system = vim.system
+local original_fs_stat = vim.uv.fs_stat
 vim.schedule = function(callback)
 	table.insert(scheduled, callback)
 end
@@ -20,6 +22,29 @@ vim.fn.getcwd = function() return "/repo" end
 vim.fs.find = function(name)
 	assert(name == ".git", "prompt picker context only searches for .git")
 	return { "/repo/.git" }
+end
+vim.system = function(args, _, callback)
+	assert(vim.deep_equal(args, { "git", "-C", "/repo", "worktree", "list", "--porcelain" }), "prompt live navigation checks the launch repository")
+	local result = {
+		code = 0,
+		stdout = "worktree /repo\nHEAD aaa\n\nworktree /repo-linked\nHEAD bbb\n",
+		stderr = "",
+	}
+	if callback then
+		callback(result)
+	end
+	return {
+		wait = function(_, timeout)
+			assert(timeout and timeout > 0, "prompt live navigation bounds Git discovery")
+			return result
+		end,
+	}
+end
+vim.uv.fs_stat = function(path)
+	if path == "/repo" or path == "/repo-linked" or path == "/foreign/repo" then
+		return { type = "directory" }
+	end
+	return nil
 end
 
 local pickers = {}
@@ -132,6 +157,7 @@ eq(restored, 0, "selection suppresses the deferred cancellation restore")
 pickers = {}
 scheduled = {}
 http_calls = {}
+session.directory = "/repo-linked"
 opencode.all({ prompt = prompt })
 local live_picker = pickers[1]
 live_picker.opts.winopts.on_close()
@@ -167,6 +193,18 @@ foreign_picker.opts.actions["ctrl-l"]({ foreign_picker.entries[1] })
 eq(#http_calls, calls_before_rejection, "foreign live navigation fails before publishing commands")
 scheduled[1]()
 eq(restored, 1, "rejected live navigation restores the prompt owner")
+
+pickers = {}
+scheduled = {}
+session.directory = "/repo-deleted"
+opencode.all({ prompt = prompt })
+local deleted_picker = pickers[1]
+calls_before_rejection = #http_calls
+deleted_picker.opts.winopts.on_close()
+deleted_picker.opts.actions["ctrl-l"]({ deleted_picker.entries[1] })
+eq(#http_calls, calls_before_rejection, "deleted live navigation fails before publishing commands")
+scheduled[1]()
+eq(restored, 2, "deleted live navigation restores the prompt owner exactly once")
 session.directory = "/repo"
 restored = 0
 
@@ -196,6 +234,8 @@ vim.schedule = original_schedule
 vim.defer_fn = original_defer_fn
 vim.fn.getcwd = original_getcwd
 vim.fs.find = original_fs_find
+vim.system = original_system
+vim.uv.fs_stat = original_fs_stat
 package.loaded["fzf-lua.config"] = original_fzf_config
 
 print("PASS OpenCode prompt pickers insert payloads and preserve nested lifecycle")

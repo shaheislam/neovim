@@ -50,6 +50,7 @@ jobs:
           nvim --headless -l tests/opencode_pickers_prompt_spec.lua
           nvim --headless -l tests/opencode_pickers_scope_spec.lua
           nvim --headless -l tests/opencode_pickers_aggregate_spec.lua
+          nvim --headless -l tests/opencode_pickers_fork_spec.lua
           nvim --headless -l tests/opencode_attach_registry_spec.lua
           nvim --headless -l tests/project_terminal_spec.lua
           nvim --headless -l tests/plan_idle_spec.lua

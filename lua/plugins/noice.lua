@@ -159,7 +159,7 @@ return {
       backend = "mini",
       relative = "editor",
       align = "center",
-      timeout = false,  -- Disable timeout - rely only on smart_move for dismissal
+      timeout = 3000,  -- Mini backend requires a number; blocking prompts defer dismissal
       position = {
         row = "50%",
         col = "50%",
@@ -568,7 +568,7 @@ return {
         },
         view = "mini",  -- Use mini view for confirmations
         opts = {
-          timeout = false,  -- No auto-dismiss for confirmations
+          timeout = 3000,  -- Rechecked while the confirmation keeps Neovim blocked
           replace = false,  -- Don't replace previous notifications
         },
       },

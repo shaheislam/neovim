@@ -607,6 +607,15 @@ eq(
 	"the OCV picker catalog uses the standard leader without a terminal-only prefix"
 )
 
+opencode_terminal_opts.bufnr = terminal_buf
+opencode_terminal_opts.__alive = true
+terminal_adapter.start(opencode_terminal_opts.dir)
+
+eq(#prompt_bindings, 2, "starting a reused OCV terminal reattaches the shared prompt picker catalog")
+eq(prompt_bindings[2].buf, terminal_buf, "the reused OCV picker catalog stays local to its terminal buffer")
+eq(prompt_bindings[2].owner.mode, "n", "the reused OCV picker catalog returns in Neovim Normal mode")
+eq(prompt_bindings[2].owner.prefix, nil, "the reused OCV picker catalog keeps the standard leader")
+
 local appended
 package.loaded["config.opencode_prompt"] = {
 	append = function(text, opts)
@@ -736,16 +745,16 @@ local insert_leader_bridge = modal_map("i", "<C-Space>")
 assert(insert_leader_bridge, "<C-Space> starts a leader sequence from Insert mode in the modal prompt")
 eq(insert_leader_bridge.callback, [[<Esc><Space>]], "Insert mode exits to Normal then replays Space")
 eq(insert_leader_bridge.opts.remap, true, "the replayed Space is recursively resolved as the Normal-mode leader trigger")
-eq(#prompt_bindings, 2, "the NUI prompt binds the shared prompt picker catalog")
-eq(prompt_bindings[2].buf, modal_buf, "the NUI picker catalog is local to its prompt buffer")
-eq(prompt_bindings[2].owner.mode, "n", "the NUI picker catalog is available only from Normal mode")
+eq(#prompt_bindings, 3, "the NUI prompt binds the shared prompt picker catalog")
+eq(prompt_bindings[3].buf, modal_buf, "the NUI picker catalog is local to its prompt buffer")
+eq(prompt_bindings[3].owner.mode, "n", "the NUI picker catalog is available only from Normal mode")
 
 local modal_scheduled = {}
 local original_schedule = vim.schedule
 vim.schedule = function(fn)
 	table.insert(modal_scheduled, fn)
 end
-prompt_bindings[2].owner.insert("main abc123 lua/plugins/opencode.lua ")
+prompt_bindings[3].owner.insert("main abc123 lua/plugins/opencode.lua ")
 vim.schedule = original_schedule
 eq(#modal_scheduled, 1, "the picker selection is deferred until fzf-lua restores the modal prompt window")
 modal_scheduled[1]()

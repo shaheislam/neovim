@@ -102,8 +102,12 @@ local function project_root(explicit_dir)
 end
 
 local function bind_opencode_terminal_picker(term, dir)
+	local bufnr = term and term.bufnr
+	if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+		return
+	end
 	local function restore_terminal()
-		local wins = vim.fn.win_findbuf(term.bufnr)
+		local wins = vim.fn.win_findbuf(bufnr)
 		if wins[1] and vim.api.nvim_win_is_valid(wins[1]) then
 			vim.api.nvim_set_current_win(wins[1])
 			vim.cmd("startinsert")
@@ -112,13 +116,13 @@ local function bind_opencode_terminal_picker(term, dir)
 	-- Keep the single-Escape transition local to OCV; other terminal TUIs still
 	-- receive Escape and use the global double-Escape fallback.
 	vim.keymap.set("t", "<Esc>", [[<C-\><C-n>]], {
-		buffer = term.bufnr,
+		buffer = bufnr,
 		nowait = true,
 		desc = "Enter Normal mode from OpenCode",
 	})
 	-- Bind the shared picker catalog in Neovim's Normal mode so OCV prompt text
 	-- remains untouched and the usual leader sequences work after Escape.
-	require("config.fzf_prompt").bind(term.bufnr, {
+	require("config.fzf_prompt").bind(bufnr, {
 		mode = "n",
 		source = function()
 			return require("config.return_target").last()
@@ -148,7 +152,8 @@ terminal_adapter.setup({
 		bind_opencode_terminal_picker(term, dir)
 		require("config.opencode_attach_registry").register(term, dir, generation)
 	end,
-	on_start = function(_, dir, generation)
+	on_start = function(term, dir, generation)
+		bind_opencode_terminal_picker(term, dir)
 		require("config.opencode_handoff").register_terminal(dir, generation)
 	end,
 	on_exit = function(_, dir, generation)

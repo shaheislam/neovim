@@ -590,9 +590,7 @@ for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(terminal_buf, "t")) do
 		break
 	end
 end
-assert(terminal_escape, "the OCV terminal uses a single Escape to enter Neovim Normal mode")
-eq(terminal_escape.rhs, [[<C-\><C-N>]], "the OCV Escape mapping leaves terminal-input mode")
-eq(terminal_escape.nowait, 1, "the OCV Escape mapping does not wait for the global double-Escape mapping")
+eq(terminal_escape, nil, "the OCV terminal leaves single Escape available for its internal Vim mode")
 
 eq(#prompt_bindings, 1, "the OCV composer binds the shared prompt picker catalog")
 eq(prompt_bindings[1].buf, terminal_buf, "the OCV picker catalog is local to its terminal buffer")

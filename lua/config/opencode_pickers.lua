@@ -304,6 +304,10 @@ local function session_context(opts)
 		cwd = cwd,
 		worktree_root = worktree_root,
 		route_dir = worktree_root or cwd,
+		-- Only <leader>fz's opencode_sessions/opencode_all_sessions flows set this
+		-- (see config.fzf_prompt); direct picker keymaps in plugins/opencode.lua
+		-- never do, so their live-route rejection stays strict.
+		allow_cross_route_fork = (opts and opts.allow_cross_route_fork) == true,
 	}
 end
 
@@ -406,40 +410,50 @@ local function session_matches_scope(session, scope, context)
 	return false
 end
 
-local function live_target_allowed(item, context)
+-- Classifies a picker item against the live route: "restart" (safe direct
+-- restart into the exact session), "fork" (foreign but valid directory,
+-- only reachable when the caller opted into allow_cross_route_fork), or
+-- "reject" with a human-readable reason (unsafe or unverifiable).
+local function classify_live_target(item, context)
 	if not context then
-		return false, "OpenCode live route is unavailable"
+		return "reject", "OpenCode live route is unavailable"
 	end
 	local session_dir = item and item.session and item.session.directory
 	if not session_dir or session_dir == "" then
-		return false, "OpenCode session has no directory"
+		return "reject", "OpenCode session has no directory"
 	end
 	local dir = canonical(session_dir)
 	local stat = dir and vim.uv.fs_stat(dir) or nil
 	if not stat or stat.type ~= "directory" then
-		return false, "OpenCode session directory is unavailable"
+		return "reject", "OpenCode session directory is unavailable"
 	end
 	if not context.worktree_root then
 		if dir == context.cwd then
-			return true
+			return "restart"
 		end
-		return false, "OpenCode session is outside the current live directory"
+		if context.allow_cross_route_fork then
+			return "fork"
+		end
+		return "reject", "OpenCode session is outside the current live directory"
 	end
 	if path_within(dir, context.worktree_root) then
-		return true
+		return "restart"
 	end
 
 	-- Sibling worktrees must still be registered when the live action runs.
 	local roots, err = live_worktree_roots(context)
 	if not roots then
-		return false, "Could not verify linked OpenCode worktrees: " .. (err or "unknown error")
+		return "reject", "Could not verify linked OpenCode worktrees: " .. (err or "unknown error")
 	end
 	for _, root in ipairs(roots) do
 		if path_within(dir, root) then
-			return true
+			return "restart"
 		end
 	end
-	return false, "OpenCode session is not in an active worktree for the current Git repository"
+	if context.allow_cross_route_fork then
+		return "fork"
+	end
+	return "reject", "OpenCode session is not in an active worktree for the current Git repository"
 end
 
 local function notify_live_route_rejection(reason)
@@ -519,20 +533,115 @@ local function yank_references(items)
 	vim.notify("Copied OpenCode reference", vim.log.levels.INFO, { title = "opencode" })
 end
 
+-- Forks a foreign-directory session into context.route_dir and attaches the
+-- owned terminal to the fork, leaving the original session untouched. The
+-- terminal generation owning route_dir is captured before the (async, up to
+-- 5s) HTTP fork request; if that generation changed by the time the fork
+-- response arrives, the fork is left unattached rather than forcibly
+-- replacing a terminal a concurrent action already replaced.
+local function fork_owned_session(item, context, lifecycle)
+	local session = item.session
+	local dir = context.route_dir
+	vim.schedule(function()
+		local choice = vim.fn.confirm(
+			("Fork OpenCode session '%s' into this project?\n\nThe original session is left untouched; a new session is created here."):format(
+				session.title or session.id
+			),
+			"&Fork here\n&Cancel",
+			2
+		)
+		if choice ~= 1 then
+			restore_prompt({ prompt = lifecycle.prompt })
+			return
+		end
+
+		local terminal = require("config.opencode_terminal")
+		local expected_generation = terminal.generation_for(dir)
+
+		require("config.opencode_http").fork_session(session.id, {
+			dir = dir,
+			message_id = item.message_id,
+		}, function(fork_id, err, forked_session)
+			if not fork_id then
+				restore_prompt({ prompt = lifecycle.prompt })
+				vim.notify("Fork failed: " .. (err or "unknown error"), vim.log.levels.ERROR, { title = "opencode" })
+				return
+			end
+
+			local forked_dir = forked_session and canonical(forked_session.directory)
+			if not forked_dir or forked_dir ~= canonical(dir) then
+				restore_prompt({ prompt = lifecycle.prompt })
+				vim.notify(
+					("Forked session %s was not created in this project; leaving it unattached."):format(fork_id),
+					vim.log.levels.ERROR,
+					{ title = "opencode" }
+				)
+				return
+			end
+
+			if terminal.generation_for(dir) ~= expected_generation then
+				restore_prompt({ prompt = lifecycle.prompt })
+				vim.notify(
+					("Forked session %s was created, but the owned OpenCode terminal changed during the request; run :OpenCodeFocus and select it manually."):format(
+						fork_id
+					),
+					vim.log.levels.WARN,
+					{ title = "opencode" }
+				)
+				return
+			end
+
+			if lifecycle.stage then
+				lifecycle.stage.transitioned = true
+			end
+
+			local result = terminal.restart_owned(dir, { session_id = fork_id })
+			if result.ok then
+				if lifecycle.stage then
+					lifecycle.stage.completed = true
+				end
+				vim.notify(
+					("Forked OpenCode session %s and restarted this Neovim's terminal in it"):format(fork_id),
+					vim.log.levels.INFO,
+					{ title = "opencode" }
+				)
+				if lifecycle.on_success then
+					lifecycle.on_success()
+				end
+				return
+			end
+
+			local message = result.error or "Could not restart the owned OpenCode terminal"
+			if result.owner_retired then
+				message = message .. ("\nForked session %s was created; run :OpenCodeFocus to attach it."):format(fork_id)
+			else
+				restore_prompt({ prompt = lifecycle.prompt })
+			end
+			vim.notify(message, vim.log.levels.ERROR, { title = "opencode" })
+		end)
+	end)
+end
+
 local function restart_owned_session(item, context, lifecycle)
 	lifecycle = lifecycle or {}
 	if not item or not item.session or not item.session.id then
 		return false
 	end
-	local allowed, rejection = live_target_allowed(item, context)
-	if not allowed then
-		notify_live_route_rejection(rejection)
+	local classification, reason = classify_live_target(item, context)
+	if classification == "reject" then
+		notify_live_route_rejection(reason)
 		return false
 	end
 
 	if lifecycle.stage then
 		lifecycle.stage.transitioned = true
 	end
+
+	if classification == "fork" then
+		fork_owned_session(item, context, lifecycle)
+		return true
+	end
+
 	vim.schedule(function()
 		local session = item.session
 		local choice = vim.fn.confirm(

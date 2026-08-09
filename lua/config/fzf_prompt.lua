@@ -369,8 +369,12 @@ local function launch_opencode(item, owner)
 		opencode_reasoning = function() pickers.reasoning({ prompt = prompt }) end,
 		opencode_tools = function() pickers.tools({ prompt = prompt }) end,
 		opencode_tool_output = function() pickers.tool_output({ prompt = prompt }) end,
-		opencode_sessions = function() pickers.sessions("all", { prompt = prompt, session_scope = "local" }) end,
-		opencode_all_sessions = function() pickers.all_sessions("all", { prompt = prompt, session_scope = "local" }) end,
+		opencode_sessions = function()
+			pickers.sessions("all", { prompt = prompt, session_scope = "local", allow_cross_route_fork = true })
+		end,
+		opencode_all_sessions = function()
+			pickers.all_sessions("all", { prompt = prompt, session_scope = "local", allow_cross_route_fork = true })
+		end,
 	}
 	local action = actions[item.name]
 	if action then action() end
@@ -458,8 +462,12 @@ local function open_normal_menu()
 							opencode_reasoning = pickers.reasoning,
 							opencode_tools = pickers.tools,
 							opencode_tool_output = pickers.tool_output,
-							opencode_sessions = function() pickers.sessions("all", { session_scope = "local" }) end,
-							opencode_all_sessions = function() pickers.all_sessions("all", { session_scope = "local" }) end,
+						opencode_sessions = function()
+							pickers.sessions("all", { session_scope = "local", allow_cross_route_fork = true })
+						end,
+						opencode_all_sessions = function()
+							pickers.all_sessions("all", { session_scope = "local", allow_cross_route_fork = true })
+						end,
 						}
 						if actions[choice] then actions[choice]() end
 					elseif type(fzf[choice]) == "function" then

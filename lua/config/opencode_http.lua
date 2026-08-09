@@ -290,7 +290,7 @@ function M.fork_session(session_id, opts, callback)
     end
     local ok, decoded = pcall(vim.json.decode, stdout or "")
     if ok and decoded and decoded.id then
-      callback(decoded.id, nil)
+      callback(decoded.id, nil, decoded)
     else
       callback(nil, "unexpected fork response: " .. (stdout or ""))
     end

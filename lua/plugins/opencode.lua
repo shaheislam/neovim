@@ -2,6 +2,16 @@
 -- Connects to the launchd-managed OpenCode server via HTTP + SSE
 -- Shares editor context (buffers, selections, diagnostics) with the agent
 
+-- Worktree launchers set NVIM_OPEN_OPENCODE / NVIM_OPEN_TOGGLETERM to select
+-- this Neovim's startup layout. Capture them once at plugin-spec eval time,
+-- then immediately clear them from vim.env so integrated shells (and any
+-- child Neovim spawned as a Git editor for rebase/commit) do not inherit the
+-- flags and open a second OpenCode split of their own.
+local nvim_open_opencode = vim.env.NVIM_OPEN_OPENCODE == "1"
+local nvim_open_toggleterm = vim.env.NVIM_OPEN_TOGGLETERM == "1"
+vim.env.NVIM_OPEN_OPENCODE = nil
+vim.env.NVIM_OPEN_TOGGLETERM = nil
+
 local opencode_port = 4096
 local opencode_ready_delay = 500
 local opencode_startup_timeout = 30000
@@ -750,7 +760,7 @@ return {
 			"akinsho/toggleterm.nvim",
 			"MunifTanjim/nui.nvim",
 		},
-		lazy = vim.env.NVIM_OPEN_OPENCODE ~= "1",
+		lazy = not nvim_open_opencode,
 		cmd = { "Opencode" },
 		init = apply_opencode_opts,
 		keys = {
@@ -1097,12 +1107,12 @@ return {
 			-- NVIM_OPEN_TOGGLETERM additionally opens the ordinary project shell
 			-- alongside it in the coordinated editor+shell+OCV layout; without it,
 			-- OCV-only callers keep their existing bare-split behavior unchanged.
-			if vim.env.NVIM_OPEN_OPENCODE == "1" then
+			if nvim_open_opencode then
 				vim.api.nvim_create_autocmd("VimEnter", {
 					once = true,
 					callback = function()
 						vim.defer_fn(function()
-							if vim.env.NVIM_OPEN_TOGGLETERM == "1" then
+							if nvim_open_toggleterm then
 								open_worktree_layout()
 							else
 								open_opencode_terminal()

@@ -89,8 +89,13 @@ package.loaded["config.opencode_status"] = {
 		status_setup_calls = status_setup_calls + 1
 	end,
 }
+vim.env.NVIM_OPEN_OPENCODE_UNRELATED = "keep-me"
 local plugin_specs = dofile("lua/plugins/opencode.lua")
 eq(plugin_specs[1].lazy, true, "ordinary editor startup keeps opencode.nvim lazy-loaded")
+eq(vim.env.NVIM_OPEN_OPENCODE, nil, "plugin load clears NVIM_OPEN_OPENCODE so child Neovim processes do not inherit it")
+eq(vim.env.NVIM_OPEN_TOGGLETERM, nil, "plugin load clears NVIM_OPEN_TOGGLETERM so child Neovim processes do not inherit it")
+eq(vim.env.NVIM_OPEN_OPENCODE_UNRELATED, "keep-me", "plugin load leaves unrelated environment variables intact")
+vim.env.NVIM_OPEN_OPENCODE_UNRELATED = nil
 local terminal_adapter = require("config.opencode_terminal")
 terminal_adapter.__set_test_hooks({
 	terminal_live = function(term)
@@ -453,6 +458,7 @@ print("PASS opencode config installs one plugin-local NUI input adapter and no g
 vim.env.NVIM_OPEN_OPENCODE = "1"
 local startup_plugin_specs = dofile("lua/plugins/opencode.lua")
 eq(startup_plugin_specs[1].lazy, false, "worktree startup eagerly loads opencode.nvim before VimEnter")
+eq(vim.env.NVIM_OPEN_OPENCODE, nil, "eager plugin load clears NVIM_OPEN_OPENCODE from vim.env")
 
 local startup_terminal_actions = {}
 local startup_defer_delays = {}
@@ -495,6 +501,8 @@ print("PASS worktree startup eagerly loads opencode.nvim and opens its split exa
 vim.env.NVIM_OPEN_OPENCODE = "1"
 vim.env.NVIM_OPEN_TOGGLETERM = "1"
 local layout_plugin_specs = dofile("lua/plugins/opencode.lua")
+eq(vim.env.NVIM_OPEN_OPENCODE, nil, "coordinated-layout plugin load clears NVIM_OPEN_OPENCODE from vim.env")
+eq(vim.env.NVIM_OPEN_TOGGLETERM, nil, "coordinated-layout plugin load clears NVIM_OPEN_TOGGLETERM from vim.env")
 
 local layout_actions = {}
 local original_layout_terminal_open = terminal_adapter.open

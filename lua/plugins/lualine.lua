@@ -22,7 +22,9 @@ return {
 						if symbols and #symbols > 0 then
 							local parts = {}
 							for i, s in ipairs(symbols) do
-								if i > 5 then break end
+								if i > 5 then
+									break
+								end
 								parts[#parts + 1] = (s.icon or "") .. " " .. s.name
 							end
 							aerial_cache.text = table.concat(parts, " ")
@@ -39,6 +41,14 @@ return {
 			local stl_escape = require("lualine.utils.utils").stl_escape
 			local opencode_terminal = require("config.opencode_terminal")
 			local remembered_label_by_tab = {}
+			local opencode_statuses = {
+				error = { text = "󰚩 x", color = "#f1c6e2" },
+				permission = { text = "󰚩 ?", color = "#efcfab" },
+				question = { text = "󰚩 ?", color = "#d7cef9" },
+				busy = { text = "󰚩 ", color = "#b8d9fc" },
+				idle = { text = "󰚩", color = "#a7e1e8" },
+				connected = { text = "󰚩", color = "#a7e1e8" },
+			}
 
 			local function render_buffer_label(bufnr)
 				if not vim.api.nvim_buf_is_valid(bufnr) then
@@ -143,7 +153,9 @@ return {
 						-- Aerial breadcrumb (cached — only recalculates on buffer change tick, not every CursorMoved)
 						{
 							cached_aerial,
-							cond = function() return aerial_cache.text ~= "" end,
+							cond = function()
+								return aerial_cache.text ~= ""
+							end,
 						},
 					},
 					lualine_x = {
@@ -164,20 +176,15 @@ return {
 						},
 						{
 							function()
-								local status = vim.g.opencode_status
-								if status == "busy" then
-									return "󰚩 "
-								elseif status == "idle" or status == "connected" then
-									return "󰚩"
-								end
-								return ""
+								local status = opencode_statuses[vim.g.opencode_status]
+								return status and status.text or ""
 							end,
-							cond = function() return vim.g.opencode_status ~= nil end,
+							cond = function()
+								return vim.g.opencode_status ~= nil
+							end,
 							color = function()
-								if vim.g.opencode_status == "busy" then
-									return { fg = "#ff9e64" }
-								end
-								return { fg = "#9ece6a" }
+								local status = opencode_statuses[vim.g.opencode_status]
+								return { fg = status and status.color or "#a7e1e8" }
 							end,
 						},
 						{

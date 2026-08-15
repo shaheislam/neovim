@@ -47,15 +47,30 @@ local active_component = captured.sections.lualine_c[3][1]
 assert(type(active_component) == "function", "the active filename slot is a custom component")
 local inactive_component = captured.inactive_sections.lualine_c[1][1]
 assert(type(inactive_component) == "function", "inactive windows use the same safe custom component")
+local opencode_component = captured.sections.lualine_x[2]
+assert(type(opencode_component[1]) == "function", "the OpenCode status slot is a custom component")
+assert(type(opencode_component.color) == "function", "the OpenCode status slot derives its semantic color")
+
+local expected_opencode_status = {
+	error = { text = "󰚩 x", color = { fg = "#f1c6e2" } },
+	permission = { text = "󰚩 ?", color = { fg = "#efcfab" } },
+	question = { text = "󰚩 ?", color = { fg = "#d7cef9" } },
+	busy = { text = "󰚩 ", color = { fg = "#b8d9fc" } },
+	idle = { text = "󰚩", color = { fg = "#a7e1e8" } },
+	connected = { text = "󰚩", color = { fg = "#a7e1e8" } },
+}
+for status, expected in pairs(expected_opencode_status) do
+	vim.g.opencode_status = status
+	eq(opencode_component[1](), expected.text, status .. " renders its exact OpenCode label")
+	eq(opencode_component.color(), expected.color, status .. " renders its MiniAutumn color")
+end
+vim.g.opencode_status = nil
 
 local terminal_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(terminal_buf)
 local terminal_job = vim.fn.termopen({ "sh", "-c", "sleep 10" })
 assert(terminal_job > 0, "the terminal fixture starts")
-vim.api.nvim_buf_set_name(
-	terminal_buf,
-	"term://project//123:OPENCODE_SERVER_PASSWORD=statusline-secret ocv attach"
-)
+vim.api.nvim_buf_set_name(terminal_buf, "term://project//123:OPENCODE_SERVER_PASSWORD=statusline-secret ocv attach")
 vim.b[terminal_buf].toggle_number = 7
 opencode_buffers[terminal_buf] = true
 
@@ -101,11 +116,7 @@ vim.api.nvim_set_current_buf(refreshed_buf)
 vim.api.nvim_buf_set_name(refreshed_buf, vim.fn.getcwd() .. "/tests/lualine-renamed.lua")
 vim.bo[refreshed_buf].readonly = true
 vim.api.nvim_set_current_buf(terminal_buf)
-eq(
-	active_component(),
-	"tests/lualine-renamed.lua 󰌾",
-	"leaving a buffer refreshes renamed and readonly label state"
-)
+eq(active_component(), "tests/lualine-renamed.lua 󰌾", "leaving a buffer refreshes renamed and readonly label state")
 
 local empty_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(file_buf)

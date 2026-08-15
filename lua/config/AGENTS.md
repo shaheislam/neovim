@@ -14,6 +14,7 @@ Rules for `~/neovim/lua/config`.
 
 - `claude-bridge.lua` writes editor state to `/tmp/nvim-claude-bridge/`.
 - `hotreload.lua` handles external edit reload behavior; avoid adding competing file watchers.
+- `opencode_status.lua` aggregates exact bound-session `error|permission|question|busy|idle` state and publishes only through the owner-safe dotfiles `tmux-agent-state` protocol. Preserve exact-session filtering and fail closed when bindings, owner identity, or job ancestry are unknown.
 - Keep bridge and hotreload changes reviewed through diagnostics, quickfix, and git diff.
 
 ## Validation

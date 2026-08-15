@@ -43,8 +43,15 @@ local function next_sequence()
 end
 
 local function normalize_status(status_type)
-	if status_type == "idle" then
-		return "idle"
+	local exact = {
+		error = true,
+		permission = true,
+		question = true,
+		busy = true,
+		idle = true,
+	}
+	if exact[status_type] then
+		return status_type
 	end
 	if type(status_type) == "string" and status_type ~= "" then
 		return "busy"
@@ -173,9 +180,25 @@ local function newer(candidate, current)
 	return candidate.session_id < current.session_id
 end
 
+local function status_rank(value)
+	return ({ error = 5, permission = 4, question = 3, busy = 2, idle = 1 })[value] or 0
+end
+
+local function higher(candidate, current)
+	if not current then
+		return true
+	end
+	local candidate_rank = status_rank(candidate.status)
+	local current_rank = status_rank(current.status)
+	if candidate_rank ~= current_rank then
+		return candidate_rank > current_rank
+	end
+	return newer(candidate, current)
+end
+
 -- Aggregate every bound project in this Neovim pane. Every terminal job must
--- be live and exact. A known busy session wins even while another live bound
--- session has not reported status; idle requires every session to be idle.
+-- be live and exact. A known active state wins by semantic precedence even
+-- while another binding is unknown; idle requires every session to be idle.
 function M._compute()
 	local handoff_ok, handoff = pcall(require, "config.opencode_handoff")
 	local terminal_ok, terminal = pcall(require, "config.opencode_terminal")
@@ -189,7 +212,7 @@ function M._compute()
 	end
 
 	local job_set = {}
-	local busy
+	local active
 	local idle
 	local all_idle = true
 
@@ -210,14 +233,15 @@ function M._compute()
 		else
 			local candidate = {
 				session_id = binding.sessionID,
+				status = cached.status,
 				sequence = cached.status_sequence or 0,
 				provider = cached.providerID or "",
 				model = cached.modelID or "",
 			}
-			if cached.status == "busy" then
+			if cached.status ~= "idle" then
 				all_idle = false
-				if newer(candidate, busy) then
-					busy = candidate
+				if higher(candidate, active) then
+					active = candidate
 				end
 			elseif cached.status == "idle" then
 				if newer(candidate, idle) then
@@ -237,9 +261,9 @@ function M._compute()
 
 	local winner
 	local status
-	if busy then
-		winner = busy
-		status = "busy"
+	if active then
+		winner = active
+		status = active.status
 	elseif all_idle and idle then
 		winner = idle
 		status = "idle"
@@ -401,6 +425,19 @@ local function create_autocmds(group)
 		group = group,
 		pattern = "OpencodeEvent:session.status",
 		desc = "Cache exact-session OpenCode status",
+		callback = function(event)
+			local props = event_properties(event)
+			if type(props) == "table" then
+				cache_status(props.sessionID, props.status and props.status.type)
+				M._recompute()
+			end
+		end,
+	})
+
+	vim.api.nvim_create_autocmd("User", {
+		group = group,
+		pattern = "OpencodeEvent:agent.status",
+		desc = "Cache exact semantic OpenCode status",
 		callback = function(event)
 			local props = event_properties(event)
 			if type(props) == "table" then

@@ -80,20 +80,47 @@ local session = {
 	id = "session-1",
 	title = "Prompt picker work",
 	agent = "build",
-	directory = "/repo",
+	directory = "/repo/",
+	projectID = "project-1",
+	project = { id = "project-1", name = "Picker project" },
 	time = { created = 1000, updated = 2000 },
 }
+local second_session = {
+	id = "session-2",
+	title = "Follow-up work",
+	agent = "build",
+	directory = "/repo//",
+	projectID = "project-2",
+	time = { created = 1000, updated = 2000 },
+}
+local exact_text_body = "  Implement  the picker lifecycle\n\nKeep repeated   spacing.\n  "
+local first_tool_body = "title: Inspect\n\ninput:\n  first input\n\noutput:\nfirst output  "
+local second_tool_body = "title: Inspect\n\ninput:\nsecond  input\n\noutput:\n  second output\n"
 local messages = {
 	{
 		info = { id = "message-1", role = "user", time = { created = 3000 } },
 		parts = {
-			{ id = "part-1", type = "text", text = "Implement the picker lifecycle" },
+			{ id = "part-1", type = "text", text = exact_text_body },
+			{
+				id = "part-tool-1",
+				type = "tool",
+				tool = "bash",
+				time = { start = 4000 },
+				state = { title = "Inspect", input = "  first input", output = "first output  " },
+			},
+			{
+				id = "part-tool-2",
+				type = "tool",
+				tool = "bash",
+				time = { start = 5000 },
+				state = { title = "Inspect", input = "second  input", output = "  second output\n" },
+			},
 		},
 	},
 }
 package.loaded["config.opencode_messages"] = {
 	latest_session = function(callback) callback(session) end,
-	sessions = function(callback) callback({ session }) end,
+	sessions = function(callback) callback({ session, second_session }) end,
 	messages = function(_, callback) callback(messages) end,
 	notify_error = function(err) error(err or "unexpected OpenCode API error") end,
 }
@@ -131,6 +158,8 @@ local prompt = {
 }
 
 local opencode = dofile("lua/config/opencode_pickers.lua")
+local message_time = os.date("%Y-%m-%d %H:%M", 3)
+local tool_time = os.date("%Y-%m-%d %H:%M", 4)
 opencode.all({ prompt = prompt })
 eq(#pickers, 1, "prompt mode opens the message picker")
 local message_picker = pickers[1]
@@ -165,7 +194,11 @@ message_picker.opts.winopts.on_close()
 eq(#scheduled, 1, "message picker defers prompt restoration until action dispatch")
 message_picker.opts.actions.enter({ message_picker.entries[1] })
 eq(#inserted, 1, "message Enter inserts into the prompt owner")
-assert(inserted[1]:match("Implement the picker lifecycle"), "inserted text contains the selected message payload")
+eq(
+	inserted[1],
+	("[user text] %s | Prompt picker work Implement the picker lifecycle Keep repeated spacing. "):format(message_time),
+	"message Enter keeps the existing flattened prompt payload"
+)
 assert(not inserted[1]:find("\n", 1, true), "message payload is flattened for prompt insertion")
 assert(inserted[1]:match(" $"), "message payload ends in one continuation space")
 scheduled[1]()
@@ -177,8 +210,50 @@ clipboard = {}
 opencode.all({ prompt = prompt })
 local yank_picker = pickers[1]
 yank_picker.opts.winopts.on_close()
-yank_picker.opts.actions["ctrl-y"]({ yank_picker.entries[1] })
-assert(clipboard[1]:match("Implement the picker lifecycle"), "message Ctrl-y copies the selected payload")
+yank_picker.opts.actions["ctrl-y"]({ yank_picker.entries[1], yank_picker.entries[2] })
+local expected_message_yank = table.concat({
+	table.concat({
+		"OpenCode selection",
+		"Session: Prompt picker work",
+		"Session ID: session-1",
+		"Directory: /repo",
+		"Message ID: message-1",
+		"Part ID: part-1",
+		"Role/Kind: user/text",
+		"Time: " .. message_time,
+		"",
+		"Body:",
+	}, "\n") .. "\n" .. exact_text_body,
+	table.concat({
+		"OpenCode selection",
+		"Session: Prompt picker work",
+		"Session ID: session-1",
+		"Directory: /repo",
+		"Message ID: message-1",
+		"Part ID: part-tool-1",
+		"Role/Kind: user/tool",
+		"Time: " .. tool_time,
+		"Tool: bash",
+		"Title: Inspect",
+		"",
+		"Body:",
+	}, "\n") .. "\n" .. first_tool_body,
+	table.concat({
+		"OpenCode selection",
+		"Session: Prompt picker work",
+		"Session ID: session-1",
+		"Directory: /repo",
+		"Message ID: message-1",
+		"Part ID: part-tool-2",
+		"Role/Kind: user/tool",
+		"Time: " .. tool_time,
+		"Tool: bash",
+		"Title: Inspect",
+		"",
+		"Body:",
+	}, "\n") .. "\n" .. second_tool_body,
+}, "\n\n")
+eq(clipboard[1], expected_message_yank, "message Ctrl-y serializes exact rich blocks and grouped constituents")
 eq(#inserted, 1, "message Ctrl-y does not insert into the prompt")
 scheduled[1]()
 eq(restored, 1, "message Ctrl-y closes and restores the prompt owner")
@@ -296,8 +371,30 @@ restored = 0
 opencode.sessions("all", { prompt = prompt })
 session_picker = pickers[1]
 session_picker.opts.winopts.on_close()
-session_picker.opts.actions["ctrl-y"]({ session_picker.entries[1] })
-eq(clipboard, { "session-1" }, "session Ctrl-y copies the stable session id")
+session_picker.opts.actions["ctrl-y"]({ session_picker.entries[1], session_picker.entries[2] })
+eq(clipboard, {
+	table.concat(
+		{
+			table.concat({
+				"OpenCode session",
+				"Title: Prompt picker work",
+				"Session ID: session-1",
+				"Directory: /repo",
+				"Project: Picker project",
+				"Project ID: project-1",
+			}, "\n"),
+			table.concat({
+				"OpenCode session",
+				"Title: Follow-up work",
+				"Session ID: session-2",
+				"Directory: /repo",
+				"Project: project-2",
+				"Project ID: project-2",
+			}, "\n"),
+		},
+		"\n\n"
+	),
+}, "session Ctrl-y copies rich stable session identity")
 scheduled[1]()
 eq(restored, 1, "session Ctrl-y closes and restores the prompt owner")
 

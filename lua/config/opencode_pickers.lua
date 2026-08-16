@@ -1,5 +1,4 @@
 local M = {}
-local fzf_yank = require("config.fzf_yank")
 
 local scopes = {
 	all = "All messages",
@@ -50,6 +49,18 @@ local surrounding_payload
 ---@field messages OpenCodeMessage[]
 ---@field message_idx integer
 ---@field part_idx integer
+---@field message_id? string
+---@field part_id? string
+---@field role string
+---@field kind string
+---@field tool? string
+---@field title? string
+---@field time string
+---@field text string
+---@field constituents? OpenCodePickerConstituent[]
+
+---@class OpenCodePickerConstituent
+---@field session OpenCodeSession
 ---@field message_id? string
 ---@field part_id? string
 ---@field role string
@@ -290,6 +301,69 @@ local function canonical(path)
 	return resolved
 end
 
+local function absolute_session_directory(session)
+	local directory = session and session.directory
+	if not directory or directory == "" then
+		return ""
+	end
+	local absolute = vim.fn.fnamemodify(directory, ":p")
+	if vim.fs.normalize then
+		absolute = vim.fs.normalize(absolute)
+	end
+	local normalized = absolute == "/" and absolute or absolute:gsub("/+$", "")
+	return canonical(absolute) or normalized
+end
+
+local function clipboard_item(item)
+	return {
+		session = item.session,
+		message_id = item.message_id,
+		part_id = item.part_id,
+		role = item.role,
+		kind = item.kind,
+		tool = item.tool,
+		title = item.title,
+		time = item.time,
+		text = item.text,
+	}
+end
+
+local function clipboard_item_payload(item)
+	local lines = {
+		"OpenCode selection",
+		"Session: " .. ((item.session and (item.session.title or item.session.id)) or "unknown"),
+		"Session ID: " .. ((item.session and item.session.id) or ""),
+		"Directory: " .. absolute_session_directory(item.session),
+		"Message ID: " .. (item.message_id or ""),
+		"Part ID: " .. (item.part_id or ""),
+		("Role/Kind: %s/%s"):format(item.role or "unknown", item.kind or "unknown"),
+		"Time: " .. (item.time or ""),
+	}
+	if item.tool and item.tool ~= "" then
+		table.insert(lines, "Tool: " .. item.tool)
+	end
+	if item.title and item.title ~= "" then
+		table.insert(lines, "Title: " .. item.title)
+	end
+	table.insert(lines, "")
+	table.insert(lines, "Body:")
+	return table.concat(lines, "\n") .. "\n" .. (item.text or "")
+end
+
+local function session_clipboard_payload(session)
+	local project = session.project or {}
+	local project_id = session.projectID or project.id or ""
+	local project_name = project.name or project.id or session.projectID or ""
+	return table.concat({
+		"OpenCode session",
+		"Title: " .. (session.title or session.id or "unknown"),
+		"Session ID: " .. (session.id or ""),
+		"Directory: " .. absolute_session_directory(session),
+		"Project: " .. project_name,
+		"Project ID: " .. project_id,
+	}, "\n")
+end
+
 local function git_root(path)
 	local git_dir = vim.fs.find(".git", { path = path, upward = true })[1]
 	return git_dir and canonical(vim.fn.fnamemodify(git_dir, ":h")) or nil
@@ -520,9 +594,24 @@ local function yank_items(items)
 	if #items == 0 then
 		return
 	end
-	local payload = table.concat(vim.tbl_map(item_payload, items), "\n\n")
+	local blocks = {}
+	for _, item in ipairs(items) do
+		for _, constituent in ipairs(item.constituents or { item }) do
+			table.insert(blocks, clipboard_item_payload(constituent))
+		end
+	end
+	local payload = table.concat(blocks, "\n\n")
 	vim.fn.setreg("+", payload)
 	vim.notify("Copied OpenCode selection", vim.log.levels.INFO, { title = "opencode" })
+end
+
+local function yank_sessions(sessions)
+	if #sessions == 0 then
+		return
+	end
+	local payload = table.concat(vim.tbl_map(session_clipboard_payload, sessions), "\n\n")
+	vim.fn.setreg("+", payload)
+	vim.notify("Copied OpenCode session", vim.log.levels.INFO, { title = "opencode" })
 end
 
 local function yank_references(items)
@@ -781,6 +870,7 @@ local function build_items(session, messages, scope)
 						time = timestamp((part.time and part.time.start) or (info.time and info.time.created)),
 						text = text,
 					}
+					item.constituents = { clipboard_item(item) }
 
 					if scope == "all" and part.type == "tool" then
 						local key = (item.tool or "") .. "\0" .. (item.title or "")
@@ -791,6 +881,7 @@ local function build_items(session, messages, scope)
 							previous_tool_group.item.text = previous_tool_group.item.text
 								.. "\n\n--- grouped repeated tool call ---\n\n"
 								.. item.text
+							table.insert(previous_tool_group.item.constituents, item.constituents[1])
 						else
 							table.insert(items, item)
 							previous_tool_group = { key = key, item = item, count = 1 }
@@ -1662,12 +1753,9 @@ function M.sessions(scope, opts)
 				end,
 			}
 		end
-		actions["ctrl-y"] = fzf_yank.action("display", {
-			resolve = function(entry)
-				local item = selected_items({ entry }, entry_map)[1]
-				return item and item.id or nil
-			end,
-		})
+		actions["ctrl-y"] = function(selected)
+			yank_sessions(selected_items(selected, entry_map))
+		end
 		actions["alt-g"] = function(_, action_opts) relaunch("global", action_opts) end
 		actions["alt-s"] = function(_, action_opts) relaunch("repo", action_opts) end
 		actions["alt-l"] = function(_, action_opts) relaunch("local", action_opts) end

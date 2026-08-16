@@ -915,7 +915,7 @@ return {
 
 							-- Read ONLY the local history file for this directory
 							for line in io.lines(history_file) do
-								if line and #line > 2 then
+							if line and line ~= "" then
 									local entry_cwd = extract_cwd_from_entry(line)
 									if entry_cwd then
 										-- Normalize entry CWD and compare
@@ -960,7 +960,7 @@ return {
 							for _, file_path in ipairs(files) do
 								if vim.fn.filereadable(file_path) == 1 then
 									for line in io.lines(file_path) do
-										if line and #line > 2 then
+									if line and line ~= "" then
 											local entry_cwd = extract_cwd_from_entry(line)
 											if entry_cwd and git_root then
 												-- Check if entry is from within the current git repository
@@ -1004,7 +1004,7 @@ return {
 							for _, file_path in ipairs(files) do
 								if vim.fn.filereadable(file_path) == 1 then
 									for line in io.lines(file_path) do
-										if line and #line > 2 then
+									if line and line ~= "" then
 											local search_term = extract_search_from_entry(line)
 											if not seen[search_term] then
 												seen[search_term] = true
@@ -1037,7 +1037,7 @@ return {
 						local seen = {}
 						local unique_history = {}
 						for _, line in ipairs(history_lines) do
-							if not seen[line] and line and #line > 2 then
+							if not seen[line] and line and line ~= "" then
 								seen[line] = true
 								table.insert(unique_history, line)
 							end
@@ -1231,6 +1231,13 @@ return {
 											end
 										end
 									end,
+									["ctrl-y"] = fzf_yank.action("display", {
+										preserve_whitespace = true,
+										resolve = function(entry)
+											if entry:match("^%[No .* history found") then return nil end
+											return entry
+										end,
+									}),
 								},
 								winopts = {
 									height = 0.4,
@@ -1251,14 +1258,9 @@ return {
 				-- Global options
 				global_resume = true,
 				global_resume_query = true,
-				defaults = {
-					actions = {
-						["ctrl-y"] = fzf_yank.action("display"),
-					},
-				},
 				actions = {
 					files = { true, ["ctrl-y"] = yank_location },
-					buffers = { true, ["ctrl-y"] = yank_path },
+					buffers = { true, ["ctrl-y"] = yank_location },
 				},
 				commands = { actions = { ["ctrl-y"] = fzf_yank.action("command") } },
 				command_history = { actions = { ["ctrl-y"] = fzf_yank.action("command") } },
@@ -1589,7 +1591,7 @@ return {
 						["alt-n"] = navigate_history(1),
 						["ctrl-d"] = { actions.buf_del, actions.resume },
 						["ctrl-r"] = search_history_action(), -- Search history
-						["ctrl-y"] = yank_path,
+						["ctrl-y"] = yank_location,
 						["ctrl-f"] = function(selected, opts)
 							if not selected or #selected == 0 then
 								return
@@ -2339,6 +2341,9 @@ return {
 								["ctrl-a"] = function()
 									vim.cmd("DiffviewOpen " .. range_str)
 								end,
+								["ctrl-y"] = has_files and fzf_yank.action("path", {
+									base_dir = function() return git_cwd or vim.fn.getcwd() end,
+								}) or nil,
 							},
 						})
 					end
@@ -2769,7 +2774,7 @@ return {
 							fzf_args = header,
 							actions = vim.tbl_extend("force", make_scope_actions(launch_zoxide_picker), {
 								["default"] = default_action,
-								["ctrl-y"] = fzf_yank.action("zoxide"),
+								["ctrl-y"] = fzf_yank.action("zoxide", { base_dir = home }),
 								["tab"] = function(selected)
 									if not selected or #selected == 0 then
 										return
@@ -2826,6 +2831,7 @@ return {
 					require("fzf-lua").fzf_exec(projects, {
 						prompt = "Projects> ",
 						actions = {
+							["ctrl-y"] = fzf_yank.action("path"),
 							["default"] = function(selected)
 								if not selected or #selected == 0 then
 									return
@@ -2872,7 +2878,7 @@ return {
 			{
 				"<leader>fdf",
 				function()
-					require("fzf-lua").dap_frames()
+					require("config.fzf_dap").launch()
 				end,
 				desc = "DAP Frames",
 			},

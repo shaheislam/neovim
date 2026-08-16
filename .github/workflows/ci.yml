@@ -61,6 +61,7 @@ jobs:
         run: |
           nvim --headless -l tests/fzf_yank_spec.lua
           nvim --headless -l tests/fzf_yank_integration_spec.lua
+          nvim --headless -l tests/fzf_dap_spec.lua
           nvim --headless -l tests/fzf_prompt_spec.lua
           nvim --headless -l tests/fzf_prompt_integration_spec.lua
           nvim --headless -l tests/fzf_custom_yank_spec.lua

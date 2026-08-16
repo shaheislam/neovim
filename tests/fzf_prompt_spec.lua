@@ -94,9 +94,11 @@ local owner_restores = 0
 local clipboard = {}
 local original_setreg = vim.fn.setreg
 local original_notify = vim.notify
-vim.fn.setreg = function(register, value)
+vim.fn.setreg = function(register, value, regtype)
 	if register == "+" then
-		table.insert(clipboard, { register = register, value = value })
+		local write = { register = register, value = value }
+		if regtype then write.regtype = regtype end
+		table.insert(clipboard, write)
 		return
 	end
 	return original_setreg(register, value)
@@ -112,10 +114,13 @@ local owner = {
 	end,
 }
 
+package.loaded["config.fzf_yank"] = dofile("lua/config/fzf_yank.lua")
 local prompt = dofile("lua/config/fzf_prompt.lua")
 local names = vim.tbl_map(function(item)
 	return item.name
 end, prompt.catalog())
+local catalog = {}
+for _, item in ipairs(prompt.catalog()) do catalog[item.name] = item end
 
 for _, expected in ipairs({
 	"files",
@@ -142,6 +147,7 @@ for _, expected in ipairs({
 end
 assert(not vim.tbl_contains(names, "colorschemes"), "prompt catalog excludes colorscheme actions")
 assert(not vim.tbl_contains(names, "resume"), "prompt catalog excludes unknown resume actions")
+eq(catalog.tabs.kind, "location", "tab completions retain their source location")
 
 prompt.launch("files", owner)
 eq(restore_calls[1], { target = source_target, opts = { fallback = false } }, "picker resolves from the captured editor source")
@@ -157,7 +163,8 @@ wrapped.opts.winopts.on_close()
 eq(restore_calls[2], "provider-cleanup", "provider cleanup still runs immediately on close")
 eq(#scheduled, 1, "owner restoration is deferred until after action dispatch")
 wrapped.opts.actions.enter({ "lua/config/fzf_prompt.lua" }, wrapped.opts)
-eq(inserted, { "lua/config/fzf_prompt.lua " }, "Enter inserts one normalized value with one trailing space")
+local root = vim.fs.normalize(vim.fn.getcwd())
+eq(inserted, { root .. "/lua/config/fzf_prompt.lua " }, "Enter inserts one absolute value with one trailing space")
 scheduled[1]()
 eq(owner_restores, 0, "selection suppresses the deferred cancellation restore")
 
@@ -171,8 +178,8 @@ scheduled = {}
 prompt.launch("files", owner)
 wrapped.opts.winopts.on_close()
 wrapped.opts.actions["ctrl-y"]({ "lua/config/fzf_prompt.lua" }, wrapped.opts)
-eq(clipboard, { { register = "+", value = "lua/config/fzf_prompt.lua" } }, "Ctrl-y copies the normalized selection")
-eq(inserted, { "lua/config/fzf_prompt.lua " }, "Ctrl-y never inserts into the prompt")
+eq(clipboard, { { register = "+", value = root .. "/lua/config/fzf_prompt.lua" } }, "Ctrl-y copies the absolute selection")
+eq(inserted, { root .. "/lua/config/fzf_prompt.lua " }, "Ctrl-y never inserts into the prompt")
 scheduled[1]()
 eq(owner_restores, 2, "Ctrl-y closes and restores the prompt owner")
 
@@ -187,35 +194,68 @@ eq(
 eq(prompt.transform("git_stash", { "stash@{2}: On main: WIP" }, {}), "stash@{2} ", "stash rows insert their ref")
 eq(
 	prompt.transform("git_status", { "R  old name.lua -> new name.lua" }, {}),
-	"new name.lua ",
+	root .. "/new name.lua ",
 	"renamed Git status rows insert the destination path"
 )
-eq(prompt.transform("git_status", { " D deleted file.lua" }, {}), "deleted file.lua ", "unstaged deletions retain their path")
-eq(prompt.transform("git_status", { '?? "new file.lua"' }, {}), "new file.lua ", "quoted untracked paths are unwrapped")
+eq(prompt.transform("git_status", { " D deleted file.lua" }, {}), root .. "/deleted file.lua ", "unstaged deletions retain their absolute path")
+eq(prompt.transform("git_status", { '?? "new file.lua"' }, {}), root .. "/new file.lua ", "quoted untracked paths are unwrapped")
 eq(
 	prompt.transform("git_status", { 'C  "old file.lua" -> "copied file.lua"' }, {}),
-	"copied file.lua ",
+	root .. "/copied file.lua ",
 	"copied Git status rows insert the destination path"
 )
 eq(
 	prompt.transform("live_grep", { "lua/mod.lua:42:7:matched text" }, { cwd = vim.fn.getcwd() }),
-	"lua/mod.lua:42:7 ",
-	"location rows preserve project-relative line and column"
+	root .. "/lua/mod.lua:42:7 ",
+	"location rows preserve absolute path, line, and column"
 )
 eq(
 	prompt.transform("files", { "alpha.lua", "alpha.lua", "beta.lua" }, {}),
-	"alpha.lua beta.lua ",
+	root .. "/alpha.lua " .. root .. "/beta.lua ",
 	"multi-selection is deduplicated and space-joined"
 )
 
-local original_register = vim.fn.getreg("z")
-vim.fn.setreg("z", { "first line", "second line" })
+package.loaded["dap"] = {
+	session = function()
+		return {
+			stopped_thread_id = 1,
+			threads = { [1] = { frames = { { source = { path = "/tmp/frame source.lua" }, line = 12, column = 3 } } } },
+		}
+	end,
+}
+inserted = {}
+clipboard = {}
+prompt.launch("dap_frames", owner)
+wrapped.opts.actions.enter({ "1. [main] frame.lua:12" }, wrapped.opts)
+eq(inserted, { "/tmp/frame source.lua:12:3 " }, "prompt DAP frames insert their live absolute source location")
+wrapped.opts.actions["ctrl-y"]({ "1. [main] frame.lua:12" }, wrapped.opts)
+eq(clipboard, { { register = "+", value = "/tmp/frame source.lua:12:3" } }, "prompt DAP frames yank their live absolute source location")
+
+local original_register = vim.fn.getreg("z", 1, true)
+local original_register_type = vim.fn.getregtype("z")
+vim.fn.setreg("z", { "first  line", "second line" }, "V")
 eq(
 	prompt.transform("registers", { "[z] [l] decorated preview" }, {}),
-	"first line second line ",
-	"register pickers insert the actual flattened register contents"
+	"first  line\nsecond line\n ",
+	"register pickers insert the exact register contents"
 )
-vim.fn.setreg("z", original_register)
+vim.fn.setreg("z", original_register, original_register_type)
+
+package.loaded["neoclip.storage"] = {
+	get = function()
+		return { yanks = { { contents = { "first  line", "second line" }, regtype = "V" } } }
+	end,
+}
+clipboard = {}
+picker_calls = {}
+prompt.launch("yank_history", owner)
+local yank_history = picker_calls[#picker_calls]
+yank_history.opts.actions["ctrl-y"]({ yank_history.entries[1] })
+eq(
+	clipboard,
+	{ { register = "+", value = { "first  line", "second line" }, regtype = "V" } },
+	"prompt yank history preserves exact contents and register type"
+)
 
 package.loaded["config.aws_profiles"] = {
 	profiles = function()
@@ -338,6 +378,14 @@ scheduled[1]()
 local normal_worktrees = picker_calls[#picker_calls]
 eq(normal_worktrees.name, "git_worktrees", "the regular FZF menu dispatches the worktree provider")
 eq(normal_worktrees.opts, nil, "regular worktrees retain the provider's normal actions")
+
+scheduled = {}
+prompt.open_menu()
+normal_menu = picker_calls[#picker_calls]
+normal_menu.opts.actions.enter({ "dap_frames" })
+scheduled[1]()
+eq(wrapped.command, "command:dap_frames", "ownerless DAP frame dispatch routes through the semantic adapter")
+assert(wrapped.opts.actions["ctrl-y"], "ownerless DAP frame dispatch exposes semantic Ctrl-y")
 
 local binding_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(binding_buf)

@@ -22,6 +22,7 @@ local owner = {
 	insert = function() end,
 	restore = function() end,
 }
+package.loaded["config.fzf_yank"] = dofile("lua/config/fzf_yank.lua")
 local prompt = dofile("lua/config/fzf_prompt.lua")
 
 prompt.launch("files", owner)

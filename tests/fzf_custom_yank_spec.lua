@@ -12,6 +12,9 @@ local original_systemlist = vim.fn.systemlist
 local original_input = vim.ui.input
 local original_setreg = vim.fn.setreg
 local original_notify = vim.notify
+local original_cmd = vim.cmd
+local original_win_set_cursor = vim.api.nvim_win_set_cursor
+local original_buf_line_count = vim.api.nvim_buf_line_count
 
 vim.fn.expand = function(value)
 	if value == "%:p" then return "/vault/Folder/current.md" end
@@ -22,7 +25,7 @@ end
 vim.fn.systemlist = function()
 	return {
 		"Folder/first.md:12\t0.91\tFirst note\tFirst preview",
-		"Folder/second.md:27\t0.82\tSecond note\tSecond preview",
+		"Folder with spaces/../Notes  with spaces/second note.md:27\t0.82\tSecond note\tSecond preview",
 	}
 end
 vim.ui.input = function(_, callback) callback("semantic query") end
@@ -37,6 +40,14 @@ vim.fn.setreg = function(register, value)
 end
 vim.notify = function() end
 
+local commands = {}
+local cursors = {}
+vim.cmd = function(command) table.insert(commands, command) end
+vim.api.nvim_win_set_cursor = function(window, position)
+	table.insert(cursors, { window, position })
+end
+vim.api.nvim_buf_line_count = function() return 20 end
+
 local picker_calls = {}
 package.loaded["fzf-lua"] = {
 	fzf_exec = function(entries, opts)
@@ -47,6 +58,7 @@ package.loaded["fzf-lua.utils"] = {
 	strip_ansi_coloring = function(value) return value end,
 }
 
+package.loaded["config.fzf_yank"] = dofile("lua/config/fzf_yank.lua")
 local obsidian = dofile("lua/plugins/obsidian.lua")
 local handlers = {}
 for _, mapping in ipairs(obsidian.keys or {}) do
@@ -62,8 +74,19 @@ for _, description in ipairs({
 	handlers[description]()
 	local picker = picker_calls[#picker_calls]
 	assert(picker and picker.opts.actions["ctrl-y"], description .. " exposes Ctrl-y")
+	picker.opts.actions["default"]({ picker.entries[2] })
+	eq(
+		commands[#commands],
+		"edit /vault/Notes\\ \\ with\\ spaces/second\\ note.md",
+		description .. " opens the normalized absolute note path without collapsing spaces"
+	)
+	eq(cursors[#cursors], { 0, { 20, 0 } }, description .. "clamps stale indexed lines to the current note")
 	picker.opts.actions["ctrl-y"]({ picker.entries[2] })
-	eq(clipboard[#clipboard], "Folder/second.md", description .. " yanks the selected note path")
+	eq(
+		clipboard[#clipboard],
+		"/vault/Notes  with spaces/second note.md:27",
+		description .. " yanks the normalized absolute note location"
+	)
 end
 
 local octo_source = table.concat(vim.fn.readfile("lua/plugins/octo.lua"), "\n")
@@ -83,5 +106,8 @@ vim.fn.systemlist = original_systemlist
 vim.ui.input = original_input
 vim.fn.setreg = original_setreg
 vim.notify = original_notify
+vim.cmd = original_cmd
+vim.api.nvim_win_set_cursor = original_win_set_cursor
+vim.api.nvim_buf_line_count = original_buf_line_count
 
 print("PASS custom Obsidian and Octo FZF pickers yank semantic values and close")

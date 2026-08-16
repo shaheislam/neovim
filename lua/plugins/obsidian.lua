@@ -4,6 +4,36 @@
 
 local fzf_yank = require("config.fzf_yank")
 
+local function semantic_result(vault_path, location)
+  local path, line = location:match("^(.-):(%d+)$")
+  path = vim.fs.normalize(vault_path .. "/" .. (path or location))
+  line = tonumber(line)
+  return {
+    path = path,
+    line = line,
+    location = path .. (line and ":" .. line or ""),
+  }
+end
+
+local function open_semantic_result(result)
+  if not result then return end
+  vim.cmd("edit " .. vim.fn.fnameescape(result.path))
+  if result.line then
+    local last_line = math.max(vim.api.nvim_buf_line_count(0), 1)
+    vim.api.nvim_win_set_cursor(0, { math.min(result.line, last_line), 0 })
+  end
+end
+
+local function semantic_yank_action(result_map)
+  return fzf_yank.action("display", {
+    preserve_whitespace = true,
+    resolve = function(entry)
+      local result = result_map[entry]
+      return result and result.location
+    end,
+  })
+end
+
 return {
   "obsidian-nvim/obsidian.nvim",
   version = "*",
@@ -250,7 +280,7 @@ return {
             local preview = parts[4] or ""
             local entry = string.format("[%s] %s │ %s", score, title, preview:sub(1, 50))
             table.insert(entries, entry)
-            result_map[entry] = path:gsub(":%d+$", "")
+            result_map[entry] = semantic_result(vault_path, path)
           end
         end
 
@@ -258,13 +288,9 @@ return {
           prompt = "Related notes> ",
           actions = {
             ["default"] = function(selected)
-              if selected and selected[1] and result_map[selected[1]] then
-                vim.cmd("edit " .. vault_path .. "/" .. result_map[selected[1]])
-              end
+              open_semantic_result(selected and selected[1] and result_map[selected[1]])
             end,
-            ["ctrl-y"] = fzf_yank.action("display", {
-              resolve = function(entry) return result_map[entry] end,
-            }),
+            ["ctrl-y"] = semantic_yank_action(result_map),
           },
         })
       end,
@@ -298,7 +324,7 @@ return {
               local preview = parts[4] or ""
               local entry = string.format("[%s] %s │ %s", score, title, preview:sub(1, 50))
               table.insert(entries, entry)
-              result_map[entry] = path:gsub(":%d+$", "")
+              result_map[entry] = semantic_result(vault_path, path)
             end
           end
 
@@ -306,13 +332,9 @@ return {
             prompt = "Results: " .. query .. "> ",
             actions = {
               ["default"] = function(selected)
-                if selected and selected[1] and result_map[selected[1]] then
-                  vim.cmd("edit " .. vault_path .. "/" .. result_map[selected[1]])
-                end
+                open_semantic_result(selected and selected[1] and result_map[selected[1]])
               end,
-              ["ctrl-y"] = fzf_yank.action("display", {
-                resolve = function(entry) return result_map[entry] end,
-              }),
+              ["ctrl-y"] = semantic_yank_action(result_map),
             },
           })
         end)
@@ -351,7 +373,7 @@ return {
             local path, score, title = parts[1], parts[2], parts[3]
             local entry = string.format("[%s] %s", score, title)
             table.insert(entries, entry)
-            result_map[entry] = path:gsub(":%d+$", "")
+            result_map[entry] = semantic_result(vault_path, path)
           end
         end
 
@@ -359,13 +381,9 @@ return {
           prompt = "Related in " .. folder .. "> ",
           actions = {
             ["default"] = function(selected)
-              if selected and selected[1] and result_map[selected[1]] then
-                vim.cmd("edit " .. vault_path .. "/" .. result_map[selected[1]])
-              end
+              open_semantic_result(selected and selected[1] and result_map[selected[1]])
             end,
-            ["ctrl-y"] = fzf_yank.action("display", {
-              resolve = function(entry) return result_map[entry] end,
-            }),
+            ["ctrl-y"] = semantic_yank_action(result_map),
           },
         })
       end,

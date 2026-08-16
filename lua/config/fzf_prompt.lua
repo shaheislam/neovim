@@ -13,25 +13,25 @@ local catalog = {
 	{ name = "live_grep_no_tests", picker = "live_grep", key = "<leader>fG", desc = "Find text excluding tests", kind = "location", opts = { rg_opts = "--column --line-number --no-heading --color=always --smart-case --glob '!*test*' --glob '!*spec*' --glob '!*.min.*'" } },
 	{ name = "grep_cword", key = "<leader>fw", desc = "Find word", kind = "location" },
 	{ name = "grep_cWORD", key = "<leader>fW", desc = "Find WORD", kind = "location" },
-	{ name = "changes", key = "<leader>fu", desc = "Find changes", kind = "display" },
-	{ name = "marks", key = "<leader>fm", desc = "Find marks", kind = "display" },
-	{ name = "help_tags", key = "<leader>fh", desc = "Find help", kind = "display" },
+	{ name = "changes", key = "<leader>fu", desc = "Find changes", kind = "display", yank = false },
+	{ name = "marks", key = "<leader>fm", desc = "Find marks", kind = "display", yank = false },
+	{ name = "help_tags", key = "<leader>fh", desc = "Find help", kind = "display", yank = false },
 	{ name = "commands", key = "<leader>fc", desc = "Find commands", kind = "command" },
 	{ name = "quickfix", key = "<leader>fq", desc = "Find quickfix entries", kind = "location" },
 	{ name = "projects", key = "<leader>fp", desc = "Find projects", kind = "display", custom = true },
 	{ name = "yank_history", key = "<leader>fy", desc = "Find yank history", kind = "display", custom = true },
 	{ name = "zoxide", key = "<leader>cd", desc = "Find directories", kind = "zoxide" },
 	{ name = "grep", desc = "Find text with query", kind = "location" },
-	{ name = "tabs", desc = "Find tabs", kind = "path" },
+	{ name = "tabs", desc = "Find tabs", kind = "location" },
 	{ name = "lines", desc = "Find lines", kind = "location" },
 	{ name = "blines", desc = "Find current buffer lines", kind = "location" },
 	{ name = "tags", desc = "Find tags", kind = "location" },
 	{ name = "btags", desc = "Find current buffer tags", kind = "location" },
-	{ name = "jumps", desc = "Find jumps", kind = "display" },
+	{ name = "jumps", desc = "Find jumps", kind = "display", yank = false },
 	{ name = "registers", desc = "Find registers", kind = "register" },
-	{ name = "keymaps", desc = "Find keymaps", kind = "display" },
+	{ name = "keymaps", desc = "Find keymaps", kind = "display", yank = false },
 	{ name = "command_history", desc = "Find command history", kind = "command" },
-	{ name = "man_pages", desc = "Find manual pages", kind = "display" },
+	{ name = "man_pages", desc = "Find manual pages", kind = "display", yank = false },
 	{ name = "loclist", desc = "Find location list entries", kind = "location" },
 
 	{ name = "git_status", key = "<leader>gg", desc = "Find Git status", kind = "git_status" },
@@ -56,7 +56,17 @@ local catalog = {
 
 	{ name = "dap_breakpoints", key = "<leader>fdb", desc = "Find DAP breakpoints", kind = "location", dap = true },
 	{ name = "dap_variables", key = "<leader>fdv", desc = "Find DAP variables", kind = "display", dap = true },
-	{ name = "dap_frames", key = "<leader>fdf", desc = "Find DAP frames", kind = "display", dap = true },
+	{
+		name = "dap_frames",
+		key = "<leader>fdf",
+		desc = "Find DAP frames",
+		kind = "display",
+		dap = true,
+		config = {
+			preserve_whitespace = true,
+			resolve = function(entry) return require("config.fzf_dap").frame_location(entry) end,
+		},
+	},
 
 	{ name = "aws_accounts", key = "<leader>fa", desc = "Find AWS accounts", kind = "aws_account", custom = true },
 
@@ -86,7 +96,7 @@ local normal_builtins = {
 }
 
 local function format_values(item, selected, opts)
-	return yank.insert_text(item.kind, selected, opts)
+	return yank.insert_text(item.kind, selected, opts, item.config)
 end
 
 function M.catalog()
@@ -180,10 +190,8 @@ local function launch_public(item, owner)
 	local stage, on_close = lifecycle(owner, prior_close)
 	resolved._start = nil
 	-- Prompt pickers intentionally exclude provider actions that can mutate editor or session state.
-	resolved.actions = {
-		enter = insert_action(item, owner, stage),
-		["ctrl-y"] = yank.action(item.kind),
-	}
+	resolved.actions = { enter = insert_action(item, owner, stage) }
+	if item.yank ~= false then resolved.actions["ctrl-y"] = yank.action(item.kind, item.config) end
 	resolved.winopts = vim.tbl_deep_extend("force", resolved.winopts or {}, { on_close = on_close })
 	core.fzf_wrap(command, resolved, true)
 end
@@ -218,27 +226,43 @@ local function launch_yanks(owner)
 		local contents = clean(table.concat(yank.contents or {}, " "))
 		local entry = ("%d. %s"):format(index, contents)
 		table.insert(entries, entry)
-		entry_map[entry] = contents
+		entry_map[entry] = yank
 	end
 	local stage, on_close = lifecycle(owner)
 	require("fzf-lua").fzf_exec(entries, {
 		prompt = "Yank History> ",
 		winopts = { on_close = on_close },
-		actions = {
-			enter = function(selected)
-				local values = {}
-				for _, entry in ipairs(selected or {}) do
-					local value = entry_map[clean(entry)] or entry_map[entry]
-					if value and value ~= "" then table.insert(values, value) end
-				end
+			actions = {
+				enter = function(selected)
+					local values = {}
+					for _, entry in ipairs(selected or {}) do
+						local value = entry_map[clean(entry)] or entry_map[entry]
+						if value then table.insert(values, table.concat(value.contents or {}, "\n")) end
+					end
 				if #values > 0 then
 					stage.completed = true
 					owner.insert(table.concat(values, " ") .. " ")
 				end
 			end,
-			["ctrl-y"] = yank.action("display", {
-				resolve = function(entry) return entry_map[clean(entry)] or entry_map[entry] end,
-			}),
+				["ctrl-y"] = function(selected)
+					local selected_yanks = {}
+					for _, entry in ipairs(selected or {}) do
+						local value = entry_map[clean(entry)] or entry_map[entry]
+						if value then table.insert(selected_yanks, value) end
+					end
+					if #selected_yanks == 0 then return end
+					if #selected_yanks == 1 then
+						local value = selected_yanks[1]
+						vim.fn.setreg("+", value.contents or {}, value.regtype)
+					else
+						local blocks = {}
+						for index, value in ipairs(selected_yanks) do
+							table.insert(blocks, ("Yank %d\n%s"):format(index, table.concat(value.contents or {}, "\n")))
+						end
+						vim.fn.setreg("+", table.concat(blocks, "\n\n"), "V")
+					end
+					vim.notify(("Yanked %d FZF selection%s"):format(#selected_yanks, #selected_yanks == 1 and "" or "s"))
+				end,
 		},
 	})
 end
@@ -393,6 +417,8 @@ local function open_normal_menu()
 						end,
 						}
 						if actions[choice] then actions[choice]() end
+					elseif choice == "dap_frames" then
+						require("config.fzf_dap").launch()
 					elseif type(fzf[choice]) == "function" then
 						fzf[choice]()
 					end

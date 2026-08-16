@@ -1,4 +1,6 @@
 local M = {}
+local yank = require("config.fzf_yank")
+local clean = yank.clean
 
 local catalog = {
 	{ name = "files", key = "<leader>ff", desc = "Find files", kind = "path" },
@@ -83,98 +85,8 @@ local normal_builtins = {
 	"opencode_reasoning", "opencode_tools", "opencode_tool_output", "opencode_sessions", "opencode_all_sessions",
 }
 
-local function trim(value)
-	return (value or ""):gsub("^%s+", ""):gsub("%s+$", "")
-end
-
-local function clean(value)
-	local ok, utils = pcall(require, "fzf-lua.utils")
-	if ok then
-		value = utils.strip_ansi_coloring(value or "")
-	end
-	return trim((value or ""):gsub("\194\160", " "):gsub("%s+", " "))
-end
-
-local function relative(path)
-	if not path or path == "" then
-		return nil
-	end
-	return vim.fn.fnamemodify(path, ":.")
-end
-
-local function path_value(entry, opts, location)
-	local file = require("fzf-lua.path").entry_to_file(entry, opts)
-	local path = file and relative(file.path)
-	if not path or path == "" then
-		return nil
-	end
-	if location and (file.line or 0) > 0 then
-		path = path .. ":" .. file.line
-		if (file.col or 0) > 0 then
-			path = path .. ":" .. file.col
-		end
-	end
-	return path
-end
-
-local function git_status_value(entry)
-	local value = entry or ""
-	local ok, utils = pcall(require, "fzf-lua.utils")
-	if ok then value = utils.strip_ansi_coloring(value) end
-	value = value:gsub("\194\160", " ")
-	value = value:gsub("^[%?MADRCU! ][%?MADRCU! ]%s+", "")
-	local destination = value:match("%s+%-%>%s+(.+)$")
-	value = destination or value
-	value = clean(value):gsub('^"(.*)"$', "%1")
-	return value ~= "" and value or nil
-end
-
-local function entry_value(item, entry, opts)
-	if item.kind == "path" then
-		return path_value(entry, opts, false)
-	elseif item.kind == "location" then
-		return path_value(entry, opts, true)
-	elseif item.kind == "git_status" then
-		return git_status_value(entry)
-	elseif item.kind == "branch" then
-		return clean(entry):match("^[*+]?%s*([^%s]+)")
-	elseif item.kind == "commit" then
-		return clean(entry):match("^([a-fA-F0-9]+)")
-	elseif item.kind == "worktree" then
-		return clean(entry):match("^(%S+)")
-	elseif item.kind == "stash" then
-		return clean(entry):match("^(stash@{%d+})")
-	elseif item.kind == "command" then
-		local value = clean(entry)
-		return value ~= "" and ":" .. value:gsub("^:", "") or nil
-	elseif item.kind == "register" then
-		local register = clean(entry):match("^%[(.)%]")
-		if not register then return nil end
-		local ok, value = pcall(vim.fn.getreg, register)
-		value = ok and clean(value) or ""
-		return value ~= "" and value or nil
-	elseif item.kind == "zoxide" then
-		local value = clean(entry)
-		return value:match("^%S+%s+(.+)$") or value
-	elseif item.kind == "aws_account" then
-		local decoded = require("config.aws_profiles").decode_row(entry)
-		return decoded.account_id ~= "" and decoded.account_id or nil
-	end
-	local value = clean(entry)
-	return value ~= "" and value or nil
-end
-
 local function format_values(item, selected, opts)
-	local values = {}
-	local seen = {}
-	for _, entry in ipairs(selected or {}) do
-		local value = entry_value(item, entry, opts or {})
-		if value and value ~= "" and not seen[value] then
-			seen[value] = true
-			table.insert(values, value)
-		end
-	end
-	return #values > 0 and (table.concat(values, " ") .. " ") or nil
+	return yank.insert_text(item.kind, selected, opts)
 end
 
 function M.catalog()
@@ -267,7 +179,11 @@ local function launch_public(item, owner)
 	local prior_close = resolved.winopts and resolved.winopts.on_close
 	local stage, on_close = lifecycle(owner, prior_close)
 	resolved._start = nil
-	resolved.actions = { enter = insert_action(item, owner, stage) }
+	-- Prompt pickers intentionally exclude provider actions that can mutate editor or session state.
+	resolved.actions = {
+		enter = insert_action(item, owner, stage),
+		["ctrl-y"] = yank.action(item.kind),
+	}
 	resolved.winopts = vim.tbl_deep_extend("force", resolved.winopts or {}, { on_close = on_close })
 	core.fzf_wrap(command, resolved, true)
 end
@@ -283,7 +199,10 @@ local function launch_projects(owner)
 	require("fzf-lua").fzf_exec(projects, {
 		prompt = "Projects> ",
 		winopts = { on_close = on_close },
-		actions = { enter = insert_action(by_name.projects, owner, stage) },
+		actions = {
+			enter = insert_action(by_name.projects, owner, stage),
+			["ctrl-y"] = yank.action("display"),
+		},
 	})
 end
 
@@ -317,6 +236,9 @@ local function launch_yanks(owner)
 					owner.insert(table.concat(values, " ") .. " ")
 				end
 			end,
+			["ctrl-y"] = yank.action("display", {
+				resolve = function(entry) return entry_map[clean(entry)] or entry_map[entry] end,
+			}),
 		},
 	})
 end
@@ -352,6 +274,7 @@ local function launch_aws_accounts(owner)
 		winopts = { on_close = on_close },
 		actions = {
 			enter = insert_action(by_name.aws_accounts, owner, stage),
+			["ctrl-y"] = yank.action("aws_account"),
 			["alt-y"] = insert_aws_values(aws_profiles, function(decoded) return decoded.profile end, owner, stage),
 			["alt-b"] = insert_aws_values(aws_profiles, aws_profiles.combined, owner, stage),
 		},

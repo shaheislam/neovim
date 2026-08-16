@@ -55,5 +55,15 @@ jobs:
           nvim --headless -l tests/plan_idle_spec.lua
           nvim --headless -l tests/plan_save_push_spec.lua
 
+      - name: FZF picker tests
+        env:
+          NVIM_APPNAME: nvim-mini
+        run: |
+          nvim --headless -l tests/fzf_yank_spec.lua
+          nvim --headless -l tests/fzf_yank_integration_spec.lua
+          nvim --headless -l tests/fzf_prompt_spec.lua
+          nvim --headless -l tests/fzf_prompt_integration_spec.lua
+          nvim --headless -l tests/fzf_custom_yank_spec.lua
+
       - name: Parley review test
         run: nvim --headless -l tests/parley_review_spec.lua

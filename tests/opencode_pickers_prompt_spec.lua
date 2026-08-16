@@ -112,6 +112,17 @@ package.loaded["config.opencode_terminal"] = {
 
 local inserted = {}
 local restored = 0
+local clipboard = {}
+local original_setreg = vim.fn.setreg
+local original_notify = vim.notify
+vim.fn.setreg = function(register, value)
+	if register == "+" then
+		table.insert(clipboard, value)
+		return
+	end
+	return original_setreg(register, value)
+end
+vim.notify = function() end
 local prompt = {
 	owner = {
 		insert = function(text) table.insert(inserted, text) end,
@@ -124,6 +135,7 @@ opencode.all({ prompt = prompt })
 eq(#pickers, 1, "prompt mode opens the message picker")
 local message_picker = pickers[1]
 assert(message_picker.opts.actions.enter, "prompt message picker exposes insertion Enter")
+assert(message_picker.opts.actions["ctrl-y"], "prompt message picker exposes payload yank")
 assert(message_picker.opts.actions["ctrl-l"], "prompt message picker exposes owned-session restart")
 assert(message_picker.opts.actions["alt-s"], "prompt message picker retains safe scope navigation")
 assert(message_picker.opts.actions["ctrl-s"], "prompt message picker retains safe session navigation")
@@ -158,6 +170,19 @@ assert(not inserted[1]:find("\n", 1, true), "message payload is flattened for pr
 assert(inserted[1]:match(" $"), "message payload ends in one continuation space")
 scheduled[1]()
 eq(restored, 0, "selection suppresses the deferred cancellation restore")
+
+pickers = {}
+scheduled = {}
+clipboard = {}
+opencode.all({ prompt = prompt })
+local yank_picker = pickers[1]
+yank_picker.opts.winopts.on_close()
+yank_picker.opts.actions["ctrl-y"]({ yank_picker.entries[1] })
+assert(clipboard[1]:match("Implement the picker lifecycle"), "message Ctrl-y copies the selected payload")
+eq(#inserted, 1, "message Ctrl-y does not insert into the prompt")
+scheduled[1]()
+eq(restored, 1, "message Ctrl-y closes and restores the prompt owner")
+restored = 0
 
 pickers = {}
 scheduled = {}
@@ -247,6 +272,7 @@ opencode.sessions("all", { prompt = prompt })
 eq(#pickers, 1, "prompt mode opens the session picker")
 local session_picker = pickers[1]
 assert(session_picker.opts.actions.enter, "prompt session picker exposes navigation Enter")
+assert(session_picker.opts.actions["ctrl-y"], "prompt session picker exposes session yank")
 assert(session_picker.opts.actions["alt-g"], "prompt session picker can widen to Global")
 assert(session_picker.opts.actions["alt-s"], "prompt session picker can switch to Git")
 assert(session_picker.opts.actions["alt-l"], "prompt session picker can return to Local")
@@ -263,6 +289,18 @@ nested_picker.opts.winopts.on_close()
 scheduled[3]()
 eq(restored, 1, "cancelling the terminal nested picker restores the prompt exactly once")
 
+pickers = {}
+scheduled = {}
+clipboard = {}
+restored = 0
+opencode.sessions("all", { prompt = prompt })
+session_picker = pickers[1]
+session_picker.opts.winopts.on_close()
+session_picker.opts.actions["ctrl-y"]({ session_picker.entries[1] })
+eq(clipboard, { "session-1" }, "session Ctrl-y copies the stable session id")
+scheduled[1]()
+eq(restored, 1, "session Ctrl-y closes and restores the prompt owner")
+
 vim.schedule = original_schedule
 vim.defer_fn = original_defer_fn
 vim.fn.getcwd = original_getcwd
@@ -271,5 +309,7 @@ vim.fs.find = original_fs_find
 vim.system = original_system
 vim.uv.fs_stat = original_fs_stat
 package.loaded["fzf-lua.config"] = original_fzf_config
+vim.fn.setreg = original_setreg
+vim.notify = original_notify
 
 print("PASS OpenCode prompt pickers insert payloads and preserve nested lifecycle")

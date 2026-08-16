@@ -1,4 +1,5 @@
 local M = {}
+local fzf_yank = require("config.fzf_yank")
 
 local scopes = {
 	all = "All messages",
@@ -1312,6 +1313,9 @@ local function open_message_picker(items, scope, opts)
 				stage.completed = true
 				opts.prompt.owner.insert(prompt_payload(item))
 			end,
+			["ctrl-y"] = function(selected)
+				yank_items(selected_items(selected, entry_map))
+			end,
 			["ctrl-l"] = function(selected)
 				restart_selected(first_item(selected))
 			end,
@@ -1658,6 +1662,12 @@ function M.sessions(scope, opts)
 				end,
 			}
 		end
+		actions["ctrl-y"] = fzf_yank.action("display", {
+			resolve = function(entry)
+				local item = selected_items({ entry }, entry_map)[1]
+				return item and item.id or nil
+			end,
+		})
 		actions["alt-g"] = function(_, action_opts) relaunch("global", action_opts) end
 		actions["alt-s"] = function(_, action_opts) relaunch("repo", action_opts) end
 		actions["alt-l"] = function(_, action_opts) relaunch("local", action_opts) end

@@ -2,6 +2,8 @@
 -- Wiki-links, backlinks, daily notes, templates, vault search
 -- Using actively maintained fork: https://github.com/obsidian-nvim/obsidian.nvim
 
+local fzf_yank = require("config.fzf_yank")
+
 return {
   "obsidian-nvim/obsidian.nvim",
   version = "*",
@@ -240,12 +242,15 @@ return {
         end
 
         local entries = {}
+        local result_map = {}
         for _, line in ipairs(results) do
           local parts = vim.split(line, "\t")
           if #parts >= 3 then
             local path, score, title = parts[1], parts[2], parts[3]
             local preview = parts[4] or ""
-            table.insert(entries, string.format("[%s] %s │ %s", score, title, preview:sub(1, 50)))
+            local entry = string.format("[%s] %s │ %s", score, title, preview:sub(1, 50))
+            table.insert(entries, entry)
+            result_map[entry] = path:gsub(":%d+$", "")
           end
         end
 
@@ -253,21 +258,13 @@ return {
           prompt = "Related notes> ",
           actions = {
             ["default"] = function(selected)
-              if selected and selected[1] then
-                local title_match = selected[1]:match("%] ([^│]+)")
-                if title_match then
-                  -- Find matching result
-                  for _, line in ipairs(results) do
-                    local parts = vim.split(line, "\t")
-                    if #parts >= 1 then
-                      local path = parts[1]:gsub(":%d+$", "") -- Remove line number
-                      vim.cmd("edit " .. vault_path .. "/" .. path)
-                      return
-                    end
-                  end
-                end
+              if selected and selected[1] and result_map[selected[1]] then
+                vim.cmd("edit " .. vault_path .. "/" .. result_map[selected[1]])
               end
             end,
+            ["ctrl-y"] = fzf_yank.action("display", {
+              resolve = function(entry) return result_map[entry] end,
+            }),
           },
         })
       end,
@@ -313,6 +310,9 @@ return {
                   vim.cmd("edit " .. vault_path .. "/" .. result_map[selected[1]])
                 end
               end,
+              ["ctrl-y"] = fzf_yank.action("display", {
+                resolve = function(entry) return result_map[entry] end,
+              }),
             },
           })
         end)
@@ -363,6 +363,9 @@ return {
                 vim.cmd("edit " .. vault_path .. "/" .. result_map[selected[1]])
               end
             end,
+            ["ctrl-y"] = fzf_yank.action("display", {
+              resolve = function(entry) return result_map[entry] end,
+            }),
           },
         })
       end,

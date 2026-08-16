@@ -971,12 +971,9 @@ return {
           local actions = fzf_actions.common_buffer_actions(formatted_notifications)
 
           -- Copy URL action
-          actions[utils.convert_vim_mapping_to_fzf(cfg.picker_config.mappings.copy_url.lhs)] = {
-            fn = function(selected)
-              octo_notifications.copy_notification_url(formatted_notifications[selected[1]].obj)
-            end,
-            reload = true,
-          }
+          actions[utils.convert_vim_mapping_to_fzf(cfg.picker_config.mappings.copy_url.lhs)] = function(selected)
+            octo_notifications.copy_notification_url(formatted_notifications[selected[1]].obj)
+          end
 
           -- Mark as read action
           if not cfg.mappings.notification.read.lhs:match("leader>") then
@@ -1142,7 +1139,7 @@ return {
       --   alt-f   → server-side search (GitHub query; bypasses the 200-item ceiling)
       --   alt-r   → force-refresh (clear cache for current filters, re-fetch)
       --   alt-k   → CI checks for the selected PR (pipeline runs; PRs only)
-      -- ctrl-n/ctrl-r/ctrl-y keep the picker open (act on several items in a row).
+      -- ctrl-n/ctrl-r keep the picker open; ctrl-y copies and returns to the caller.
       -- Preview is octo's own fzf-lua previewer (Octo-style buffer, focusable).
       -- NOTE: alt-* (not ctrl-i) is used for switches — ctrl-i == Tab in terminals.
       -- ══════════════════════════════════════════════════════════════
@@ -1963,17 +1960,14 @@ return {
                 )
               end,
             },
-            -- Copy the selected item URL to the clipboard; keeps picker open.
-            ["ctrl-y"] = {
-              reload = true,
-              fn = function(selected)
-                local it = item_from_selection(selected)
-                if it and it.url then
-                  vim.fn.setreg("+", it.url)
-                  vim.notify("Copied " .. it.url)
-                end
-              end,
-            },
+            -- Copy the selected item URL to the clipboard and close the picker.
+            ["ctrl-y"] = function(selected)
+              local it = item_from_selection(selected)
+              if it and it.url then
+                vim.fn.setreg("+", it.url)
+                vim.notify("Copied " .. it.url)
+              end
+            end,
           }
           if entity == "pr" then
             actions["ctrl-d"] = function(selected)

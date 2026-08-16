@@ -3,11 +3,31 @@
 
 -- State management for scope toggle and directory history
 local git_command = require("git.command")
+local fzf_yank = require("config.fzf_yank")
 
 local original_bufnr = nil
 local dir_history = {}
 local history_index = 0
 local current_scope = "Local" -- Track current scope for header display
+
+local function yank_reference_dir(opts)
+	local reference_dir = opts.cwd or vim.fn.getcwd()
+	if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
+		local filetype = vim.bo[original_bufnr].filetype
+		if filetype == "oil" then
+			local ok, oil = pcall(require, "oil")
+			local oil_dir = ok and oil.get_current_dir(original_bufnr) or nil
+			if oil_dir then reference_dir = oil_dir end
+		end
+	end
+	return reference_dir
+end
+
+local yank_path = fzf_yank.action("path", { reference_dir = yank_reference_dir })
+local yank_location = fzf_yank.action("location", { reference_dir = yank_reference_dir })
+local yank_commit = fzf_yank.action("commit")
+local yank_branch = fzf_yank.action("branch")
+local yank_stash = fzf_yank.action("stash")
 
 -- ===== Helper functions for directory-specific history =====
 
@@ -1231,6 +1251,18 @@ return {
 				-- Global options
 				global_resume = true,
 				global_resume_query = true,
+				defaults = {
+					actions = {
+						["ctrl-y"] = fzf_yank.action("display"),
+					},
+				},
+				actions = {
+					files = { true, ["ctrl-y"] = yank_location },
+					buffers = { true, ["ctrl-y"] = yank_path },
+				},
+				commands = { actions = { ["ctrl-y"] = fzf_yank.action("command") } },
+				command_history = { actions = { ["ctrl-y"] = fzf_yank.action("command") } },
+				registers = { actions = { ["ctrl-y"] = fzf_yank.action("register") } },
 
 				-- Global fzf options - including history file for search persistence
 				fzf_opts = {
@@ -1444,43 +1476,8 @@ return {
 						["alt-n"] = navigate_history(1),
 						["alt-o"] = select_directory(),
 						["ctrl-r"] = search_history_action(), -- Search history
-						["ctrl-y"] = function(selected, opts)
-							if not selected or #selected == 0 then
-								return
-							end
-							local path = require("fzf-lua.path")
-							local file = path.entry_to_file(selected[1], opts)
-							if file and file.path then
-								-- Determine reference directory (Oil dir or picker's cwd)
-								local ref_dir = opts.cwd or vim.fn.getcwd()
-
-								-- Check if launched from Oil buffer
-								if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-									local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-									if ft == "oil" then
-										local oil_dir = require("oil").get_current_dir(original_bufnr)
-										if oil_dir then
-											ref_dir = oil_dir
-										end
-									end
-								end
-
-								-- Make both absolute for comparison
-								local abs_file = vim.fn.fnamemodify(file.path, ":p")
-								local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-								-- Calculate relative path
-								local rel_path
-								if abs_file:find(abs_ref, 1, true) == 1 then
-									rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-								else
-									rel_path = abs_file -- Fallback if outside ref_dir
-								end
-
-								vim.fn.setreg("+", rel_path)
-							end
-							return actions.resume(selected, opts)
-						end,
+						-- Plain file rows carry no source position, unlike the shared file action group.
+						["ctrl-y"] = yank_path,
 						["ctrl-f"] = function(selected, opts)
 							if not selected or #selected == 0 then
 								return
@@ -1538,43 +1535,7 @@ return {
 						["ctrl-r"] = search_history_action(), -- Search history
 						["alt-i"] = { actions.toggle_ignore },
 						["ctrl-h"] = { actions.toggle_hidden },
-						["ctrl-y"] = function(selected, opts)
-							if not selected or #selected == 0 then
-								return
-							end
-							local path = require("fzf-lua.path")
-							local file = path.entry_to_file(selected[1], opts)
-							if file and file.path then
-								-- Determine reference directory (Oil dir or picker's cwd)
-								local ref_dir = opts.cwd or vim.fn.getcwd()
-
-								-- Check if launched from Oil buffer
-								if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-									local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-									if ft == "oil" then
-										local oil_dir = require("oil").get_current_dir(original_bufnr)
-										if oil_dir then
-											ref_dir = oil_dir
-										end
-									end
-								end
-
-								-- Make both absolute for comparison
-								local abs_file = vim.fn.fnamemodify(file.path, ":p")
-								local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-								-- Calculate relative path
-								local rel_path
-								if abs_file:find(abs_ref, 1, true) == 1 then
-									rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-								else
-									rel_path = abs_file -- Fallback if outside ref_dir
-								end
-
-								vim.fn.setreg("+", rel_path)
-							end
-							return actions.resume(selected, opts)
-						end,
+						["ctrl-y"] = yank_location,
 						["ctrl-f"] = function(selected, opts)
 							if not selected or #selected == 0 then
 								return
@@ -1628,43 +1589,7 @@ return {
 						["alt-n"] = navigate_history(1),
 						["ctrl-d"] = { actions.buf_del, actions.resume },
 						["ctrl-r"] = search_history_action(), -- Search history
-						["ctrl-y"] = function(selected, opts)
-							if not selected or #selected == 0 then
-								return
-							end
-							local path = require("fzf-lua.path")
-							local file = path.entry_to_file(selected[1], opts)
-							if file and file.path then
-								-- Determine reference directory (Oil dir or picker's cwd)
-								local ref_dir = opts.cwd or vim.fn.getcwd()
-
-								-- Check if launched from Oil buffer
-								if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-									local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-									if ft == "oil" then
-										local oil_dir = require("oil").get_current_dir(original_bufnr)
-										if oil_dir then
-											ref_dir = oil_dir
-										end
-									end
-								end
-
-								-- Make both absolute for comparison
-								local abs_file = vim.fn.fnamemodify(file.path, ":p")
-								local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-								-- Calculate relative path
-								local rel_path
-								if abs_file:find(abs_ref, 1, true) == 1 then
-									rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-								else
-									rel_path = abs_file -- Fallback if outside ref_dir
-								end
-
-								vim.fn.setreg("+", rel_path)
-							end
-							return actions.resume(selected, opts)
-						end,
+						["ctrl-y"] = yank_path,
 						["ctrl-f"] = function(selected, opts)
 							if not selected or #selected == 0 then
 								return
@@ -1720,49 +1645,19 @@ return {
 
 				-- Git integration
 				git = {
+					status = {
+						actions = { ["ctrl-y"] = fzf_yank.action("git_status") },
+					},
+					worktrees = {
+						actions = { ["ctrl-y"] = fzf_yank.action("worktree") },
+					},
 					files = {
 						prompt = "Git Files> ",
 						-- PWD-based history for git files (evaluated dynamically)
 						fzf_opts = history_header_opts("git_files", "C-y: copy path | C-f: copy full path | C-r: search history"),
 						actions = {
 							["ctrl-r"] = search_history_action(), -- Search history
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local path = require("fzf-lua.path")
-								local file = path.entry_to_file(selected[1], opts)
-								if file and file.path then
-									-- Determine reference directory (Oil dir or picker's cwd)
-									local ref_dir = opts.cwd or vim.fn.getcwd()
-
-									-- Check if launched from Oil buffer
-									if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-										local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-										if ft == "oil" then
-											local oil_dir = require("oil").get_current_dir(original_bufnr)
-											if oil_dir then
-												ref_dir = oil_dir
-											end
-										end
-									end
-
-									-- Make both absolute for comparison
-									local abs_file = vim.fn.fnamemodify(file.path, ":p")
-									local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-									-- Calculate relative path
-									local rel_path
-									if abs_file:find(abs_ref, 1, true) == 1 then
-										rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-									else
-										rel_path = abs_file -- Fallback if outside ref_dir
-									end
-
-									vim.fn.setreg("+", rel_path)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_path,
 							["ctrl-f"] = function(selected, opts)
 								if not selected or #selected == 0 then
 									return
@@ -1798,16 +1693,7 @@ return {
 								open_selected_commits_diffview(selected)
 							end,
 							["ctrl-r"] = search_history_action(), -- Search history
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local commit_sha = selected[1]:match("^([a-f0-9]+)")
-								if commit_sha then
-									vim.fn.setreg("+", commit_sha)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_commit,
 						},
 					},
 					bcommits = {
@@ -1821,16 +1707,7 @@ return {
 								open_selected_buffer_commits_diffview(selected)
 							end,
 							["ctrl-r"] = search_history_action(), -- Search history
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local commit_sha = selected[1]:match("^([a-f0-9]+)")
-								if commit_sha then
-									vim.fn.setreg("+", commit_sha)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_commit,
 						},
 					},
 					branches = {
@@ -1840,16 +1717,7 @@ return {
 						fzf_opts = history_header_opts("git_branches", "C-y: copy branch | C-r: search history"),
 						actions = {
 							["ctrl-r"] = search_history_action(), -- Search history
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local branch = selected[1]:match("^%s*(%S+)")
-								if branch then
-									vim.fn.setreg("+", branch)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_branch,
 							["default"] = function(selected)
 								if not selected or #selected == 0 then
 									return
@@ -1915,16 +1783,7 @@ return {
 							["default"] = actions.git_stash_apply,
 							["ctrl-x"] = actions.git_stash_drop,
 							["ctrl-r"] = search_history_action(), -- Search history
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local stash_ref = selected[1]:match("^(%S+)")
-								if stash_ref then
-									vim.fn.setreg("+", stash_ref)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_stash,
 						},
 					},
 				},
@@ -1936,43 +1795,7 @@ return {
 						-- PWD-based history for LSP symbols (evaluated dynamically)
 						fzf_opts = history_header_opts("lsp_symbols", "C-y: copy location | C-f: copy full path"),
 						actions = {
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local path = require("fzf-lua.path")
-								local file = path.entry_to_file(selected[1], opts)
-								if file and file.path then
-									-- Determine reference directory (Oil dir or picker's cwd)
-									local ref_dir = opts.cwd or vim.fn.getcwd()
-
-									-- Check if launched from Oil buffer
-									if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-										local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-										if ft == "oil" then
-											local oil_dir = require("oil").get_current_dir(original_bufnr)
-											if oil_dir then
-												ref_dir = oil_dir
-											end
-										end
-									end
-
-									-- Make both absolute for comparison
-									local abs_file = vim.fn.fnamemodify(file.path, ":p")
-									local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-									-- Calculate relative path
-									local rel_path
-									if abs_file:find(abs_ref, 1, true) == 1 then
-										rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-									else
-										rel_path = abs_file -- Fallback if outside ref_dir
-									end
-
-									vim.fn.setreg("+", rel_path)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_location,
 							["ctrl-f"] = function(selected, opts)
 								if not selected or #selected == 0 then
 									return
@@ -2001,43 +1824,7 @@ return {
 					references = {
 						fzf_opts = history_header_opts("lsp_references", "C-y: copy location | C-f: copy full path"),
 						actions = {
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local path = require("fzf-lua.path")
-								local file = path.entry_to_file(selected[1], opts)
-								if file and file.path then
-									-- Determine reference directory (Oil dir or picker's cwd)
-									local ref_dir = opts.cwd or vim.fn.getcwd()
-
-									-- Check if launched from Oil buffer
-									if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-										local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-										if ft == "oil" then
-											local oil_dir = require("oil").get_current_dir(original_bufnr)
-											if oil_dir then
-												ref_dir = oil_dir
-											end
-										end
-									end
-
-									-- Make both absolute for comparison
-									local abs_file = vim.fn.fnamemodify(file.path, ":p")
-									local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-									-- Calculate relative path
-									local rel_path
-									if abs_file:find(abs_ref, 1, true) == 1 then
-										rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-									else
-										rel_path = abs_file -- Fallback if outside ref_dir
-									end
-
-									vim.fn.setreg("+", rel_path)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_location,
 							["ctrl-f"] = function(selected, opts)
 								if not selected or #selected == 0 then
 									return
@@ -2065,43 +1852,7 @@ return {
 					definitions = {
 						fzf_opts = history_header_opts("lsp_definitions", "C-y: copy location | C-f: copy full path"),
 						actions = {
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local path = require("fzf-lua.path")
-								local file = path.entry_to_file(selected[1], opts)
-								if file and file.path then
-									-- Determine reference directory (Oil dir or picker's cwd)
-									local ref_dir = opts.cwd or vim.fn.getcwd()
-
-									-- Check if launched from Oil buffer
-									if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-										local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-										if ft == "oil" then
-											local oil_dir = require("oil").get_current_dir(original_bufnr)
-											if oil_dir then
-												ref_dir = oil_dir
-											end
-										end
-									end
-
-									-- Make both absolute for comparison
-									local abs_file = vim.fn.fnamemodify(file.path, ":p")
-									local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-									-- Calculate relative path
-									local rel_path
-									if abs_file:find(abs_ref, 1, true) == 1 then
-										rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-									else
-										rel_path = abs_file -- Fallback if outside ref_dir
-									end
-
-									vim.fn.setreg("+", rel_path)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_location,
 							["ctrl-f"] = function(selected, opts)
 								if not selected or #selected == 0 then
 									return
@@ -2129,43 +1880,7 @@ return {
 					implementations = {
 						fzf_opts = history_header_opts("lsp_implementations", "C-y: copy location | C-f: copy full path"),
 						actions = {
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local path = require("fzf-lua.path")
-								local file = path.entry_to_file(selected[1], opts)
-								if file and file.path then
-									-- Determine reference directory (Oil dir or picker's cwd)
-									local ref_dir = opts.cwd or vim.fn.getcwd()
-
-									-- Check if launched from Oil buffer
-									if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-										local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-										if ft == "oil" then
-											local oil_dir = require("oil").get_current_dir(original_bufnr)
-											if oil_dir then
-												ref_dir = oil_dir
-											end
-										end
-									end
-
-									-- Make both absolute for comparison
-									local abs_file = vim.fn.fnamemodify(file.path, ":p")
-									local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-									-- Calculate relative path
-									local rel_path
-									if abs_file:find(abs_ref, 1, true) == 1 then
-										rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-									else
-										rel_path = abs_file -- Fallback if outside ref_dir
-									end
-
-									vim.fn.setreg("+", rel_path)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_location,
 							["ctrl-f"] = function(selected, opts)
 								if not selected or #selected == 0 then
 									return
@@ -2193,43 +1908,7 @@ return {
 					document_symbols = {
 						fzf_opts = history_header_opts("lsp_doc_symbols", "C-y: copy location | C-f: copy full path"),
 						actions = {
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local path = require("fzf-lua.path")
-								local file = path.entry_to_file(selected[1], opts)
-								if file and file.path then
-									-- Determine reference directory (Oil dir or picker's cwd)
-									local ref_dir = opts.cwd or vim.fn.getcwd()
-
-									-- Check if launched from Oil buffer
-									if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-										local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-										if ft == "oil" then
-											local oil_dir = require("oil").get_current_dir(original_bufnr)
-											if oil_dir then
-												ref_dir = oil_dir
-											end
-										end
-									end
-
-									-- Make both absolute for comparison
-									local abs_file = vim.fn.fnamemodify(file.path, ":p")
-									local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-									-- Calculate relative path
-									local rel_path
-									if abs_file:find(abs_ref, 1, true) == 1 then
-										rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-									else
-										rel_path = abs_file -- Fallback if outside ref_dir
-									end
-
-									vim.fn.setreg("+", rel_path)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_location,
 							["ctrl-f"] = function(selected, opts)
 								if not selected or #selected == 0 then
 									return
@@ -2257,43 +1936,7 @@ return {
 					workspace_symbols = {
 						fzf_opts = history_header_opts("lsp_workspace_symbols", "C-y: copy location | C-f: copy full path"),
 						actions = {
-							["ctrl-y"] = function(selected, opts)
-								if not selected or #selected == 0 then
-									return
-								end
-								local path = require("fzf-lua.path")
-								local file = path.entry_to_file(selected[1], opts)
-								if file and file.path then
-									-- Determine reference directory (Oil dir or picker's cwd)
-									local ref_dir = opts.cwd or vim.fn.getcwd()
-
-									-- Check if launched from Oil buffer
-									if original_bufnr and vim.api.nvim_buf_is_valid(original_bufnr) then
-										local ft = vim.api.nvim_buf_get_option(original_bufnr, "filetype")
-										if ft == "oil" then
-											local oil_dir = require("oil").get_current_dir(original_bufnr)
-											if oil_dir then
-												ref_dir = oil_dir
-											end
-										end
-									end
-
-									-- Make both absolute for comparison
-									local abs_file = vim.fn.fnamemodify(file.path, ":p")
-									local abs_ref = vim.fn.fnamemodify(ref_dir, ":p")
-
-									-- Calculate relative path
-									local rel_path
-									if abs_file:find(abs_ref, 1, true) == 1 then
-										rel_path = abs_file:sub(#abs_ref + 1):gsub("^/", "")
-									else
-										rel_path = abs_file -- Fallback if outside ref_dir
-									end
-
-									vim.fn.setreg("+", rel_path)
-								end
-								return actions.resume(selected, opts)
-							end,
+							["ctrl-y"] = yank_location,
 							["ctrl-f"] = function(selected, opts)
 								if not selected or #selected == 0 then
 									return
@@ -2524,13 +2167,14 @@ return {
 					require("fzf-lua").fzf_exec(rows, {
 						prompt = "AWS Accounts> ",
 						fzf_opts = {
-							["--header"] = ":: enter yank account id  ::  alt-y yank profile name  ::  alt-b yank both",
+							["--header"] = ":: enter/ctrl-y yank account id  ::  alt-y yank profile name  ::  alt-b yank both",
 						},
 						actions = {
 							["default"] = function(selected)
 								local entry = selected and selected[1]
 								if entry then aws_profiles.yank_account_id(entry) end
 							end,
+							["ctrl-y"] = fzf_yank.action("aws_account"),
 							["alt-y"] = function(selected)
 								local entry = selected and selected[1]
 								if entry then aws_profiles.yank_profile_name(entry) end
@@ -2576,6 +2220,7 @@ return {
 						fzf_opts = { ["--header"] = build_header("files") },
 						actions = vim.tbl_extend("keep", {
 							["ctrl-g"] = open_selected_paths_graph_split,
+							["ctrl-y"] = yank_path,
 						}, files_actions),
 					})
 				end,
@@ -2746,6 +2391,7 @@ return {
 								header = get_header(),
 								winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
 								actions = vim.tbl_extend("force", switch_actions, {
+									["ctrl-y"] = yank_commit,
 									["default"] = function(selected)
 										if not selected or #selected == 0 then
 											-- No new selection - if we have refs, proceed
@@ -2783,6 +2429,7 @@ return {
 								},
 								winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
 								actions = vim.tbl_extend("force", switch_actions, {
+									["ctrl-y"] = yank_branch,
 									["default"] = function(selected)
 										if not selected or #selected == 0 then
 											if #selected_refs >= 1 then
@@ -2816,6 +2463,7 @@ return {
 								},
 								winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
 								actions = vim.tbl_extend("force", switch_actions, {
+									["ctrl-y"] = fzf_yank.action("worktree"),
 									["default"] = function(selected)
 										if not selected or #selected == 0 then
 											if #selected_refs >= 1 then
@@ -2844,6 +2492,7 @@ return {
 								header = get_header(),
 								winopts = { preview = { hidden = preview_hidden and "hidden" or "nohidden" } },
 								actions = vim.tbl_extend("force", switch_actions, {
+									["ctrl-y"] = yank_stash,
 									["default"] = function(selected)
 										if not selected or #selected == 0 then
 											if #selected_refs >= 1 then
@@ -3086,6 +2735,7 @@ return {
 								fzf_args = header,
 								actions = vim.tbl_extend("force", make_scope_actions(launch_zoxide_picker), {
 									["default"] = default_action,
+									["ctrl-y"] = fzf_yank.action("display"),
 								}),
 							})
 							return
@@ -3119,6 +2769,7 @@ return {
 							fzf_args = header,
 							actions = vim.tbl_extend("force", make_scope_actions(launch_zoxide_picker), {
 								["default"] = default_action,
+								["ctrl-y"] = fzf_yank.action("zoxide"),
 								["tab"] = function(selected)
 									if not selected or #selected == 0 then
 										return
@@ -3243,7 +2894,12 @@ return {
 					select = "default",
 					paste = "ctrl-p",
 					paste_behind = "ctrl-k",
-					custom = {},
+					custom = {
+						["ctrl-y"] = function(context)
+							vim.fn.setreg("+", context.entry.contents, context.entry.regtype)
+							vim.notify("Yanked Neoclip selection")
+						end,
+					},
 				},
 			},
 		},

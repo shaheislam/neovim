@@ -91,6 +91,17 @@ end
 
 local inserted = {}
 local owner_restores = 0
+local clipboard = {}
+local original_setreg = vim.fn.setreg
+local original_notify = vim.notify
+vim.fn.setreg = function(register, value)
+	if register == "+" then
+		table.insert(clipboard, { register = register, value = value })
+		return
+	end
+	return original_setreg(register, value)
+end
+vim.notify = function() end
 local owner = {
 	source = source_target,
 	insert = function(text)
@@ -138,8 +149,8 @@ eq(wrapped.command, "command:files", "the provider's stringified command is rela
 eq(wrapped.convert_actions, true, "the second phase asks fzf-lua to convert replacement actions")
 eq(wrapped.opts._start, nil, "the second phase clears the no-start marker")
 assert(
-	vim.tbl_count(wrapped.opts.actions) == 1 and wrapped.opts.actions.enter,
-	"all inherited normal and alternate actions are removed"
+	vim.tbl_count(wrapped.opts.actions) == 2 and wrapped.opts.actions.enter and wrapped.opts.actions["ctrl-y"],
+	"resolved prompt providers retain only safe Enter and Ctrl-y actions"
 )
 
 wrapped.opts.winopts.on_close()
@@ -155,6 +166,15 @@ prompt.launch("files", owner)
 wrapped.opts.winopts.on_close()
 scheduled[1]()
 eq(owner_restores, 1, "cancelling restores the prompt owner once")
+
+scheduled = {}
+prompt.launch("files", owner)
+wrapped.opts.winopts.on_close()
+wrapped.opts.actions["ctrl-y"]({ "lua/config/fzf_prompt.lua" }, wrapped.opts)
+eq(clipboard, { { register = "+", value = "lua/config/fzf_prompt.lua" } }, "Ctrl-y copies the normalized selection")
+eq(inserted, { "lua/config/fzf_prompt.lua " }, "Ctrl-y never inserts into the prompt")
+scheduled[1]()
+eq(owner_restores, 2, "Ctrl-y closes and restores the prompt owner")
 
 eq(prompt.transform("git_branches", { "\27[32m* main abc123 subject\27[0m" }, {}), "main ", "branch markers are stripped")
 eq(prompt.transform("git_branches", { "+ feature/topic def456 subject" }, {}), "feature/topic ", "worktree branch markers are stripped")
@@ -230,6 +250,10 @@ eq(
 aws_call.opts.actions.enter({ "prod  •  325875666703  •  AWSAdministratorAccess" })
 eq(inserted, { "325875666703 " }, "selecting an AWS account inserts its account id")
 
+clipboard = {}
+aws_call.opts.actions["ctrl-y"]({ "prod  •  325875666703  •  AWSAdministratorAccess" })
+eq(clipboard, { { register = "+", value = "325875666703" } }, "Ctrl-y yanks the AWS account id")
+
 inserted = {}
 aws_call.opts.actions["alt-y"]({ "prod  •  325875666703  •  AWSAdministratorAccess" })
 eq(inserted, { "prod " }, "alt-y inserts the AWS account's profile name")
@@ -274,21 +298,29 @@ prompt.open_menu()
 local opencode_menu = picker_calls[#picker_calls]
 opencode_menu.opts.actions.enter({ "opencode_sessions" })
 scheduled[1]()
-eq(opencode_dispatches[3], { kind = "history", scope = "all", opts = { session_scope = "local" } }, "normal prompt catalog history starts Local")
+eq(
+	opencode_dispatches[3],
+	{ kind = "history", scope = "all", opts = { session_scope = "local", allow_cross_route_fork = true } },
+	"normal prompt catalog history starts Local"
+)
 
 scheduled = {}
 prompt.open_menu()
 opencode_menu = picker_calls[#picker_calls]
 opencode_menu.opts.actions.enter({ "opencode_all_sessions" })
 scheduled[1]()
-eq(opencode_dispatches[4], { kind = "aggregate", scope = "all", opts = { session_scope = "local" } }, "normal prompt catalog aggregate search starts Local")
+eq(
+	opencode_dispatches[4],
+	{ kind = "aggregate", scope = "all", opts = { session_scope = "local", allow_cross_route_fork = true } },
+	"normal prompt catalog aggregate search starts Local"
+)
 
 inserted = {}
 prompt.launch("git_worktrees", owner)
 eq(wrapped.command, "command:git_worktrees", "the worktree provider is relaunched for prompt insertion")
 assert(
-	vim.tbl_count(wrapped.opts.actions) == 1 and wrapped.opts.actions.enter,
-	"prompt worktrees remove inherited cd, add, and delete actions"
+	vim.tbl_count(wrapped.opts.actions) == 2 and wrapped.opts.actions.enter and wrapped.opts.actions["ctrl-y"],
+	"prompt worktrees retain only safe insertion and yank actions"
 )
 wrapped.opts.actions.enter({ "\27[34m/Users/shahe/work/topic\27[0m  abc1234 [topic]" }, wrapped.opts)
 eq(inserted, { "/Users/shahe/work/topic " }, "prompt worktrees insert the selected path")
@@ -338,5 +370,7 @@ eq(
 
 vim.schedule = original_schedule
 vim.api.nvim_get_current_win = original_get_current_win
+vim.fn.setreg = original_setreg
+vim.notify = original_notify
 
 print("PASS fzf prompt adapter catalog, safety, transforms, and lifecycle")

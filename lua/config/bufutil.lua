@@ -97,4 +97,29 @@ function M.focus_buffer_preserving_terminal(buf)
 	vim.api.nvim_win_set_buf(0, buf)
 end
 
+--- Open `path` in a safe code window, or a new tab when every available
+--- window is a terminal, locked, or modified. Closing that tab naturally
+--- returns to the preserved terminal tab.
+---@param path string
+---@param line? integer
+---@return integer
+function M.open_file_preserving_terminal(path, line)
+	local buf = vim.fn.bufnr(path)
+	if buf < 0 then
+		buf = vim.fn.bufadd(path)
+	end
+	if not vim.api.nvim_buf_is_loaded(buf) then
+		vim.fn.bufload(buf)
+	end
+
+	M.focus_buffer_preserving_terminal(buf)
+	if line and line > 0 then
+		local total = vim.api.nvim_buf_line_count(buf)
+		vim.api.nvim_win_set_cursor(0, { math.min(line, total), 0 })
+		vim.cmd("normal! zz")
+	end
+	vim.cmd("checktime")
+	return 1
+end
+
 return M

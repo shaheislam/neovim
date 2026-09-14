@@ -126,17 +126,25 @@ RUN nvim --headless "+Lazy! sync" +qa 2>&1 || echo "Plugin sync completed"
 # Fix blink.cmp/blink.pairs binaries for correct architecture
 # Lazy sync may download wrong arch when cross-compiling (e.g., building on Mac for amd64)
 # We remove any auto-downloaded binaries and checksums, then download correct ones
+#
+# NOTE: blink.pairs v0.6+ moved its native library to blink.lib's managed layout:
+#   $repo/lib/libblink_pairs_parser.so  (was: $repo/target/release/libblink_pairs.so)
+# The unhashed filename is the documented fallback, so no commit suffix is needed.
+# BLINK_PAIRS_VERSION must be kept in sync with lazy-lock.json.
+ARG BLINK_PAIRS_VERSION=v0.7.1
+ARG BLINK_CMP_VERSION=v1.8.0
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then RUST_ARCH="x86_64-unknown-linux-gnu"; else RUST_ARCH="aarch64-unknown-linux-gnu"; fi && \
     # Remove any auto-downloaded binaries and checksums from Lazy sync
-    rm -rf /root/.local/share/nvim/lazy/blink.pairs/target 2>/dev/null || true && \
+    rm -rf /root/.local/share/nvim/lazy/blink.pairs/lib \
+           /root/.local/share/nvim/lazy/blink.pairs/target 2>/dev/null || true && \
     rm -rf /root/.local/share/nvim/lazy/blink.cmp/target 2>/dev/null || true && \
     # Download correct architecture binaries
-    mkdir -p /root/.local/share/nvim/lazy/blink.pairs/target/release && \
-    curl -fsSL "https://github.com/saghen/blink.pairs/releases/download/v0.4.1/${RUST_ARCH}.so" \
-        -o /root/.local/share/nvim/lazy/blink.pairs/target/release/libblink_pairs.so && \
+    mkdir -p /root/.local/share/nvim/lazy/blink.pairs/lib && \
+    curl -fsSL "https://github.com/saghen/blink.pairs/releases/download/${BLINK_PAIRS_VERSION}/${RUST_ARCH}.so" \
+        -o /root/.local/share/nvim/lazy/blink.pairs/lib/libblink_pairs_parser.so && \
     mkdir -p /root/.local/share/nvim/lazy/blink.cmp/target/release && \
-    curl -fsSL "https://github.com/saghen/blink.cmp/releases/download/v1.8.0/${RUST_ARCH}.so" \
+    curl -fsSL "https://github.com/saghen/blink.cmp/releases/download/${BLINK_CMP_VERSION}/${RUST_ARCH}.so" \
         -o /root/.local/share/nvim/lazy/blink.cmp/target/release/libblink_cmp_fuzzy.so && \
     echo "Blink binaries downloaded for ${ARCH}"
 

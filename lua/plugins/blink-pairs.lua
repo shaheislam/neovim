@@ -6,6 +6,27 @@ return {
     'saghen/blink.pairs',
     dependencies = 'saghen/blink.lib',
     version = '*',
+    -- v0.6+ moved the native parser to blink.lib's managed download/build system.
+    -- Without this hook the library is never fetched and setup() errors on UIEnter.
+    -- `download()` requires a versioned release, hence `version = '*'` above.
+    --
+    -- Upstream documents `download():pwait(60000)`, but that always burns the full
+    -- 60s on a cold fetch: `managed:download()` is built on `task.new()`, whose
+    -- executor return value is only honoured as a *cancel handler*, so the nested
+    -- download task it returns is discarded and the outer task never leaves RUNNING.
+    -- `pwait` is pcall-wrapped, so the resulting timeout is also silently swallowed.
+    -- The download itself succeeds, so poll for the artifact instead (~0.8s), and
+    -- fail loudly if it never lands. `build()` does not have this defect (it uses
+    -- `task.resolve():map()`, which chains correctly) but needs a Rust toolchain.
+    build = function()
+      local blink_pairs = require('blink.pairs')
+      if blink_pairs.library_available() then return end
+
+      blink_pairs.download()
+      if not vim.wait(60000, blink_pairs.library_available, 100) then
+        error('blink.pairs: timed out downloading native library')
+      end
+    end,
 
     --- @module 'blink.pairs'
     --- @type blink.pairs.Config

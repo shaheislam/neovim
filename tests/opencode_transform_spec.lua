@@ -15,8 +15,10 @@ local add_highlight = vim.api.nvim_get_hl(0, { name = "OpenCodeTransformAdd", li
 local delete_highlight = vim.api.nvim_get_hl(0, { name = "OpenCodeTransformDelete", link = false })
 eq(add_highlight.bg, 0x20362a, "proposal additions have a green background")
 eq(add_highlight.bold, true, "proposal additions are bold")
+eq(add_highlight.fg, nil, "proposal additions preserve syntax foregrounds")
 eq(delete_highlight.bg, 0x3a2228, "proposal deletions have a red background")
 eq(delete_highlight.strikethrough, true, "proposal deletions are struck through")
+eq(delete_highlight.fg, nil, "proposal deletions preserve syntax foregrounds")
 eq(vim.api.nvim_get_hl(0, { name = "DiffAdd", link = false }).bg, nil, "global diff additions remain transparent")
 eq(vim.api.nvim_get_hl(0, { name = "DiffDelete", link = false }).bg, nil, "global diff deletions remain transparent")
 local buf = vim.api.nvim_create_buf(false, true)
@@ -364,10 +366,14 @@ notices = {}
 local original_y_mapping = vim.fn.maparg("y", "n", false, true)
 local original_n_mapping = vim.fn.maparg("n", "n", false, true)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, original_lines)
+vim.bo[buf].filetype = "lua"
+vim.api.nvim_set_hl(0, "OpenCodeTransformSyntaxProbe", { fg = "#abcdef" })
+vim.api.nvim_buf_call(buf, function() vim.cmd("syntax match OpenCodeTransformSyntaxProbe /aéz/") end)
 snapshot = assert(transform.capture(buf, "v", { 1, 1 }, { 1, 4 }, "/tmp/project"))
 local prompt_permissions = transform.permissions()
 local prompt_http = {}
 local cleanup_attempts = 0
+local syntax_highlight_calls = 0
 function prompt_http.request(method, path, body, callback)
 	table.insert(requests, { method = method, path = path, body = body })
 	if method == "POST" and path == "/session" then
@@ -387,6 +393,15 @@ transform.prompt({
 		eq(opts.prompt, "OpenCode instruction: ", "ad hoc transform asks for a free-form instruction")
 		callback("add an argument to this function")
 	end,
+	syntax_highlighter = function(text, opts)
+		syntax_highlight_calls = syntax_highlight_calls + 1
+		eq(text, "prompted\ntext", "proposal highlighter receives the exact replacement")
+		eq(opts, { ft = "lua", bg = "OpenCodeTransformAdd" }, "proposal highlighter receives filetype and overlay")
+		return {
+			{ { "prompted", { "@keyword.lua", "OpenCodeTransformAdd" } } },
+			{ { "text", { "@variable.lua", "OpenCodeTransformAdd" } } },
+		}
+	end,
 	notify = function(message, level) table.insert(notices, { message = message, level = level }) end,
 })
 eq(#requests, 4, "ad hoc transform skips skill discovery and retries temporary-session cleanup once")
@@ -401,12 +416,16 @@ eq(buffer_map("n").desc, "Reject OpenCode transform", "proposal installs a docum
 local source_mark, preview_mark = proposal_marks()
 assert(source_mark, "proposal highlights the selected source as a deletion")
 assert(preview_mark, "proposal renders replacement virtual lines")
+local source_highlights = vim.inspect_pos(buf, 0, 2, { treesitter = false, semantic_tokens = false })
+assert(vim.tbl_contains(vim.tbl_map(function(item) return item.hl_group end, source_highlights.syntax), "OpenCodeTransformSyntaxProbe"), "proposal retains source syntax highlights")
+assert(vim.tbl_contains(vim.tbl_map(function(item) return item.opts.hl_group end, source_highlights.extmarks), "OpenCodeTransformDelete"), "proposal layers the deletion background over source syntax")
 eq(preview_mark[2], snapshot.end_row, "proposal virtual lines are anchored after the selection's final row")
 eq(preview_mark[4].virt_lines, {
-	{ { "prompted", "OpenCodeTransformAdd" } },
-	{ { "text", "OpenCodeTransformAdd" } },
+	{ { "prompted", { "@keyword.lua", "OpenCodeTransformAdd" } } },
+	{ { "text", { "@variable.lua", "OpenCodeTransformAdd" } } },
 	{ { "[y] accept  [n] reject", "Comment" } },
-}, "proposal renders replacement lines and persistent review controls")
+}, "proposal preserves syntax colors beneath the addition overlay")
+eq(syntax_highlight_calls, 1, "proposal syntax highlighting runs once")
 
 feed_key("y")
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), { "prompted", "text", "second", "third" }, "accept replaces only the captured selection")
@@ -415,6 +434,27 @@ assert(not buffer_map("y") and not buffer_map("n"), "accept removes review mappi
 eq(vim.fn.maparg("y", "n", false, true), original_y_mapping, "accept restores the original yank mapping")
 vim.cmd("undo")
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), original_lines, "accepted proposal is one undoable edit")
+
+snapshot = assert(transform.capture(buf, "v", { 1, 1 }, { 1, 4 }, "/tmp/project"))
+transform.prompt({
+	snapshot = snapshot,
+	http = prompt_http,
+	input = function(_, callback) callback("rewrite this") end,
+	syntax_highlighter = function()
+		return {
+			{ { "prompted", "@keyword.lua" } },
+			{ { "text", "@variable.lua" } },
+		}
+	end,
+	notify = function(message, level) table.insert(notices, { message = message, level = level }) end,
+})
+local _, fallback_preview = proposal_marks()
+eq(fallback_preview[4].virt_lines, {
+	{ { "prompted", "OpenCodeTransformAdd" } },
+	{ { "text", "OpenCodeTransformAdd" } },
+	{ { "[y] accept  [n] reject", "Comment" } },
+}, "proposal falls back when syntax chunks omit the addition overlay")
+feed_key("n")
 
 requests = {}
 notices = {}

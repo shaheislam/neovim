@@ -414,6 +414,65 @@ local function resolve_range(state)
 	return table.concat(text, "\n") == snapshot.text and range or nil
 end
 
+local function has_add_overlay(highlight)
+	if highlight == "OpenCodeTransformAdd" then
+		return true
+	end
+	if type(highlight) ~= "table" or #highlight == 0 or highlight[#highlight] ~= "OpenCodeTransformAdd" then
+		return false
+	end
+	for _, group in ipairs(highlight) do
+		if type(group) ~= "string" then
+			return false
+		end
+	end
+	return true
+end
+
+local function valid_virtual_lines(virt_lines, lines)
+	if type(virt_lines) ~= "table" or #virt_lines ~= #lines then
+		return false
+	end
+	for i, chunks in ipairs(virt_lines) do
+		if type(chunks) ~= "table" then
+			return false
+		end
+		local rendered = {}
+		for _, chunk in ipairs(chunks) do
+			if type(chunk) ~= "table" or type(chunk[1]) ~= "string" then
+				return false
+			end
+			if chunk[1] ~= "" and not has_add_overlay(chunk[2]) then
+				return false
+			end
+			table.insert(rendered, chunk[1])
+		end
+		if table.concat(rendered) ~= lines[i] then
+			return false
+		end
+	end
+	return true
+end
+
+local function proposal_virtual_lines(state, replacement)
+	local lines = vim.split(replacement, "\n", { plain = true })
+	local highlighter = state.opts.syntax_highlighter
+	if not highlighter then
+		local ok, treesitter = pcall(require, "sidekick.treesitter")
+		highlighter = ok and type(treesitter.get_virtual_lines) == "function" and treesitter.get_virtual_lines or nil
+	end
+	if highlighter then
+		local ok, virt_lines = pcall(highlighter, replacement, {
+			ft = vim.bo[state.snapshot.buf].filetype,
+			bg = "OpenCodeTransformAdd",
+		})
+		if ok and valid_virtual_lines(virt_lines, lines) then
+			return virt_lines
+		end
+	end
+	return vim.tbl_map(function(line) return { { line, "OpenCodeTransformAdd" } } end, lines)
+end
+
 local function show_proposal(state, range, replacement)
 	local buf = state.snapshot.buf
 	state.track_mark = vim.api.nvim_buf_set_extmark(buf, namespace, range.start_row, range.start_col, {
@@ -424,7 +483,7 @@ local function show_proposal(state, range, replacement)
 		end_right_gravity = false,
 		hl_group = "OpenCodeTransformDelete",
 	})
-	local virt_lines = vim.tbl_map(function(line) return { { line, "OpenCodeTransformAdd" } } end, vim.split(replacement, "\n", { plain = true }))
+	local virt_lines = proposal_virtual_lines(state, replacement)
 	table.insert(virt_lines, { { "[y] accept  [n] reject", "Comment" } })
 	state.preview_mark = vim.api.nvim_buf_set_extmark(buf, namespace, range.end_row, range.end_col, {
 		virt_lines = virt_lines,

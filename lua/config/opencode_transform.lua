@@ -4,11 +4,15 @@ local last_action_id
 
 local actions = {
   { id = "prd", label = "Create PRD", skill = "prd", profile = "Produce a complete Markdown PRD from the source." },
+  { id = "re-pitch", label = "Re-pitch clearly", skill = "re-pitch", profile = "Rewrite the source as a clear, self-contained explanation with prerequisites introduced before dependent ideas." },
   { id = "ui-copy", label = "Rewrite UI copy", skill = "articulate", profile = "Rewrite the source as clear, concise interface copy." },
   { id = "compress", label = "Compress", skill = "caveman", profile = "Compress the source without losing decisions or constraints." },
+  { id = "agent-writing", label = "Improve agent instructions", skill = "agent-writing", profile = "Rewrite the source as precise agent instructions while preserving frontmatter, safety constraints, and completion criteria." },
   { id = "requirement", label = "Optimize requirement", skill = "prompt-optimizer", profile = "Rewrite the source as atomic, testable requirements." },
   { id = "spec", label = "Create implementation spec", skill = "specify", profile = "Turn the source into a self-contained implementation spec without repository assumptions." },
-  { id = "slices", label = "Split into implementation slices", skill = "story-splitting", profile = "Rewrite the source as dependency-aware vertical slices with acceptance criteria." },
+  { id = "slices", label = "Split into implementation slices", skill = "story-splitting", profile = "Rewrite the source as dependency-aware vertical slices with acceptance criteria, blocker edges, a ready frontier, and expand-migrate-contract sequencing where needed." },
+  { id = "questionnaire", label = "Create decision questionnaire", skill = "decision-questionnaire", profile = "Rewrite the source as a concise asynchronous questionnaire for the person who holds the blocking facts or decisions." },
+  { id = "explanation-order", label = "Fix explanation order", skill = "explanation-order", profile = "Reorder the source so every concept is introduced before later claims depend on it, preserving facts and necessary qualifications." },
   { id = "edge-cases", label = "Harden edge cases", skill = "fortify", profile = "Rewrite the source to include relevant non-happy-path states and recovery behavior." },
   { id = "tests", label = "Improve tests", skill = "testing", profile = "Return improved replacement test code only; do not claim it was executed." },
   { id = "functional", label = "Functional rewrite", skill = "functional", profile = "Rewrite the source with immutable data, explicit inputs, and a pure core where appropriate." },

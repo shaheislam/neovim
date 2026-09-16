@@ -180,7 +180,6 @@ local function unchanged(snapshot)
   return table.concat(current, "\n") == snapshot.text
 end
 
-<<<<<<< HEAD
 local function buffer_map(buf, lhs)
 	if not vim.api.nvim_buf_is_valid(buf) then
 		return nil
@@ -254,30 +253,13 @@ local function finish(state)
 end
 
 local function start(opts, review)
-	local snapshot = opts.snapshot
-||||||| 4a19899
-function M.select(opts)
-  opts = opts or {}
-  local snapshot = opts.snapshot
-=======
-function M.select(opts)
-  opts = opts or {}
-  local snapshot, capture_error = opts.snapshot
->>>>>>> visualselectissue
+	local snapshot, capture_error = opts.snapshot
   if not snapshot then
     snapshot, capture_error = M.capture_current()
   end
   if not snapshot then
-<<<<<<< HEAD
-    notify(opts, "OpenCode transform requires a characterwise or linewise selection", vim.log.levels.ERROR)
-    return nil
-||||||| 4a19899
-    notify(opts, "OpenCode transform requires a characterwise or linewise selection", vim.log.levels.ERROR)
-    return
-=======
     notify(opts, capture_error or "OpenCode transform requires a characterwise or linewise selection", vim.log.levels.ERROR)
-    return
->>>>>>> visualselectissue
+		return nil
   end
 	if inflight[snapshot.buf] then
     notify(opts, "OpenCode is already transforming this buffer", vim.log.levels.WARN)

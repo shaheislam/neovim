@@ -8,24 +8,13 @@ local function eq(actual, expected, message)
 	)
 end
 
-<<<<<<< HEAD
 local transform = dofile("lua/config/opencode_transform.lua")
-<<<<<<< HEAD
-||||||| 4a19899
-local transform = require("config.opencode_transform")
-=======
-package.loaded["config.opencode_transform"] = nil
-local transform = require("config.opencode_transform")
->>>>>>> visualselectissue
-||||||| f5eb51b
-=======
 local styling = dofile("lua/config/autocmds/styling.lua")
 styling.apply_consistent_styles()
 eq(vim.api.nvim_get_hl(0, { name = "OpenCodeTransformAdd", link = false }).bg, 0x20362a, "proposal additions have a green background")
 eq(vim.api.nvim_get_hl(0, { name = "OpenCodeTransformDelete", link = false }).bg, 0x3a2228, "proposal deletions have a red background")
 eq(vim.api.nvim_get_hl(0, { name = "DiffAdd", link = false }).bg, nil, "global diff additions remain transparent")
 eq(vim.api.nvim_get_hl(0, { name = "DiffDelete", link = false }).bg, nil, "global diff deletions remain transparent")
->>>>>>> opencodeworkflows
 local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(buf)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "aéz", "second", "third" })

@@ -1,5 +1,7 @@
 local M = {}
 
+local function noop() end
+
 local function server_url()
   local url = vim.g.opencode_server_url or vim.env.OPENCODE_SERVER_URL or "http://127.0.0.1:4096"
   return url:gsub("/+$", "")
@@ -51,23 +53,39 @@ local function curl_args(method, path, body, opts)
 end
 
 function M.request(method, path, body, callback, opts)
-  if vim.fn.executable("curl") ~= 1 then
-    callback(false, "curl is required to talk to OpenCode")
-    return
-  end
+	if vim.fn.executable("curl") ~= 1 then
+		callback(false, "curl is required to talk to OpenCode")
+		return noop
+	end
 
   method = method:upper()
-  local json = body ~= nil and vim.json.encode(body) or nil
-  local args = curl_args(method, path, body, opts)
+	local json = body ~= nil and vim.json.encode(body) or nil
+	local args = curl_args(method, path, body, opts)
+	local done = false
+	local stopped = false
+	local function complete(ok, output)
+		if done then
+			return
+		end
+		done = true
+		vim.schedule(function() callback(ok, output) end)
+	end
 
-  if vim.system then
-    vim.system(args, { text = true, stdin = json }, function(result)
-      vim.schedule(function()
-        callback(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
-      end)
-    end)
-    return
-  end
+	if vim.system then
+		local process
+		process = vim.system(args, { text = true, stdin = json }, function(result)
+			complete(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
+		end)
+		return function()
+			if done or stopped then
+				return
+			end
+			stopped = true
+			if process then
+				process:kill(15)
+			end
+		end
+	end
 
   local out, err = {}, {}
   local job_opts = {
@@ -79,45 +97,52 @@ function M.request(method, path, body, callback, opts)
     on_stderr = function(_, data)
       vim.list_extend(err, data or {})
     end,
-    on_exit = function(_, code)
-      vim.schedule(function()
-        callback(code == 0, table.concat(out, "\n") .. table.concat(err, "\n"))
-      end)
-    end,
+		on_exit = function(_, code)
+			complete(code == 0, table.concat(out, "\n") .. table.concat(err, "\n"))
+		end,
   }
   if json ~= nil then
     job_opts.stdin = "pipe"
   end
   local job = vim.fn.jobstart(args, job_opts)
 
-  if job <= 0 then
-    callback(false, "Failed to start curl")
-    return
-  end
+	if job <= 0 then
+		done = true
+		callback(false, "Failed to start curl")
+		return noop
+	end
 
   if json ~= nil then
     vim.fn.chansend(job, json)
-    vim.fn.chanclose(job, "stdin")
-  end
+		vim.fn.chanclose(job, "stdin")
+	end
+
+	return function()
+		if done or stopped then
+			return
+		end
+		stopped = true
+		vim.fn.jobstop(job)
+	end
 end
 
 function M.post(path, body, callback, opts)
-  M.request("POST", path, body, callback, opts)
+	return M.request("POST", path, body, callback, opts)
 end
 
 function M.prompt_async(session_id, text, opts, callback)
   opts = opts or {}
   callback = callback or function() end
-  if type(session_id) ~= "string" or not session_id:match("^[%w_-]+$") then
-    callback(false, "Invalid OpenCode session ID")
-    return
-  end
-  if type(text) ~= "string" or text == "" then
-    callback(false, "Missing OpenCode prompt text")
-    return
-  end
+	if type(session_id) ~= "string" or not session_id:match("^[%w_-]+$") then
+		callback(false, "Invalid OpenCode session ID")
+		return noop
+	end
+	if type(text) ~= "string" or text == "" then
+		callback(false, "Missing OpenCode prompt text")
+		return noop
+	end
 
-  M.post(
+	return M.post(
     "/session/" .. session_id .. "/prompt_async",
     { parts = { { type = "text", text = text } } },
     callback,
@@ -125,16 +150,25 @@ function M.prompt_async(session_id, text, opts, callback)
   )
 end
 
+function M.abort(session_id, callback, opts)
+	callback = callback or noop
+	if type(session_id) ~= "string" or not session_id:match("^[%w_-]+$") then
+		callback(false, "Invalid OpenCode session ID")
+		return noop
+	end
+	return M.post("/session/" .. session_id .. "/abort", nil, callback, opts)
+end
+
 function M.get(path, callback, opts)
-  M.request("GET", path, nil, callback, opts)
+	return M.request("GET", path, nil, callback, opts)
 end
 
 function M.patch(path, body, callback, opts)
-  M.request("PATCH", path, body, callback, opts)
+	return M.request("PATCH", path, body, callback, opts)
 end
 
 function M.delete(path, callback, opts)
-  M.request("DELETE", path, nil, callback, opts)
+	return M.request("DELETE", path, nil, callback, opts)
 end
 
 function M.canonical(path)

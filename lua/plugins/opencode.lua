@@ -849,6 +849,14 @@ return {
 				desc = "Transform selection with OpenCode",
 			},
 			{
+				"<leader>aoI",
+				function()
+					require("config.opencode_transform").prompt()
+				end,
+				mode = "x",
+				desc = "Transform selection from instruction",
+			},
+			{
 				"<leader>ao.",
 				function()
 					require("config.opencode_transform").select({ repeat_last = true })

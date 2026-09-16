@@ -104,27 +104,48 @@ terminal_adapter.__set_test_hooks({
 })
 
 local toggle_terminal
-local transform_mapping
+local action_mapping
+local obsolete_transform_mapping
 local prompt_transform_mapping
-local repeat_transform_mapping
+local obsolete_repeat_transform_mapping
 for _, key in ipairs(plugin_specs[1].keys) do
 	if key[1] == "<leader>aoc" and mode_includes(key.mode, "n") then
 		toggle_terminal = key[2]
+	elseif key[1] == "<leader>aox" then
+		action_mapping = key
 	elseif key[1] == "<leader>aoX" and mode_includes(key.mode, "x") then
-		transform_mapping = key
+		obsolete_transform_mapping = key
 	elseif key[1] == "<leader>aoI" and mode_includes(key.mode, "x") then
 		prompt_transform_mapping = key
 	elseif key[1] == "<leader>ao." and mode_includes(key.mode, "x") then
-		repeat_transform_mapping = key
+		obsolete_repeat_transform_mapping = key
 	end
 end
 assert(toggle_terminal, "<leader>aoc toggle mapping is present")
-assert(transform_mapping, "visual <leader>aoX inline transform mapping is present")
-eq(transform_mapping.desc, "Transform selection with OpenCode", "inline transform mapping documents its action")
+assert(action_mapping, "<leader>aox upstream action mapping is present")
+assert(mode_includes(action_mapping.mode, "n") and mode_includes(action_mapping.mode, "x"), "<leader>aox remains available in normal and visual modes")
+eq(obsolete_transform_mapping, nil, "visual <leader>aoX curated transform mapping is removed")
 assert(prompt_transform_mapping, "visual <leader>aoI prompt transform mapping is present")
-eq(prompt_transform_mapping.desc, "Transform selection from instruction", "prompt transform mapping documents its action")
-assert(repeat_transform_mapping, "visual <leader>ao. repeat-transform mapping is present")
-eq(repeat_transform_mapping.desc, "Repeat last OpenCode transform", "repeat-transform mapping documents its action")
+eq(prompt_transform_mapping.desc, "Transform selection with instruction or skill", "prompt transform mapping documents both input modes")
+eq(obsolete_repeat_transform_mapping, nil, "visual <leader>ao. curated repeat mapping is removed")
+
+local original_transform = package.loaded["config.opencode_transform"]
+local prompt_transform_calls = 0
+package.loaded["config.opencode_transform"] = {
+	prompt = function() prompt_transform_calls = prompt_transform_calls + 1 end,
+}
+prompt_transform_mapping[2]()
+eq(prompt_transform_calls, 1, "visual <leader>aoI dispatches to the prompt transform")
+package.loaded["config.opencode_transform"] = original_transform
+
+local original_opencode = package.loaded["opencode"]
+local action_select_calls = 0
+package.loaded["opencode"] = {
+	select = function() action_select_calls = action_select_calls + 1 end,
+}
+action_mapping[2]()
+eq(action_select_calls, 1, "<leader>aox still dispatches to upstream opencode actions")
+package.loaded["opencode"] = original_opencode
 
 local history_mapping
 local aggregate_mapping

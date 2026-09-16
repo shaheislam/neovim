@@ -841,28 +841,12 @@ return {
 				desc = "opencode actions",
 			},
 			{
-				"<leader>aoX",
-				function()
-					require("config.opencode_transform").select()
-				end,
-				mode = "x",
-				desc = "Transform selection with OpenCode",
-			},
-			{
 				"<leader>aoI",
 				function()
 					require("config.opencode_transform").prompt()
 				end,
 				mode = "x",
-				desc = "Transform selection from instruction",
-			},
-			{
-				"<leader>ao.",
-				function()
-					require("config.opencode_transform").select({ repeat_last = true })
-				end,
-				mode = "x",
-				desc = "Repeat last OpenCode transform",
+				desc = "Transform selection with instruction or skill",
 			},
 			-- Operator-pending mode (select range then type prompt)
 			{

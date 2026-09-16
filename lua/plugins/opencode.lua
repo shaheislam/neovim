@@ -840,6 +840,22 @@ return {
 				mode = { "n", "x" },
 				desc = "opencode actions",
 			},
+			{
+				"<leader>aoX",
+				function()
+					require("config.opencode_transform").select()
+				end,
+				mode = "x",
+				desc = "Transform selection with OpenCode",
+			},
+			{
+				"<leader>ao.",
+				function()
+					require("config.opencode_transform").select({ repeat_last = true })
+				end,
+				mode = "x",
+				desc = "Repeat last OpenCode transform",
+			},
 			-- Operator-pending mode (select range then type prompt)
 			{
 				"go",

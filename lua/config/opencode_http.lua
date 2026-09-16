@@ -23,23 +23,23 @@ local function server_password()
   return nil
 end
 
-local function curl_args(path, dir)
+local function curl_args(method, path, body, opts)
+  opts = opts or {}
   local args = {
     "curl",
     "--silent",
     "--show-error",
     "--fail-with-body",
     "--max-time",
-    "2",
+    tostring(opts.timeout or 2),
     "--request",
-    "POST",
+    method,
     "--header",
-    "Content-Type: application/json",
-    "--header",
-    "x-opencode-directory: " .. (dir or vim.fn.getcwd()),
-    "--data-binary",
-    "@-",
+    "x-opencode-directory: " .. (opts.dir or vim.fn.getcwd()),
   }
+  if body ~= nil then
+    vim.list_extend(args, { "--header", "Content-Type: application/json", "--data-binary", "@-" })
+  end
 
   local password = server_password()
   if password and password ~= "" then
@@ -50,49 +50,59 @@ local function curl_args(path, dir)
   return args
 end
 
-function M.post(path, body, callback, opts)
+function M.request(method, path, body, callback, opts)
   if vim.fn.executable("curl") ~= 1 then
     callback(false, "curl is required to talk to OpenCode")
     return
   end
 
-  local json = vim.json.encode(body)
-  local args = curl_args(path, opts and opts.dir)
+  method = method:upper()
+  local json = body ~= nil and vim.json.encode(body) or nil
+  local args = curl_args(method, path, body, opts)
 
   if vim.system then
     vim.system(args, { text = true, stdin = json }, function(result)
       vim.schedule(function()
-        callback(result.code == 0, (result.stderr or "") .. (result.stdout or ""))
+        callback(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
       end)
     end)
     return
   end
 
-  local output = {}
-  local job = vim.fn.jobstart(args, {
-    stdin = "pipe",
+  local out, err = {}, {}
+  local job_opts = {
     stdout_buffered = true,
     stderr_buffered = true,
     on_stdout = function(_, data)
-      vim.list_extend(output, data or {})
+      vim.list_extend(out, data or {})
     end,
     on_stderr = function(_, data)
-      vim.list_extend(output, data or {})
+      vim.list_extend(err, data or {})
     end,
     on_exit = function(_, code)
       vim.schedule(function()
-        callback(code == 0, table.concat(output, "\n"))
+        callback(code == 0, table.concat(out, "\n") .. table.concat(err, "\n"))
       end)
     end,
-  })
+  }
+  if json ~= nil then
+    job_opts.stdin = "pipe"
+  end
+  local job = vim.fn.jobstart(args, job_opts)
 
   if job <= 0 then
     callback(false, "Failed to start curl")
     return
   end
 
-  vim.fn.chansend(job, json)
-  vim.fn.chanclose(job, "stdin")
+  if json ~= nil then
+    vim.fn.chansend(job, json)
+    vim.fn.chanclose(job, "stdin")
+  end
+end
+
+function M.post(path, body, callback, opts)
+  M.request("POST", path, body, callback, opts)
 end
 
 function M.prompt_async(session_id, text, opts, callback)
@@ -116,117 +126,15 @@ function M.prompt_async(session_id, text, opts, callback)
 end
 
 function M.get(path, callback, opts)
-  if vim.fn.executable("curl") ~= 1 then
-    callback(false, "curl is required to talk to OpenCode")
-    return
-  end
-
-  local args = {
-    "curl",
-    "--silent",
-    "--show-error",
-    "--fail-with-body",
-    "--max-time",
-    "2",
-    "--header",
-    "x-opencode-directory: " .. ((opts and opts.dir) or vim.fn.getcwd()),
-  }
-
-  local password = server_password()
-  if password and password ~= "" then
-    vim.list_extend(args, { "--user", server_username() .. ":" .. password })
-  end
-
-  table.insert(args, server_url() .. path)
-
-  if vim.system then
-    vim.system(args, { text = true }, function(result)
-      vim.schedule(function()
-        callback(result.code == 0, (result.stdout or "") .. (result.stderr or ""))
-      end)
-    end)
-    return
-  end
-
-  local output = {}
-  local job = vim.fn.jobstart(args, {
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data) vim.list_extend(output, data or {}) end,
-    on_stderr = function(_, data) vim.list_extend(output, data or {}) end,
-    on_exit = function(_, code)
-      vim.schedule(function()
-        callback(code == 0, table.concat(output, "\n"))
-      end)
-    end,
-  })
-
-  if job <= 0 then
-    callback(false, "Failed to start curl")
-  end
+  M.request("GET", path, nil, callback, opts)
 end
 
 function M.patch(path, body, callback, opts)
-  if vim.fn.executable("curl") ~= 1 then
-    callback(false, "curl is required to talk to OpenCode")
-    return
-  end
+  M.request("PATCH", path, body, callback, opts)
+end
 
-  local json = vim.json.encode(body)
-  local args = {
-    "curl",
-    "--silent",
-    "--show-error",
-    "--fail-with-body",
-    "--max-time",
-    "2",
-    "--request",
-    "PATCH",
-    "--header",
-    "Content-Type: application/json",
-    "--header",
-    "x-opencode-directory: " .. ((opts and opts.dir) or vim.fn.getcwd()),
-    "--data-binary",
-    "@-",
-  }
-
-  local password = server_password()
-  if password and password ~= "" then
-    vim.list_extend(args, { "--user", server_username() .. ":" .. password })
-  end
-
-  table.insert(args, server_url() .. path)
-
-  if vim.system then
-    vim.system(args, { text = true, stdin = json }, function(result)
-      vim.schedule(function()
-        callback(result.code == 0, (result.stderr or "") .. (result.stdout or ""))
-      end)
-    end)
-    return
-  end
-
-  local output = {}
-  local job = vim.fn.jobstart(args, {
-    stdin = "pipe",
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data) vim.list_extend(output, data or {}) end,
-    on_stderr = function(_, data) vim.list_extend(output, data or {}) end,
-    on_exit = function(_, code)
-      vim.schedule(function()
-        callback(code == 0, table.concat(output, "\n"))
-      end)
-    end,
-  })
-
-  if job <= 0 then
-    callback(false, "Failed to start curl")
-    return
-  end
-
-  vim.fn.chansend(job, json)
-  vim.fn.chanclose(job, "stdin")
+function M.delete(path, callback, opts)
+  M.request("DELETE", path, nil, callback, opts)
 end
 
 function M.canonical(path)

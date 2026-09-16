@@ -104,13 +104,22 @@ terminal_adapter.__set_test_hooks({
 })
 
 local toggle_terminal
+local transform_mapping
+local repeat_transform_mapping
 for _, key in ipairs(plugin_specs[1].keys) do
 	if key[1] == "<leader>aoc" and mode_includes(key.mode, "n") then
 		toggle_terminal = key[2]
-		break
+	elseif key[1] == "<leader>aoX" and mode_includes(key.mode, "x") then
+		transform_mapping = key
+	elseif key[1] == "<leader>ao." and mode_includes(key.mode, "x") then
+		repeat_transform_mapping = key
 	end
 end
 assert(toggle_terminal, "<leader>aoc toggle mapping is present")
+assert(transform_mapping, "visual <leader>aoX inline transform mapping is present")
+eq(transform_mapping.desc, "Transform selection with OpenCode", "inline transform mapping documents its action")
+assert(repeat_transform_mapping, "visual <leader>ao. repeat-transform mapping is present")
+eq(repeat_transform_mapping.desc, "Repeat last OpenCode transform", "repeat-transform mapping documents its action")
 
 local history_mapping
 local aggregate_mapping

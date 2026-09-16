@@ -380,9 +380,9 @@ local function show_proposal(state, range, replacement)
 		end_col = range.end_col,
 		right_gravity = true,
 		end_right_gravity = false,
-		hl_group = "DiffDelete",
+		hl_group = "OpenCodeTransformDelete",
 	})
-	local virt_lines = vim.tbl_map(function(line) return { { line, "DiffAdd" } } end, vim.split(replacement, "\n", { plain = true }))
+	local virt_lines = vim.tbl_map(function(line) return { { line, "OpenCodeTransformAdd" } } end, vim.split(replacement, "\n", { plain = true }))
 	state.preview_mark = vim.api.nvim_buf_set_extmark(buf, namespace, range.end_row, range.end_col, {
 		virt_lines = virt_lines,
 		virt_lines_above = false,

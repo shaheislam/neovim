@@ -1,3 +1,4 @@
+vim.opt.rtp:prepend(vim.fn.getcwd())
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local function eq(actual, expected, message)
@@ -7,6 +8,7 @@ local function eq(actual, expected, message)
 	)
 end
 
+package.loaded["config.opencode_transform"] = nil
 local transform = require("config.opencode_transform")
 local buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(buf)
@@ -38,6 +40,97 @@ eq(linewise.text, "aéz\nsecond", "linewise capture normalizes reversed selectio
 local block, block_error = transform.capture(buf, "\22", { 1, 1 }, { 2, 2 }, "/tmp/project")
 eq(block, nil, "blockwise capture is rejected")
 assert(block_error:match("Blockwise"), "blockwise capture explains the unsupported mode")
+
+local function leave_visual_mode()
+	local mode = vim.fn.mode()
+	if mode == "v" or mode == "V" or mode == "\22" then
+		vim.cmd("normal! \27")
+	end
+end
+
+local function reset_visual_state()
+	leave_visual_mode()
+	vim.fn.visualmode(1)
+	vim.fn.setpos("'<", { 0, 0, 0, 0 })
+	vim.fn.setpos("'>", { 0, 0, 0, 0 })
+	vim.api.nvim_win_set_cursor(0, { 1, 0 })
+end
+
+reset_visual_state()
+vim.cmd("normal! vl")
+local live_characterwise = assert(transform.capture_current())
+eq(live_characterwise.mode, "v", "fresh characterwise capture uses the active Visual mode")
+eq(live_characterwise.text, "aé", "fresh characterwise capture reads the exact live selection")
+eq({ live_characterwise.start_row, live_characterwise.start_col, live_characterwise.end_row, live_characterwise.end_col }, { 0, 0, 0, 3 }, "fresh characterwise capture records exact byte coordinates")
+eq(vim.fn.getpos("'<")[2], 0, "fresh characterwise capture does not depend on selection marks")
+leave_visual_mode()
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+vim.cmd("normal! vl")
+local repeated_characterwise = assert(transform.capture_current())
+eq(repeated_characterwise, live_characterwise, "repeated characterwise capture matches the first attempt")
+
+reset_visual_state()
+vim.cmd("normal! Vj")
+local live_linewise = assert(transform.capture_current())
+eq(live_linewise.mode, "V", "fresh linewise capture uses the active Visual mode")
+eq(live_linewise.text, "aéz\nsecond", "fresh linewise capture reads complete selected lines")
+eq({ live_linewise.start_row, live_linewise.start_col, live_linewise.end_row, live_linewise.end_col }, { 0, 0, 1, 6 }, "fresh linewise capture records exact line bounds")
+leave_visual_mode()
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+vim.cmd("normal! Vj")
+local repeated_linewise = assert(transform.capture_current())
+eq(repeated_linewise, live_linewise, "repeated linewise capture matches the first attempt")
+
+leave_visual_mode()
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+vim.cmd("normal! vl")
+leave_visual_mode()
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+vim.cmd("normal! Vj")
+local after_characterwise = assert(transform.capture_current())
+eq(after_characterwise.mode, "V", "current linewise mode overrides stale characterwise history")
+eq(after_characterwise.text, "aéz\nsecond", "stale characterwise history cannot truncate a linewise selection")
+leave_visual_mode()
+
+local live_requests = 0
+local live_pickers = 0
+local live_http = {}
+function live_http.request(method, path, _, callback)
+	live_requests = live_requests + 1
+	eq({ method, path }, { "GET", "/skill" }, "live selection starts with skill discovery")
+	callback(false, "unavailable")
+end
+local live_opts = {
+	http = live_http,
+	select = function() live_pickers = live_pickers + 1 end,
+	notify = function() end,
+}
+for _, keys in ipairs({ "vl", "Vj" }) do
+	reset_visual_state()
+	vim.cmd("normal! " .. keys)
+	transform.select(live_opts)
+	leave_visual_mode()
+end
+eq(live_requests, 2, "fresh characterwise and linewise selections reach skill discovery")
+eq(live_pickers, 0, "failed skill discovery does not open the picker")
+
+local invalid_requests = 0
+local invalid_pickers = 0
+local invalid_notices = {}
+local invalid_opts = {
+	http = { request = function() invalid_requests = invalid_requests + 1 end },
+	select = function() invalid_pickers = invalid_pickers + 1 end,
+	notify = function(message, level) table.insert(invalid_notices, { message = message, level = level }) end,
+}
+reset_visual_state()
+vim.cmd("normal! \22j")
+transform.select(invalid_opts)
+leave_visual_mode()
+eq(invalid_notices[1], { message = "Blockwise selections are not supported", level = vim.log.levels.ERROR }, "blockwise selection reports its precise rejection")
+transform.select(invalid_opts)
+eq(invalid_notices[2], { message = "Select text characterwise or linewise", level = vim.log.levels.ERROR }, "normal mode reports that an active selection is required")
+eq(invalid_requests, 0, "invalid modes never reach HTTP")
+eq(invalid_pickers, 0, "invalid modes never open the picker")
 
 local actions = transform.available_actions({
 	{ name = "agent-writing", description = "Agent instructions" },

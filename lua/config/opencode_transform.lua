@@ -94,6 +94,14 @@ function M.capture(buf, mode, anchor, cursor, cwd)
   }
 end
 
+function M.capture_current(buf, cwd)
+  -- Visual callbacks run before visualmode() and '< / '> update, so read live state.
+  local mode = vim.fn.mode()
+  local anchor = vim.fn.getpos("v")
+  local cursor = vim.fn.getpos(".")
+  return M.capture(buf or 0, mode, { anchor[2], anchor[3] }, { cursor[2], cursor[3] }, cwd)
+end
+
 function M.available_actions(skills)
   local installed = {}
   for _, skill in ipairs(skills or {}) do
@@ -158,15 +166,12 @@ end
 
 function M.select(opts)
   opts = opts or {}
-  local snapshot = opts.snapshot
+  local snapshot, capture_error = opts.snapshot
   if not snapshot then
-    local mode = vim.fn.visualmode()
-    local anchor = vim.fn.getpos("v")
-    local cursor = vim.fn.getpos(".")
-    snapshot = M.capture(0, mode, { anchor[2], anchor[3] }, { cursor[2], cursor[3] })
+    snapshot, capture_error = M.capture_current()
   end
   if not snapshot then
-    notify(opts, "OpenCode transform requires a characterwise or linewise selection", vim.log.levels.ERROR)
+    notify(opts, capture_error or "OpenCode transform requires a characterwise or linewise selection", vim.log.levels.ERROR)
     return
   end
   if inflight[snapshot.buf] then

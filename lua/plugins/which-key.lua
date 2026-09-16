@@ -5,9 +5,7 @@ return {
 		"folke/which-key.nvim",
 		opts = {
 			preset = "modern",
-			delay = function(ctx)
-				return ctx.keys == "<Space>" and 0 or 300
-			end,
+			delay = 300, -- Wait past keyboard-repeat onset so held Space cannot flash the popup
 			plugins = {
 				marks = true, -- shows a list of your marks on ' and `
 				registers = true, -- shows your registers on " in NORMAL or <C-r> in INSERT mode

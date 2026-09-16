@@ -8,7 +8,6 @@ end
 local spec = dofile("lua/plugins/which-key.lua")[1]
 
 eq(spec.event, nil, "which-key loads eagerly so its leader trigger is ready")
-eq(spec.opts.delay({ keys = "<Space>" }), 0, "the leader popup appears before held Space repeats")
-eq(spec.opts.delay({ keys = "g" }), 300, "non-leader triggers keep the existing delay")
+eq(spec.opts.delay, 300, "the leader popup waits past the first held-Space repeat")
 
-print("PASS which-key leader trigger loads eagerly with immediate feedback")
+print("PASS which-key leader trigger loads eagerly without flashing on held Space")

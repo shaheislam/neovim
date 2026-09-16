@@ -38,6 +38,9 @@ jobs:
           NVIM_APPNAME: nvim-mini
         run: nvim --headless "+checkhealth nvim_mini" +qa
 
+      - name: Which-key leader test
+        run: nvim --headless -l tests/which_key_leader_spec.lua
+
       - name: OpenCode handoff tests
         run: |
           nvim --headless -l tests/opencode_handoff_spec.lua

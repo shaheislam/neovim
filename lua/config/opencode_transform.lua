@@ -2,7 +2,7 @@ local M = {}
 local inflight = {}
 local namespace = vim.api.nvim_create_namespace("opencode_transform")
 local augroup = vim.api.nvim_create_augroup("OpenCodeTransform", { clear = false })
-local review_keys = { "gdc", "gda", "gdr" }
+local review_keys = { "gdc", "y", "n" }
 
 local function noop() end
 
@@ -425,6 +425,7 @@ local function show_proposal(state, range, replacement)
 		hl_group = "OpenCodeTransformDelete",
 	})
 	local virt_lines = vim.tbl_map(function(line) return { { line, "OpenCodeTransformAdd" } } end, vim.split(replacement, "\n", { plain = true }))
+	table.insert(virt_lines, { { "[y] accept  [n] reject", "Comment" } })
 	state.preview_mark = vim.api.nvim_buf_set_extmark(buf, namespace, range.end_row, range.end_col, {
 		virt_lines = virt_lines,
 		virt_lines_above = false,
@@ -610,8 +611,8 @@ local function generate_prompt(state, request)
 				end
 				local accept_callback = function() accept_proposal(state) end
 				local reject_callback = function() reject_proposal(state) end
-				if not install_map(state, "gda", accept_callback, "Accept OpenCode transform")
-					or not install_map(state, "gdr", reject_callback, "Reject OpenCode transform") then
+				if not install_map(state, "y", accept_callback, "Accept OpenCode transform")
+					or not install_map(state, "n", reject_callback, "Reject OpenCode transform") then
 					finish(state)
 					notify(opts, "OpenCode transform review keys became unavailable; source preserved", vim.log.levels.WARN)
 					return
@@ -619,7 +620,7 @@ local function generate_prompt(state, request)
 				state.phase = "review"
 				state.replacement = replacement
 				show_proposal(state, range, replacement)
-				notify(opts, "OpenCode proposal ready; gda accepts and gdr rejects")
+				notify(opts, "OpenCode proposal ready; y accepts and n rejects")
 			end,
 			{ dir = snapshot.cwd, timeout = 120 }
 		)

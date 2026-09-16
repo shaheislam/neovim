@@ -11,8 +11,12 @@ end
 local transform = dofile("lua/config/opencode_transform.lua")
 local styling = dofile("lua/config/autocmds/styling.lua")
 styling.apply_consistent_styles()
-eq(vim.api.nvim_get_hl(0, { name = "OpenCodeTransformAdd", link = false }).bg, 0x20362a, "proposal additions have a green background")
-eq(vim.api.nvim_get_hl(0, { name = "OpenCodeTransformDelete", link = false }).bg, 0x3a2228, "proposal deletions have a red background")
+local add_highlight = vim.api.nvim_get_hl(0, { name = "OpenCodeTransformAdd", link = false })
+local delete_highlight = vim.api.nvim_get_hl(0, { name = "OpenCodeTransformDelete", link = false })
+eq(add_highlight.bg, 0x20362a, "proposal additions have a green background")
+eq(add_highlight.bold, true, "proposal additions are bold")
+eq(delete_highlight.bg, 0x3a2228, "proposal deletions have a red background")
+eq(delete_highlight.strikethrough, true, "proposal deletions are struck through")
 eq(vim.api.nvim_get_hl(0, { name = "DiffAdd", link = false }).bg, nil, "global diff additions remain transparent")
 eq(vim.api.nvim_get_hl(0, { name = "DiffDelete", link = false }).bg, nil, "global diff deletions remain transparent")
 local buf = vim.api.nvim_create_buf(false, true)
@@ -338,6 +342,10 @@ local function invoke_map(lhs, target_buf)
 	mapping.callback()
 end
 
+local function feed_key(lhs)
+	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "mx", false)
+end
+
 local function proposal_marks()
 	local source_mark, preview_mark
 	for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
@@ -353,6 +361,8 @@ end
 
 requests = {}
 notices = {}
+local original_y_mapping = vim.fn.maparg("y", "n", false, true)
+local original_n_mapping = vim.fn.maparg("n", "n", false, true)
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, original_lines)
 snapshot = assert(transform.capture(buf, "v", { 1, 1 }, { 1, 4 }, "/tmp/project"))
 local prompt_permissions = transform.permissions()
@@ -386,8 +396,8 @@ eq(cleanup_attempts, 2, "failed temporary-session cleanup is retried once")
 assert(vim.tbl_contains(vim.tbl_map(function(item) return item.message end, notices), "OpenCode could not delete the temporary transform session"), "cleanup failure is reported after the retry")
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), original_lines, "proposal leaves the source unchanged")
 assert(not buffer_map("gdc"), "generation cancel mapping is removed after the response")
-eq(buffer_map("gda").desc, "Accept OpenCode transform", "proposal installs a documented accept mapping")
-eq(buffer_map("gdr").desc, "Reject OpenCode transform", "proposal installs a documented reject mapping")
+eq(buffer_map("y").desc, "Accept OpenCode transform", "proposal installs a documented accept mapping")
+eq(buffer_map("n").desc, "Reject OpenCode transform", "proposal installs a documented reject mapping")
 local source_mark, preview_mark = proposal_marks()
 assert(source_mark, "proposal highlights the selected source as a deletion")
 assert(preview_mark, "proposal renders replacement virtual lines")
@@ -395,12 +405,14 @@ eq(preview_mark[2], snapshot.end_row, "proposal virtual lines are anchored after
 eq(preview_mark[4].virt_lines, {
 	{ { "prompted", "OpenCodeTransformAdd" } },
 	{ { "text", "OpenCodeTransformAdd" } },
-}, "proposal renders every replacement line as an addition")
+	{ { "[y] accept  [n] reject", "Comment" } },
+}, "proposal renders replacement lines and persistent review controls")
 
-invoke_map("gda")
+feed_key("y")
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), { "prompted", "text", "second", "third" }, "accept replaces only the captured selection")
 eq(insert_events, 0, "accept creates its undo boundary without triggering InsertEnter hooks")
-assert(not buffer_map("gda") and not buffer_map("gdr"), "accept removes review mappings")
+assert(not buffer_map("y") and not buffer_map("n"), "accept removes review mappings")
+eq(vim.fn.maparg("y", "n", false, true), original_y_mapping, "accept restores the original yank mapping")
 vim.cmd("undo")
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), original_lines, "accepted proposal is one undoable edit")
 
@@ -440,7 +452,8 @@ local sent_skill_payload = vim.json.decode(assert(requests[3].body.parts[1].text
 eq(sent_skill_payload.instruction, "tighten the wording", "skill generation includes the trailing instruction")
 eq(sent_skill_payload.source, "aéz", "skill generation includes only the captured source")
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), original_lines, "skill proposal remains non-mutating")
-invoke_map("gdr")
+feed_key("n")
+eq(vim.fn.maparg("n", "n", false, true), original_n_mapping, "reject restores the original next-search mapping")
 
 requests = {}
 snapshot = assert(transform.capture(buf, "v", { 1, 1 }, { 1, 4 }, "/tmp/project"))
@@ -451,7 +464,7 @@ transform.prompt({
 	notify = function(message, level) table.insert(notices, { message = message, level = level }) end,
 })
 eq(#requests, 1, "unknown manual skill stops after project skill validation")
-assert(not buffer_map("gda"), "unknown manual skill never creates a proposal")
+assert(not buffer_map("y"), "unknown manual skill never creates a proposal")
 
 requests = {}
 snapshot = assert(transform.capture(buf, "v", { 1, 1 }, { 1, 4 }, "/tmp/project"))
@@ -462,7 +475,7 @@ transform.prompt({
 	notify = function(message, level) table.insert(notices, { message = message, level = level }) end,
 })
 eq(#requests, 0, "malformed skill input never reaches OpenCode")
-assert(not buffer_map("gda"), "malformed skill input never creates a proposal")
+assert(not buffer_map("y"), "malformed skill input never creates a proposal")
 
 local completion_opts
 local completion_close
@@ -561,7 +574,7 @@ joined_skill_list(true, vim.json.encode({ { name = "re-pitch", description = "Ex
 eq(joined_completion, 0, "submitting the prompt suppresses its pending picker callback")
 eq(#joined_requests, 4, "the shared skill lookup proceeds directly into generation")
 eq(joined_requests[2].body.permission, skill_permissions, "joined skill submission keeps exact skill permission")
-invoke_map("gdr")
+invoke_map("n")
 
 local completion_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(completion_buf, 0, -1, false, { "pending" })
@@ -599,7 +612,7 @@ transform.prompt({
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), original_lines, "linewise proposal is non-mutating")
 local _, linewise_preview = proposal_marks()
 eq(linewise_preview[2], 1, "multiline proposal is anchored after its last selected row")
-invoke_map("gdr")
+invoke_map("n")
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), original_lines, "reject preserves multiline source")
 assert(not proposal_marks(), "reject clears proposal extmarks")
 
@@ -614,7 +627,7 @@ vim.api.nvim_buf_set_text(buf, 0, 0, 0, 0, { "before" })
 source_mark = assert(proposal_marks(), "source mark survives insertion at its start boundary")
 local tracked_end = source_mark[4].end_col
 vim.api.nvim_buf_set_text(buf, 0, tracked_end, 0, tracked_end, { "after" })
-invoke_map("gda")
+invoke_map("y")
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), {
 	"beforeprompted",
 	"textafter",
@@ -707,13 +720,13 @@ eq(aborted, "ses_cancel", "cancel aborts the temporary OpenCode session")
 assert(not buffer_map("gdc"), "cancel removes its temporary mapping")
 pending_message(true, vim.json.encode({ parts = { { type = "text", text = "late replacement" } } }))
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), original_lines, "late response after cancellation cannot change source")
-assert(not buffer_map("gda"), "late response after cancellation cannot create a proposal")
+assert(not buffer_map("y"), "late response after cancellation cannot create a proposal")
 eq(requests[#requests].path, "/session/ses_cancel/message", "session deletion waits for delayed abort completion")
 abort_callback(false, "abort failed")
 eq(requests[#requests].method, "DELETE", "session is deleted even when delayed abort fails")
 
 requests = {}
-vim.keymap.set("n", "gda", function() end, { buffer = buf, desc = "Foreign mapping" })
+vim.keymap.set("n", "y", function() end, { buffer = buf, desc = "Foreign mapping" })
 snapshot = assert(transform.capture(buf, "v", { 1, 1 }, { 1, 4 }, "/tmp/project"))
 transform.prompt({
 	snapshot = snapshot,
@@ -722,8 +735,8 @@ transform.prompt({
 	notify = function(message, level) table.insert(notices, { message = message, level = level }) end,
 })
 eq(#requests, 0, "pre-existing buffer-local review mapping prevents the workflow")
-eq(buffer_map("gda").desc, "Foreign mapping", "conflicting mapping is preserved")
-vim.keymap.del("n", "gda", { buffer = buf })
+eq(buffer_map("y").desc, "Foreign mapping", "conflicting mapping is preserved")
+vim.keymap.del("n", "y", { buffer = buf })
 
 requests = {}
 vim.api.nvim_buf_set_lines(buf, 0, -1, false, original_lines)
@@ -749,7 +762,7 @@ transform.prompt({
 })
 vim.api.nvim_buf_set_lines(buf, 0, 0, false, { "outside edit" })
 moving_message(true, vim.json.encode({ parts = { { type = "text", text = "moved" } } }))
-invoke_map("gda")
+invoke_map("y")
 eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false), {
 	"outside edit",
 	"moved",
@@ -786,12 +799,11 @@ transform.prompt({
 	input = function(_, callback) callback("rewrite this") end,
 	notify = function(message, level) table.insert(notices, { message = message, level = level }) end,
 })
-vim.keymap.set("n", "gdc", function() end, { buffer = buf, desc = "Later foreign mapping" })
 replacement_message(true, vim.json.encode({ parts = { { type = "text", text = "proposal" } } }))
-eq(buffer_map("gdc").desc, "Later foreign mapping", "response cleanup does not delete a replacement mapping")
-invoke_map("gdr")
-eq(buffer_map("gdc").desc, "Later foreign mapping", "review cleanup leaves a foreign replacement mapping intact")
-vim.keymap.del("n", "gdc", { buffer = buf })
+vim.keymap.set("n", "y", function() end, { buffer = buf, desc = "Later foreign mapping" })
+invoke_map("n")
+eq(buffer_map("y").desc, "Later foreign mapping", "review cleanup leaves a foreign replacement mapping intact")
+vim.keymap.del("n", "y", { buffer = buf })
 
 local create_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_buf_set_lines(create_buf, 0, -1, false, { "pending" })

@@ -98,6 +98,14 @@ function M.capture(buf, mode, anchor, cursor, cwd)
   }
 end
 
+function M.capture_current(buf, cwd)
+  -- Visual callbacks run before visualmode() and '< / '> update, so read live state.
+  local mode = vim.fn.mode()
+  local anchor = vim.fn.getpos("v")
+  local cursor = vim.fn.getpos(".")
+  return M.capture(buf or 0, mode, { anchor[2], anchor[3] }, { cursor[2], cursor[3] }, cwd)
+end
+
 function M.available_actions(skills)
   local installed = {}
   for _, skill in ipairs(skills or {}) do
@@ -172,6 +180,7 @@ local function unchanged(snapshot)
   return table.concat(current, "\n") == snapshot.text
 end
 
+<<<<<<< HEAD
 local function buffer_map(buf, lhs)
 	if not vim.api.nvim_buf_is_valid(buf) then
 		return nil
@@ -246,15 +255,29 @@ end
 
 local function start(opts, review)
 	local snapshot = opts.snapshot
+||||||| 4a19899
+function M.select(opts)
+  opts = opts or {}
+  local snapshot = opts.snapshot
+=======
+function M.select(opts)
+  opts = opts or {}
+  local snapshot, capture_error = opts.snapshot
+>>>>>>> visualselectissue
   if not snapshot then
-    local mode = vim.fn.visualmode()
-    local anchor = vim.fn.getpos("v")
-    local cursor = vim.fn.getpos(".")
-    snapshot = M.capture(0, mode, { anchor[2], anchor[3] }, { cursor[2], cursor[3] })
+    snapshot, capture_error = M.capture_current()
   end
   if not snapshot then
+<<<<<<< HEAD
     notify(opts, "OpenCode transform requires a characterwise or linewise selection", vim.log.levels.ERROR)
     return nil
+||||||| 4a19899
+    notify(opts, "OpenCode transform requires a characterwise or linewise selection", vim.log.levels.ERROR)
+    return
+=======
+    notify(opts, capture_error or "OpenCode transform requires a characterwise or linewise selection", vim.log.levels.ERROR)
+    return
+>>>>>>> visualselectissue
   end
 	if inflight[snapshot.buf] then
     notify(opts, "OpenCode is already transforming this buffer", vim.log.levels.WARN)

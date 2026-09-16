@@ -134,6 +134,9 @@ local function apply_consistent_styles()
     merge_style(group, style)
   end
 
+  vim.api.nvim_set_hl(0, "OpenCodeTransformAdd", { fg = "#9ece6a", bg = "#20362a" })
+  vim.api.nvim_set_hl(0, "OpenCodeTransformDelete", { fg = "#f7768e", bg = "#3a2228" })
+
   vim.api.nvim_set_hl(0, "DiffviewDiffAddInline", { fg = "#e0af68", bg = "#3a3220", bold = true })
   vim.api.nvim_set_hl(0, "DiffviewDiffDeleteInline", { fg = "#f7768e", bg = "#3a2228", bold = true, strikethrough = true })
   vim.api.nvim_set_hl(0, "DiffviewWordChange", { fg = "#e0af68", bg = "#3a3220", bold = true })

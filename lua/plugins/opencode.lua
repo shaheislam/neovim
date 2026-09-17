@@ -274,7 +274,7 @@ end
 -- context.server:tui_append_prompt()/tui_execute_command("prompt.submit").
 -- Both POST to /tui/publish, which OpenCode's TUI broadcasts to every client
 -- attached to the same project directory -- the same multi-tmux-window
--- broadcast bug as <leader>aoS/<leader>aos. Patching these two Server methods
+-- broadcast bug as <leader>aoS. Patching these two Server methods
 -- (rather than reimplementing prompt.lua's ask/render/clear/resume chain)
 -- reroutes delivery through the local composer facade for every one of those
 -- callers at once, without touching their existing Promise-chain semantics
@@ -796,18 +796,6 @@ return {
 				desc = "Ask opencode (with selection)",
 			},
 			{
-				"<leader>aos",
-				ask_locally(),
-				mode = "n",
-				desc = "Ask opencode (append to prompt)",
-			},
-			{
-				"<leader>aos",
-				ask_locally_visual,
-				mode = "x",
-				desc = "Ask opencode (append selection to prompt)",
-			},
-			{
 				"<leader>aoS",
 				send_visual_selection,
 				mode = "x",
@@ -1058,14 +1046,6 @@ return {
 				mode = "n",
 				desc = "Search local opencode messages across sessions",
 			},
-		{
-			"<leader>aoH",
-			function()
-				require("config.opencode_pickers").sessions("all", { session_scope = "local" })
-			end,
-			mode = "n",
-			desc = "Browse local opencode session history",
-		},
 		{
 			"<leader>aoF",
 			function()

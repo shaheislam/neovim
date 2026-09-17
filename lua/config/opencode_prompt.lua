@@ -4,7 +4,7 @@
 -- HTTP, which OpenCode's TUI broadcasts to every client attached to the same
 -- project directory. With two tmux windows open on the same repo (each
 -- running its own Neovim + nested OpenCode terminal), that meant a single
--- <leader>aoS/<leader>aos/picker append landed in both composers at once.
+-- <leader>aoS or a picker append landed in both composers at once.
 --
 -- This module instead writes raw bytes directly into the OpenCode terminal
 -- PTY owned by *this* Neovim process (registered via set_sink by

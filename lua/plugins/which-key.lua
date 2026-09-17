@@ -56,7 +56,6 @@ return {
 				-- Core groups
 				{ "<leader>a", group = "ai", icon = "󰚩 " },
 				{ "<leader>ao", group = "opencode", icon = "󰘦 " },
-				{ "<leader>aoS", desc = "Send selection to OpenCode", mode = "v" },
 				{ "<leader>ap", group = "pi", icon = "π " },
 				{ "<leader>as", group = "nes", icon = "󰭹 " },
 				{ "<leader>c", group = "code", icon = " " },

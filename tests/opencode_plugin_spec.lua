@@ -147,15 +147,13 @@ action_mapping[2]()
 eq(action_select_calls, 1, "<leader>aox still dispatches to upstream opencode actions")
 package.loaded["opencode"] = original_opencode
 
-local history_mapping
+local obsolete_history_mapping
 local aggregate_mapping
 local select_session_mapping
-local history_desc
 local aggregate_desc
 for _, key in ipairs(plugin_specs[1].keys) do
 	if key[1] == "<leader>aoH" and mode_includes(key.mode, "n") then
-		history_mapping = key[2]
-		history_desc = key.desc
+		obsolete_history_mapping = key[2]
 	elseif key[1] == "<leader>aoG" and mode_includes(key.mode, "n") then
 		aggregate_mapping = key[2]
 		aggregate_desc = key.desc
@@ -163,7 +161,8 @@ for _, key in ipairs(plugin_specs[1].keys) do
 		select_session_mapping = key[2]
 	end
 end
-assert(history_mapping and aggregate_mapping and select_session_mapping, "OpenCode history and session mappings are present")
+eq(obsolete_history_mapping, nil, "duplicate <leader>aoH session picker mapping is removed")
+assert(aggregate_mapping and select_session_mapping, "OpenCode search and session mappings are present")
 local picker_dispatches = {}
 local original_pickers = package.loaded["config.opencode_pickers"]
 package.loaded["config.opencode_pickers"] = {
@@ -178,13 +177,10 @@ local original_discovery_for_session_mapping = package.loaded["opencode.server.d
 package.loaded["opencode.server.discovery"] = {
 	get = function() error("the custom session mapping must not use upstream discovery") end,
 }
-history_mapping()
 aggregate_mapping()
 select_session_mapping()
-eq(picker_dispatches[1], { kind = "history", scope = "all", opts = { session_scope = "local" } }, "session history starts in Local scope")
-eq(picker_dispatches[2], { kind = "aggregate", scope = "all", opts = { session_scope = "local" } }, "aggregate message search starts in Local scope")
-eq(picker_dispatches[3], { kind = "history", scope = "all", opts = { session_scope = "local" } }, "session selection uses the guarded Local history picker")
-assert(history_desc:match("local"), "session history description documents its Local default")
+eq(picker_dispatches[1], { kind = "aggregate", scope = "all", opts = { session_scope = "local" } }, "aggregate message search starts in Local scope")
+eq(picker_dispatches[2], { kind = "history", scope = "all", opts = { session_scope = "local" } }, "session selection uses the guarded Local history picker")
 assert(aggregate_desc:match("local"), "aggregate search description documents its Local default")
 package.loaded["config.opencode_pickers"] = original_pickers
 package.loaded["opencode.server.discovery"] = original_discovery_for_session_mapping
@@ -1013,28 +1009,8 @@ modal = modals[#modals]
 modal.input_opts.on_submit("why")
 last_local_prompt("visual <leader>aoa", "[file: lua/example.lua, lines 1-2]\nlocal answer = 42\nreturn answer\nwhy")
 
-local ask_submit_normal = key_callback("<leader>aos", "n")
-local ask_submit_visual = key_callback("<leader>aos", "x")
-assert(ask_submit_normal, "normal <leader>aos mapping is present")
-assert(ask_submit_visual, "visual <leader>aos mapping is present")
-
-reset_local_prompt_calls()
-vim.api.nvim_set_current_buf(ask_buffer)
-vim.api.nvim_win_set_cursor(0, { 2, 0 })
-ask_submit_normal()
-modal = modals[#modals]
-modal.input_opts.on_submit("explain")
-last_local_prompt("normal <leader>aos", "[file: lua/example.lua, line 2]\nreturn answer\nexplain")
-
-reset_local_prompt_calls()
-vim.api.nvim_set_current_buf(ask_buffer)
-ask_submit_visual()
-modal = modals[#modals]
-modal.input_opts.on_submit("explain")
-last_local_prompt(
-	"visual <leader>aos",
-	"[file: lua/example.lua, lines 1-2]\nlocal answer = 42\nreturn answer\nexplain"
-)
+eq(key_callback("<leader>aos", "n"), nil, "duplicate normal <leader>aos mapping is removed")
+eq(key_callback("<leader>aos", "x"), nil, "duplicate visual <leader>aos mapping is removed")
 
 vim.api.nvim_set_current_buf(ask_buffer)
 vim.fn.setpos("'>", { 0, 1, 17, 0 })

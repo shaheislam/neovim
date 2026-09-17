@@ -12,10 +12,28 @@ eq(spec.opts.delay, 300, "the leader popup waits past the first held-Space repea
 
 local mappings = {}
 local registrations
+local refresh_autocmd
+local scheduled = {}
+local refreshes = {}
 local original_keymap_set = vim.keymap.set
+local original_create_augroup = vim.api.nvim_create_augroup
+local original_create_autocmd = vim.api.nvim_create_autocmd
+local original_schedule = vim.schedule
 local original_which_key = package.loaded["which-key"]
+local original_which_key_buf = package.loaded["which-key.buf"]
+local original_which_key_config = package.loaded["which-key.config"]
+local which_key_config = { loaded = true }
 vim.keymap.set = function(mode, lhs, rhs, opts)
 	table.insert(mappings, { mode = mode, lhs = lhs, rhs = rhs, opts = opts })
+end
+vim.api.nvim_create_augroup = function()
+	return 1
+end
+vim.api.nvim_create_autocmd = function(events, opts)
+	refresh_autocmd = { events = events, opts = opts }
+end
+vim.schedule = function(callback)
+	table.insert(scheduled, callback)
 end
 package.loaded["which-key"] = {
 	setup = function() end,
@@ -23,13 +41,37 @@ package.loaded["which-key"] = {
 		registrations = items
 	end,
 }
+package.loaded["which-key.buf"] = {
+	get = function(opts)
+		table.insert(refreshes, opts)
+	end,
+}
+package.loaded["which-key.config"] = which_key_config
 
 local ok, err = xpcall(function()
 	spec.config(nil, vim.deepcopy(spec.opts))
 end, debug.traceback)
-vim.keymap.set = original_keymap_set
-package.loaded["which-key"] = original_which_key
 assert(ok, err)
+
+eq(refresh_autocmd.events, { "BufReadPost", "LspAttach", "LspDetach" }, "mapping invalidation events refresh which-key")
+refresh_autocmd.opts.callback({ buf = 17 })
+eq(#refreshes, 0, "which-key refresh is deferred until event handlers finish")
+eq(#scheduled, 1, "which-key schedules one refresh per invalidation event")
+scheduled[1]()
+eq(refreshes, { { buf = 17, mode = "n", update = true } }, "normal-mode triggers refresh after invalidation")
+
+which_key_config.loaded = false
+refresh_autocmd.opts.callback({ buf = 18 })
+scheduled[2]()
+eq(#refreshes, 1, "events before which-key finishes loading do not refresh triggers")
+
+vim.keymap.set = original_keymap_set
+vim.api.nvim_create_augroup = original_create_augroup
+vim.api.nvim_create_autocmd = original_create_autocmd
+vim.schedule = original_schedule
+package.loaded["which-key"] = original_which_key
+package.loaded["which-key.buf"] = original_which_key_buf
+package.loaded["which-key.config"] = original_which_key_config
 
 local function registration(lhs)
 	for _, item in ipairs(registrations or {}) do

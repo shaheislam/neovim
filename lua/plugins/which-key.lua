@@ -44,6 +44,17 @@ return {
 			local wk = require("which-key")
 			wk.setup(opts)
 
+			vim.api.nvim_create_autocmd({ "BufReadPost", "LspAttach", "LspDetach" }, {
+				group = vim.api.nvim_create_augroup("nvim_mini_which_key_refresh", { clear = true }),
+				callback = function(event)
+					vim.schedule(function()
+						if require("which-key.config").loaded then
+							require("which-key.buf").get({ buf = event.buf, mode = "n", update = true })
+						end
+					end)
+				end,
+			})
+
 			-- Prefixes are otherwise allowed to fall through to normal-mode commands
 			-- on timeout, e.g. `<leader>a` replaying `a` and entering insert mode.
 			vim.keymap.set({ "n", "x" }, "<leader>a", "<Nop>", { desc = "AI / OpenCode fast lane", silent = true })

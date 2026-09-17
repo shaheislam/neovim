@@ -8,6 +8,7 @@
   "blink.pairs": { "branch": "main", "commit": "c382bc4ba0229211c8ae19491bb7aa930c051a42" },
   "canola.nvim": { "branch": "main", "commit": "608cd79544c3adc853d0400f1f540e4f2aa4c024" },
   "catppuccin": { "branch": "main", "commit": "edefef779ab08ce1a4a404713e3012b0d202bd35" },
+  "codecompanion.nvim": { "branch": "main", "commit": "5126e399a0d5d1d4e5d34578a5472c6be5a5f8d3" },
   "crates.nvim": { "branch": "main", "commit": "7039bc1d130e424232a7aa64ceddb170a154ff5b" },
   "csvview.nvim": { "branch": "main", "commit": "2466bdda54047f525d4faca53040fe657c9c33db" },
   "cyberdream.nvim": { "branch": "main", "commit": "39e1fda12c0704e01029b286a4c7e77e33a0c5cd" },

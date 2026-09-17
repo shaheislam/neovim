@@ -40,6 +40,9 @@ return {
 
         -- Helper function to jump to quickfix item location
         local function jump_to_qf_item()
+          if require("git.codecompanion_review").follow_current() then
+            return
+          end
           local qf_idx = vim.fn.line('.')
           local qf_list = vim.fn.getqflist()
           local item = qf_list[qf_idx]
@@ -89,6 +92,9 @@ return {
         map("n", "q", function() require("quicker").close() end, "Close quickfix")
         map("n", "<Tab>", function() vim.cmd("wincmd k") end, "Switch to buffer")
         map("n", "<CR>", function()
+          if require("git.codecompanion_review").follow_current({ immediate = true }) then
+            return
+          end
           local qf_idx = vim.fn.line('.')
           vim.cmd("wincmd k")
           vim.cmd(qf_idx .. "cc")

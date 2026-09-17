@@ -218,6 +218,13 @@ eq(
 local malformed_skill, malformed_skill_error = transform.parse_instruction("/skill   ")
 eq(malformed_skill, nil, "skill input requires a name")
 assert(malformed_skill_error:find("skill", 1, true), "malformed skill input explains the missing name")
+eq(transform.parse_instruction("/fix"), { instruction = "Fix the source." }, "fix preset expands to a transform instruction")
+eq(
+	transform.parse_instruction(" /optimize preserve allocations "),
+	{ instruction = "Optimize the source for performance and readability. preserve allocations" },
+	"transform presets retain optional trailing instructions"
+)
+eq(transform.parse_instruction("/unknown"), { instruction = "/unknown" }, "unknown slash input remains a free-form instruction")
 
 local skill_prompt = transform.build_skill_prompt("re-pitch", "tighten the wording", "</source>\noriginal")
 assert(skill_prompt:find('Call the Skill tool with "re-pitch"', 1, true), "skill prompt invokes the exact selected skill")
@@ -253,7 +260,7 @@ local function FakeInput(layout, handlers)
 end
 
 local fzf_calls = {}
-local picker_partials = {}
+local picker_requests = {}
 local fake_fzf = {}
 function fake_fzf.fzf_exec(entries, opts)
 	table.insert(fzf_calls, { entries = entries, opts = opts })
@@ -264,12 +271,19 @@ local input_live = true
 transform.open_instruction_input({
 	Input = FakeInput,
 	fzf = fake_fzf,
-	complete = function(partial, callback)
-		table.insert(picker_partials, partial)
-		callback({
-			{ name = "re-pitch", description = "Explain clearly" },
-			{ name = "prd", description = "Create requirements" },
-		})
+	complete = function(kind, partial, callback)
+		table.insert(picker_requests, { kind = kind, partial = partial })
+		if kind == "command" then
+			callback({
+				{ name = "skill", description = "Transform with an OpenCode skill" },
+				{ name = "fix", description = "Fix the selected source" },
+			})
+		else
+			callback({
+				{ name = "re-pitch", description = "Explain clearly" },
+				{ name = "prd", description = "Create requirements" },
+			})
+		end
 	end,
 	is_live = function() return input_live end,
 	restore = function() restored_inputs = restored_inputs + 1 end,
@@ -278,7 +292,7 @@ transform.open_instruction_input({
 vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { "/skill re tighten the wording" })
 eq(input_maps["i<Tab>"].opts.expr, true, "skill completion preserves normal Tab behavior outside /skill input")
 eq(input_maps["i<Tab>"].callback(), "", "skill completion consumes Tab for /skill input")
-eq(picker_partials[1], "re", "skill picker receives the partial name")
+eq(picker_requests[1], { kind = "skill", partial = "re" }, "skill picker receives the completion kind and partial name")
 eq(#fzf_calls, 0, "skill completion never opens fzf inside its expression mapping")
 assert(vim.wait(100, function() return #fzf_calls == 1 end), "skill completion schedules fzf after its expression mapping")
 eq(fzf_calls[1].entries, {
@@ -319,6 +333,28 @@ fzf_calls[4].opts.actions.enter({ fzf_calls[4].entries[2] })
 eq(vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1], "/skill pr trailing", "stale fzf selection cannot alter a closed input")
 input_live = true
 
+vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { "/fi preserve comments" })
+eq(input_maps["i<Tab>"].callback(), "", "slash completion consumes Tab")
+eq(picker_requests[#picker_requests], { kind = "command", partial = "fi" }, "slash picker receives the command partial")
+assert(vim.wait(100, function() return #fzf_calls == 5 end), "slash completion schedules fzf")
+eq(fzf_calls[5].entries, {
+	"/skill\tTransform with an OpenCode skill",
+	"/fix\tFix the selected source",
+}, "slash completion shows transform-safe commands")
+eq(fzf_calls[5].opts.query, "fi", "slash completion seeds fzf with the command partial")
+fzf_calls[5].opts.actions.enter({ fzf_calls[5].entries[2] })
+eq(vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1], "/fix preserve comments", "slash selection preserves trailing instructions")
+fzf_calls[5].opts.winopts.on_close()
+eq(restored_inputs, 4, "closing slash completion restores the instruction input")
+
+vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { "/ski" })
+input_maps["i<Tab>"].callback()
+assert(vim.wait(100, function() return #fzf_calls == 6 end), "partial skill command opens slash completion")
+fzf_calls[6].opts.actions.enter({ fzf_calls[6].entries[1] })
+eq(vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1], "/skill ", "slash selection prepares skill completion")
+fzf_calls[6].opts.winopts.on_close()
+eq(restored_inputs, 5, "closing skill command completion restores the instruction input")
+
 vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { "ordinary instruction" })
 eq(input_maps["i<Tab>"].callback(), "\t", "Tab retains its normal behavior outside /skill input")
 input_handlers.on_close()
@@ -327,7 +363,7 @@ assert(fake_input.unmounted == false, "NUI owns unmounting before its close call
 transform.open_instruction_input({
 	Input = FakeInput,
 	fzf = fake_fzf,
-	complete = function(_, callback) callback(nil, "skill lookup failed") end,
+	complete = function(_, _, callback) callback(nil, "skill lookup failed") end,
 	is_live = function() return true end,
 	restore = function() restored_inputs = restored_inputs + 1 end,
 	notify = function(message, level) table.insert(input_notices, { message = message, level = level }) end,
@@ -336,7 +372,7 @@ vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { "/skill missing" })
 input_maps["i<Tab>"].callback()
 eq(vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1], "/skill missing", "failed skill lookup leaves input unchanged")
 eq(input_notices[#input_notices].message, "skill lookup failed", "failed skill lookup is reported")
-eq(restored_inputs, 4, "failed skill lookup restores the instruction input")
+eq(restored_inputs, 6, "failed skill lookup restores the instruction input")
 input_handlers.on_close()
 
 local function buffer_map(lhs, target_buf)
@@ -549,8 +585,19 @@ transform.prompt({
 	end,
 	notify = function() end,
 })
-completion_opts.complete("re", function() completion_callbacks = completion_callbacks + 1 end)
-completion_opts.complete("pr", function() completion_callbacks = completion_callbacks + 1 end)
+local command_completions
+completion_opts.complete("command", "fi", function(items) command_completions = items end)
+eq(vim.tbl_map(function(item) return item.name end, command_completions), {
+	"skill",
+	"fix",
+	"document",
+	"optimize",
+	"implement",
+	"test",
+}, "slash completion exposes only transform-safe commands")
+eq(completion_requests, 0, "local slash completion does not query OpenCode commands")
+completion_opts.complete("skill", "re", function() completion_callbacks = completion_callbacks + 1 end)
+completion_opts.complete("skill", "pr", function() completion_callbacks = completion_callbacks + 1 end)
 eq(completion_requests, 1, "repeated Tab completion shares one pending skill request")
 completion_close(nil)
 eq(completion_cancels, 1, "closing the instruction input cancels pending skill discovery")
@@ -579,8 +626,8 @@ transform.prompt({
 	end,
 	notify = function() end,
 })
-latest_completion_opts.complete("re", function() first_completion = first_completion + 1 end)
-latest_completion_opts.complete("pr", function() latest_completion = latest_completion + 1 end)
+latest_completion_opts.complete("skill", "re", function() first_completion = first_completion + 1 end)
+latest_completion_opts.complete("skill", "pr", function() latest_completion = latest_completion + 1 end)
 eq(latest_requests, 1, "repeated live Tab completion shares one skill request")
 latest_skill_list(true, vim.json.encode({ { name = "re-pitch", description = "Explain clearly" } }))
 eq(first_completion, 0, "a newer Tab completion supersedes the older picker callback")
@@ -616,7 +663,7 @@ transform.prompt({
 	end,
 	notify = function() end,
 })
-joined_opts.complete("re", function() joined_completion = joined_completion + 1 end)
+joined_opts.complete("skill", "re", function() joined_completion = joined_completion + 1 end)
 joined_submit("/skill re-pitch")
 eq(#joined_requests, 1, "skill submission joins an in-flight Tab lookup")
 joined_skill_list(true, vim.json.encode({ { name = "re-pitch", description = "Explain clearly" } }))
@@ -644,7 +691,7 @@ transform.prompt({
 	input = function(opts) unload_opts = opts end,
 	notify = function() end,
 })
-unload_opts.complete("", function() unload_callbacks = unload_callbacks + 1 end)
+unload_opts.complete("skill", "", function() unload_callbacks = unload_callbacks + 1 end)
 vim.api.nvim_buf_delete(completion_buf, { force = true })
 eq(unload_cancels, 1, "buffer unload cancels pending skill discovery")
 unload_skill_list(true, vim.json.encode({ { name = "re-pitch", description = "Explain clearly" } }))

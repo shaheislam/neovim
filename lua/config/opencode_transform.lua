@@ -10,6 +10,15 @@ local permission_rules = {
   { permission = "*", pattern = "*", action = "deny" },
 }
 
+local transform_commands = {
+	{ name = "skill", description = "Transform with an OpenCode skill" },
+	{ name = "fix", description = "Fix the selected source", instruction = "Fix the source." },
+	{ name = "document", description = "Document the selected source", instruction = "Add comments documenting the source." },
+	{ name = "optimize", description = "Optimize the selected source", instruction = "Optimize the source for performance and readability." },
+	{ name = "implement", description = "Implement the selected source", instruction = "Implement the source." },
+	{ name = "test", description = "Replace the selection with tests", instruction = "Add tests for the source." },
+}
+
 local function decode(output)
   local ok, value = pcall(vim.json.decode, output or "")
   return ok and value or nil
@@ -128,6 +137,12 @@ function M.parse_instruction(value)
 	if skill then
 		return { skill = skill, instruction = instruction }
 	end
+	local command, details = trimmed:match("^/(%S+)%s*(.-)%s*$")
+	for _, candidate in ipairs(transform_commands) do
+		if candidate.name == command and candidate.instruction then
+			return { instruction = candidate.instruction .. (details ~= "" and " " .. details or "") }
+		end
+	end
 	return { instruction = trimmed }
 end
 
@@ -193,35 +208,42 @@ function M.open_instruction_input(opts, callback)
 
 	input:map("i", "<Tab>", function()
 		local line = vim.api.nvim_buf_get_lines(input.bufnr, 0, 1, false)[1] or ""
+		local kind = "skill"
 		local prefix, partial, suffix = line:match("^(%s*/skill%s+)(%S*)(.*)$")
 		if not prefix then
 			local indent = line:match("^(%s*)/skill$")
-			if not indent then
-				return "\t"
+			if indent then
+				prefix, partial, suffix = indent .. "/skill ", "", ""
+			else
+				indent, partial, suffix = line:match("^(%s*)/(%S*)(.*)$")
+				if not indent then
+					return "\t"
+				end
+				kind, prefix = "command", indent .. "/"
 			end
-			prefix, partial, suffix = indent .. "/skill ", "", ""
 		end
-		opts.complete(partial, function(skills, err)
+		opts.complete(kind, partial, function(items, err)
 			if not live() then
 				return
 			end
-			if type(skills) ~= "table" or #skills == 0 then
-				(opts.notify or vim.notify)(err or "No OpenCode skills are available", vim.log.levels.WARN)
+			if type(items) ~= "table" or #items == 0 then
+				(opts.notify or vim.notify)(err or "No OpenCode completions are available", vim.log.levels.WARN)
 				restore()
 				return
 			end
 			local entries, by_entry = {}, {}
-			for _, skill in ipairs(skills) do
-				local entry = skill.name .. (skill.description ~= "" and "\t" .. skill.description or "")
+			for _, item in ipairs(items) do
+				local label = (kind == "command" and "/" or "") .. item.name
+				local entry = label .. (item.description ~= "" and "\t" .. item.description or "")
 				table.insert(entries, entry)
-				by_entry[entry] = skill.name
+				by_entry[entry] = item.name
 			end
 			vim.schedule(function()
 				if not live() then
 					return
 				end
 				fzf.fzf_exec(entries, {
-					prompt = "OpenCode skills> ",
+					prompt = kind == "skill" and "OpenCode skills> " or "OpenCode transforms> ",
 					query = partial,
 					actions = {
 						enter = function(selected)
@@ -241,7 +263,7 @@ function M.open_instruction_input(opts, callback)
 			end)
 		end)
 		return ""
-	end, { expr = true, noremap = true, nowait = true, desc = "Complete OpenCode skill" })
+	end, { expr = true, noremap = true, nowait = true, desc = "Complete OpenCode instruction" })
 	input:map("n", "<Esc>", function() input:unmount() end, { noremap = true, nowait = true, desc = "Close OpenCode instruction" })
 	input:map("n", "q", function() input:unmount() end, { noremap = true, nowait = true, desc = "Close OpenCode instruction" })
 	input:mount()
@@ -721,7 +743,11 @@ function M.prompt(opts)
 		is_live = function()
 			return not state.done and inflight[snapshot.buf] == state and state.phase == "input"
 		end,
-		complete = function(_, callback)
+		complete = function(kind, _, callback)
+			if kind == "command" then
+				callback(transform_commands)
+				return
+			end
 			local token = {}
 			state.input_completion_token = token
 			request_skills(state, function(skills, err)

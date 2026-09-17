@@ -111,7 +111,7 @@ local obsolete_repeat_transform_mapping
 for _, key in ipairs(plugin_specs[1].keys) do
 	if key[1] == "<leader>aoc" and mode_includes(key.mode, "n") then
 		toggle_terminal = key[2]
-	elseif key[1] == "<leader>aox" then
+	elseif key[1] == "<leader>ax" then
 		action_mapping = key
 	elseif key[1] == "<leader>aoX" and mode_includes(key.mode, "x") then
 		obsolete_transform_mapping = key
@@ -122,8 +122,11 @@ for _, key in ipairs(plugin_specs[1].keys) do
 	end
 end
 assert(toggle_terminal, "<leader>aoc toggle mapping is present")
-assert(action_mapping, "<leader>aox upstream action mapping is present")
-assert(mode_includes(action_mapping.mode, "n") and mode_includes(action_mapping.mode, "x"), "<leader>aox remains available in normal and visual modes")
+assert(action_mapping, "<leader>ax upstream action mapping is present")
+assert(mode_includes(action_mapping.mode, "n") and mode_includes(action_mapping.mode, "x"), "<leader>ax remains available in normal and visual modes")
+for _, key in ipairs(plugin_specs[1].keys) do
+	assert(key[1] ~= "<leader>aox", "OpenCode no longer declares <leader>aox")
+end
 eq(obsolete_transform_mapping, nil, "visual <leader>aoX curated transform mapping is removed")
 assert(prompt_transform_mapping, "visual <leader>aoI prompt transform mapping is present")
 eq(prompt_transform_mapping.desc, "Transform selection with instruction or skill", "prompt transform mapping documents both input modes")
@@ -144,7 +147,7 @@ package.loaded["opencode"] = {
 	select = function() action_select_calls = action_select_calls + 1 end,
 }
 action_mapping[2]()
-eq(action_select_calls, 1, "<leader>aox still dispatches to upstream opencode actions")
+eq(action_select_calls, 1, "<leader>ax still dispatches to upstream opencode actions")
 package.loaded["opencode"] = original_opencode
 
 local obsolete_history_mapping
@@ -719,16 +722,19 @@ print("PASS the OCV terminal binds the shared picker catalog and appends its sel
 
 local ask_mapping
 for _, key in ipairs(plugin_specs[1].keys) do
-	if key[1] == "<leader>aoa" and key.mode == "n" then
+	if key[1] == "<leader>aa" and key.mode == "n" then
 		ask_mapping = key[2]
 		break
 	end
 end
-assert(ask_mapping, "normal <leader>aoa mapping is present")
+assert(ask_mapping, "normal <leader>aa mapping is present")
+for _, key in ipairs(plugin_specs[1].keys) do
+	assert(key[1] ~= "<leader>aoa", "OpenCode no longer declares <leader>aoa")
+end
 
 local original_input = vim.ui.input
 vim.ui.input = function()
-	error("<leader>aoa must use the modal NUI prompt instead of vim.ui.input")
+	error("<leader>aa must use the modal NUI prompt instead of vim.ui.input")
 end
 
 local modal_buf = vim.api.nvim_create_buf(false, true)
@@ -771,7 +777,7 @@ local source_buf = vim.api.nvim_create_buf(false, true)
 vim.api.nvim_set_current_buf(source_buf)
 ask_mapping()
 
-assert(modal and modal.mounted, "<leader>aoa mounts a NUI input prompt")
+assert(modal and modal.mounted, "<leader>aa mounts a NUI input prompt")
 eq(modal.popup_opts.relative, "editor", "the modal prompt is positioned relative to the editor")
 eq(modal.popup_opts.position.row, "90%", "the modal prompt is positioned near the bottom of the editor")
 eq(modal.popup_opts.position.col, "50%", "the modal prompt remains horizontally centered")
@@ -808,7 +814,7 @@ vim.ui.input = original_input
 vim.api.nvim_set_current_buf(source_buf)
 vim.api.nvim_buf_delete(source_buf, { force = true })
 
-print("PASS <leader>aoa opens a modal NUI prompt with the shared Normal-mode picker catalog")
+print("PASS <leader>aa opens a modal NUI prompt with the shared Normal-mode picker catalog")
 
 -- ===== Section 5: plugin-owned asks use the shared NUI prompt =====
 
@@ -980,10 +986,10 @@ local function reset_local_prompt_calls()
 end
 
 local ask_calls_before = #modals
-local ask_normal = key_callback("<leader>aoa", "n")
-local ask_visual = key_callback("<leader>aoa", "x")
-assert(ask_normal, "normal <leader>aoa mapping is present")
-assert(ask_visual, "visual <leader>aoa mapping is present")
+local ask_normal = key_callback("<leader>aa", "n")
+local ask_visual = key_callback("<leader>aa", "x")
+assert(ask_normal, "normal <leader>aa mapping is present")
+assert(ask_visual, "visual <leader>aa mapping is present")
 assert(key_callback("<leader>aoM", "n") == nil, "obsolete <leader>aoM mapping is removed")
 
 local ask_buffer = vim.api.nvim_create_buf(false, true)
@@ -995,9 +1001,9 @@ vim.api.nvim_win_set_cursor(0, { 2, 0 })
 reset_local_prompt_calls()
 ask_normal()
 modal = modals[#modals]
-assert(#modals == ask_calls_before + 1, "normal <leader>aoa reuses the shared modal NUI prompt")
+assert(#modals == ask_calls_before + 1, "normal <leader>aa reuses the shared modal NUI prompt")
 modal.input_opts.on_submit("what does this do")
-last_local_prompt("normal <leader>aoa", "[file: lua/example.lua, line 2]\nreturn answer\nwhat does this do")
+last_local_prompt("normal <leader>aa", "[file: lua/example.lua, line 2]\nreturn answer\nwhat does this do")
 
 vim.api.nvim_set_current_buf(ask_buffer)
 vim.fn.setpos("'<", { 0, 1, 1, 0 })
@@ -1007,10 +1013,12 @@ reset_local_prompt_calls()
 ask_visual()
 modal = modals[#modals]
 modal.input_opts.on_submit("why")
-last_local_prompt("visual <leader>aoa", "[file: lua/example.lua, lines 1-2]\nlocal answer = 42\nreturn answer\nwhy")
+last_local_prompt("visual <leader>aa", "[file: lua/example.lua, lines 1-2]\nlocal answer = 42\nreturn answer\nwhy")
 
 eq(key_callback("<leader>aos", "n"), nil, "duplicate normal <leader>aos mapping is removed")
 eq(key_callback("<leader>aos", "x"), nil, "duplicate visual <leader>aos mapping is removed")
+eq(key_callback("<leader>aoi", "n"), nil, "OpenCode no longer declares normal <leader>aoi")
+eq(key_callback("<leader>aoi", "x"), nil, "OpenCode no longer declares visual <leader>aoi")
 
 vim.api.nvim_set_current_buf(ask_buffer)
 vim.fn.setpos("'>", { 0, 1, 17, 0 })
@@ -1021,14 +1029,14 @@ local named_expectations = {
 	{ lhs = "<leader>aot", mode = "n", text = "[file: lua/example.lua]\nAdd tests" },
 	{ lhs = "<leader>aod", mode = "n", text = "[file: lua/example.lua]\nDocument this" },
 	{ lhs = "<leader>aoo", mode = "n", text = "[file: lua/example.lua]\nOptimize this" },
-	{ lhs = "<leader>aoi", mode = "n", text = "[file: lua/example.lua]\nImplement this" },
+	{ lhs = "<leader>ai", mode = "n", text = "[file: lua/example.lua]\nImplement this" },
 	{ lhs = "<leader>aoE", mode = "n", text = "[file: lua/example.lua]\nExplain diagnostics" },
 	{ lhs = "<leader>aof", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nFix diagnostics" },
 	{ lhs = "<leader>aor", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nReview this" },
 	{ lhs = "<leader>aot", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nAdd tests" },
 	{ lhs = "<leader>aod", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nDocument this" },
 	{ lhs = "<leader>aoo", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nOptimize this" },
-	{ lhs = "<leader>aoi", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nImplement this" },
+	{ lhs = "<leader>ai", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nImplement this" },
 	{ lhs = "<leader>aoE", mode = "x", text = "[file: lua/example.lua]\n```\nlocal answer = 42\n```\nExplain diagnostics" },
 }
 

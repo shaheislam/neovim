@@ -96,7 +96,7 @@ return {
 		},
 		-- Line evolution tracing - normal mode (single line)
 		{
-			"<leader>gL",
+			"<leader>gi",
 			function()
 				local line = vim.fn.line(".")
 				local file = vim.fn.expand("%")
@@ -107,7 +107,7 @@ return {
 		},
 		-- Line evolution tracing - visual mode (range)
 		{
-			"<leader>gL",
+			"<leader>gi",
 			function()
 				local start_line = vim.fn.line("'<")
 				local end_line = vim.fn.line("'>")

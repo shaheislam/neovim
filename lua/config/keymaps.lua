@@ -34,7 +34,7 @@ keymap("n", "<Esc>", ":noh<CR>", { desc = "Clear search highlighting", silent = 
 keymap("n", "<leader>w", ":w<CR>", { desc = "Save file" })
 
 -- Quit
-keymap("n", "<leader>q", ":q<CR>", { desc = "Quit" })
+keymap("n", "<leader>Q", ":q<CR>", { desc = "Quit" })
 
 -- Kubectl helpers
 keymap("n", "<leader>kf", ":Kube from ", { desc = "kubectl cp from pod" })

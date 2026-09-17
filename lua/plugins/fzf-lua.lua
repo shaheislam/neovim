@@ -1344,7 +1344,7 @@ return {
 								vim.cmd("stopinsert") -- Exit insert mode in terminal
 								vim.api.nvim_set_current_win(self.preview_winid) -- Switch directly to preview
 							end
-						end, { buffer = true, silent = true })
+						end, { buffer = true, silent = true, desc = "Focus preview" })
 
 						-- Set up Tab in normal mode for preview window
 						-- This gets applied when we switch to the preview buffer
@@ -1366,7 +1366,7 @@ return {
 											vim.api.nvim_set_current_win(self.fzf_winid) -- Switch directly to search
 											vim.cmd("startinsert") -- Re-enter insert mode in terminal
 										end
-									end, { buffer = preview_buf, silent = true })
+									end, { buffer = preview_buf, silent = true, desc = "Focus search" })
 
 									-- Esc/q: Close the picker from preview window
 									-- Sends raw escape byte to fzf terminal channel, causing fzf to abort.

@@ -43,7 +43,7 @@ return {
             vim.keymap.set("n", "<leader>Re", function()
               vim.cmd.RustLsp("expandMacro")
             end, vim.tbl_extend("force", opts, { desc = "Rust Expand Macro" }))
-            vim.keymap.set("n", "<leader>Rc", function()
+            vim.keymap.set("n", "<leader>Ro", function()
               vim.cmd.RustLsp("openCargo")
             end, vim.tbl_extend("force", opts, { desc = "Open Cargo.toml" }))
             vim.keymap.set("n", "<leader>Rp", function()
@@ -180,6 +180,7 @@ return {
           on_attach = function(client, bufnr)
             -- Crates.nvim keymaps for Cargo.toml
             local opts = { noremap = true, silent = true, buffer = bufnr }
+            vim.keymap.set({ "n", "v" }, "<leader>Rc", "<Nop>", vim.tbl_extend("force", opts, { desc = "Crates" }))
             vim.keymap.set(
               "n",
               "<leader>RV",

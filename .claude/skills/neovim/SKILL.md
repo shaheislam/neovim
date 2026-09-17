@@ -92,15 +92,16 @@ grep -r "'<leader>xx'" lua/ --include="*.lua"
 | Prefix | Purpose | Example |
 |--------|---------|---------|
 | `<leader>a` | AI / OpenCode / Sidekick | `<leader>ao` OpenCode, `<leader>as` Sidekick |
-| `<leader>c` | Code / LSP actions | `<leader>ca` code action |
+| `<leader>c` | Code / structured data | `<leader>cj` jq filter |
+| `<leader>l` | LSP actions | `<leader>la` code action |
 | `<leader>f` | Find / Files (fzf) | `<leader>ff` find files |
-| `<leader>g` | Git operations | `<leader>gs` git status |
+| `<leader>g` | Git / Octo operations | `<leader>gs` git stash, `<leader>go` Octo |
 | `<leader>h` | Git hunks | `<leader>hs` stage hunk |
 | `<leader>m` | Markdown | `<leader>mp` preview |
 | `<leader>o` | Obsidian | `<leader>ot` today |
-| `<leader>O` | Octo (GitHub) | `<leader>Ol` list issues |
-| `<leader>q` | Quickfix / Quit | `<leader>q` quit |
-| `<leader>s` | Sessions | `<leader>ss` save |
+| `<leader>q` | Quickfix / Loclist | `<leader>qq` toggle quickfix |
+| `<leader>Q` | Quit | `<leader>Q` quit |
+| `<leader>s` | Sessions / Symbols / SSH | `<leader>so` project session |
 | `<leader>w` | Save / Window | `<leader>w` save |
 | `<leader>y` | Yank / Copy | `<leader>yl` permalink |
 

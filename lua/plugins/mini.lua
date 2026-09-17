@@ -132,9 +132,9 @@ return {
       },
 
       -- mini.trailspace keybindings
-      { "<leader>tw", function() require("mini.trailspace").trim() end, desc = "Trim Trailing Whitespace" },
+      { "<leader>xw", function() require("mini.trailspace").trim() end, desc = "Trim Trailing Whitespace" },
       {
-        "<leader>tl",
+        "<leader>xl",
         function() require("mini.trailspace").trim_last_lines() end,
         desc = "Trim Last Empty Lines",
       },

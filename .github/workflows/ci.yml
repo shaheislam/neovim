@@ -39,7 +39,20 @@ jobs:
         run: nvim --headless "+checkhealth nvim_mini" +qa
 
       - name: Which-key leader test
-        run: nvim --headless -l tests/which_key_leader_spec.lua
+        run: |
+          nvim --headless -l tests/which_key_leader_spec.lua
+          nvim --headless -l tests/keymap_layout_spec.lua
+
+      - name: Oil startup keymap test
+        env:
+          NVIM_APPNAME: nvim-mini
+        run: >-
+          nvim --headless
+          "+lua assert(package.loaded.oil, 'Oil was not loaded at startup'); for _, mode in ipairs({ 'n', 'v' }) do local map = vim.fn.maparg('<leader>e', mode, false, true); assert(map.rhs and map.rhs:match('Oil'), '<leader>e missing in ' .. mode .. ' mode after startup') end"
+          +qa
+
+      - name: Noice tests
+        run: nvim --headless -l tests/noice_spec.lua
 
       - name: OpenCode handoff tests
         run: |

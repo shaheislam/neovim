@@ -104,9 +104,9 @@ return {
       function _G.set_terminal_keymaps()
         local keymap_opts = { buffer = 0 }
         -- <C-q> in terminal mode closes the terminal (buffer-local override)
-        vim.keymap.set("t", "<C-q>", [[<C-\><C-n><cmd>close<cr>]], keymap_opts)
+        vim.keymap.set("t", "<C-q>", [[<C-\><C-n><cmd>close<cr>]], vim.tbl_extend("force", keymap_opts, { desc = "Close terminal" }))
         -- <Esc><Esc> exits insert mode without closing
-        vim.keymap.set("t", "<Esc><Esc>", [[<C-\><C-n>]], keymap_opts)
+        vim.keymap.set("t", "<Esc><Esc>", [[<C-\><C-n>]], vim.tbl_extend("force", keymap_opts, { desc = "Exit terminal mode" }))
       end
 
       -- Apply terminal keymaps automatically

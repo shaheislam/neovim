@@ -6,9 +6,9 @@ return {
     "chancez/viewport.nvim",
     keys = {
       { "<C-z>", mode = { "n", "t" }, desc = "Toggle maximize current window" },
-      { "<leader>wv", desc = "Viewport Resize Mode" },
-      { "<leader>wn", desc = "Viewport Navigate Mode" },
-      { "<leader>ws", desc = "Viewport Select Mode" },
+      { "<leader>vv", desc = "Viewport Resize Mode" },
+      { "<leader>vn", desc = "Viewport Navigate Mode" },
+      { "<leader>vs", desc = "Viewport Select Mode" },
     },
     config = function()
       local viewport = require("viewport")
@@ -72,9 +72,9 @@ return {
           end
         end)
       end, { desc = "Toggle maximize current window (terminal mode)" })
-      vim.keymap.set('n', '<leader>wv', viewport.start_resize_mode, { desc = "Viewport Resize Mode" })
-      vim.keymap.set('n', '<leader>wn', viewport.start_navigate_mode, { desc = "Viewport Navigate Mode" })
-      vim.keymap.set('n', '<leader>ws', viewport.start_select_mode, { desc = "Viewport Select Mode" })
+      vim.keymap.set('n', '<leader>vv', viewport.start_resize_mode, { desc = "Viewport Resize Mode" })
+      vim.keymap.set('n', '<leader>vn', viewport.start_navigate_mode, { desc = "Viewport Navigate Mode" })
+      vim.keymap.set('n', '<leader>vs', viewport.start_select_mode, { desc = "Viewport Select Mode" })
     end,
   },
 }

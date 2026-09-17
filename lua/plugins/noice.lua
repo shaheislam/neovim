@@ -92,7 +92,7 @@ return {
     { "<leader>md", function() require("noice").cmd("dismiss") end, desc = "Dismiss Messages" },
     { "<leader>n", open_notification_history, desc = "Notification History" },
     -- Toggle persistent messages
-    { "<leader>mp", function()
+    { "<leader>mP", function()
       vim.g.noice_persistent_messages = not vim.g.noice_persistent_messages
 
       -- Update Noice configuration directly

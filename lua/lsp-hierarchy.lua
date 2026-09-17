@@ -665,11 +665,11 @@ function M.show(direction, opts)
           end
 
           local bopts = { buffer = buf, nowait = true, silent = true }
-          vim.keymap.set("n", "<CR>", jump, bopts)
-          vim.keymap.set("n", "o", toggle, bopts)
-          vim.keymap.set("n", "K", show_full_path, bopts)
-          vim.keymap.set("n", "q", "<cmd>close<cr>", bopts)
-          vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", bopts)
+          vim.keymap.set("n", "<CR>", jump, vim.tbl_extend("force", bopts, { desc = "Jump to item" }))
+          vim.keymap.set("n", "o", toggle, vim.tbl_extend("force", bopts, { desc = "Toggle children" }))
+          vim.keymap.set("n", "K", show_full_path, vim.tbl_extend("force", bopts, { desc = "Show full path" }))
+          vim.keymap.set("n", "q", "<cmd>close<cr>", vim.tbl_extend("force", bopts, { desc = "Close hierarchy" }))
+          vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", vim.tbl_extend("force", bopts, { desc = "Close hierarchy" }))
         end)
       end)
     end)

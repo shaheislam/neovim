@@ -430,8 +430,8 @@ return {
           title_pos = "center",
         })
 
-        vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
-        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = buf })
+        vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf, desc = "Close" })
+        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = buf, desc = "Close" })
       end,
       desc = "Suggest backlinks",
     },
@@ -463,8 +463,8 @@ return {
           title_pos = "center",
         })
 
-        vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
-        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = buf })
+        vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf, desc = "Close" })
+        vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = buf, desc = "Close" })
       end,
       desc = "Search history",
     },
@@ -476,14 +476,14 @@ return {
     -- Tasks
     { "<leader>oc", "<cmd>Obsidian toggle_checkbox<cr>", desc = "Toggle checkbox" },
     {
-      "<leader>tt",
+      "<leader>oP",
       function()
         require("fzf-lua").grep({ search = "- \\[ \\]", cwd = vim.fn.expand("~/obsidian") })
       end,
       desc = "Pending tasks",
     },
     {
-      "<leader>tc",
+      "<leader>oC",
       function()
         require("fzf-lua").grep({ search = "- \\[x\\]", cwd = vim.fn.expand("~/obsidian") })
       end,

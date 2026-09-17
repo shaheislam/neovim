@@ -110,10 +110,6 @@ return {
       { "<leader>fe", "<cmd>Oil<cr>", desc = "Open File Browser" },
       { "-", "<cmd>Oil<cr>", desc = "Open parent directory" },
     },
-    init = function()
-      -- Override any existing <leader>e mappings immediately
-      vim.keymap.set("n", "<leader>e", "<cmd>Oil<cr>", { desc = "Open File Browser", silent = true })
-    end,
     config = function(_, opts)
       require("oil").setup(opts)
 

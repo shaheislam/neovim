@@ -269,7 +269,7 @@ local function patch_opencode_server_disconnect()
 end
 
 -- opencode.nvim's own owned prompt flows (<leader>aoB/aoV/aoQ, go/goo, the
--- <leader>aox action picker's prompt entries) all funnel through
+-- <leader>ax action picker's prompt entries) all funnel through
 -- opencode.api.prompt.prompt(), which delivers via
 -- context.server:tui_append_prompt()/tui_execute_command("prompt.submit").
 -- Both POST to /tui/publish, which OpenCode's TUI broadcasts to every client
@@ -784,13 +784,13 @@ return {
 			},
 			-- Ask opencode with current file context in this Neovim's local terminal
 			{
-				"<leader>aoa",
+				"<leader>aa",
 				ask_locally(),
 				mode = "n",
 				desc = "Ask opencode",
 			},
 			{
-				"<leader>aoa",
+				"<leader>aa",
 				ask_locally_visual,
 				mode = "x",
 				desc = "Ask opencode (with selection)",
@@ -821,7 +821,7 @@ return {
 			},
 			-- Action picker
 			{
-				"<leader>aox",
+				"<leader>ax",
 				function()
 					require("opencode").select()
 				end,
@@ -929,13 +929,13 @@ return {
 			desc = "Optimize (opencode)",
 		},
 		{
-			"<leader>aoi",
+			"<leader>ai",
 			run_named_prompt_locally("implement"),
 			mode = "n",
 			desc = "Implement (opencode)",
 		},
 		{
-			"<leader>aoi",
+			"<leader>ai",
 			run_named_prompt_locally("implement", { with_selection = true }),
 			mode = "x",
 			desc = "Implement (opencode)",

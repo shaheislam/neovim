@@ -46,18 +46,29 @@ return {
 
 			-- Prefixes are otherwise allowed to fall through to normal-mode commands
 			-- on timeout, e.g. `<leader>a` replaying `a` and entering insert mode.
-			vim.keymap.set({ "n", "x" }, "<leader>a", "<Nop>", { desc = "AI", silent = true })
-			vim.keymap.set({ "n", "x" }, "<leader>ao", "<Nop>", { desc = "OpenCode", silent = true })
+			vim.keymap.set({ "n", "x" }, "<leader>a", "<Nop>", { desc = "AI / OpenCode fast lane", silent = true })
+			vim.keymap.set({ "n", "x" }, "<leader>ao", "<Nop>", { desc = "Advanced OpenCode", silent = true })
 			vim.keymap.set({ "n", "x" }, "<leader>ap", "<Nop>", { desc = "Pi", silent = true })
 			vim.keymap.set({ "n", "x" }, "<leader>as", "<Nop>", { desc = "NES", silent = true })
+			vim.keymap.set("n", "<leader>q", "<Nop>", { desc = "Quickfix", silent = true })
+			vim.keymap.set("n", "<leader>v", "<Nop>", { desc = "Viewport", silent = true })
+			vim.keymap.set("n", "<leader>t", "<Nop>", { desc = "Tests", silent = true })
+			vim.keymap.set("n", "<leader>T", "<Nop>", { desc = "Typst", silent = true })
+			vim.keymap.set("n", "<leader>x", "<Nop>", { desc = "Trim", silent = true })
+			vim.keymap.set("n", "<leader>H", "<Nop>", { desc = "HTTP", silent = true })
+			vim.keymap.set("n", "<leader>R", "<Nop>", { desc = "Rust", silent = true })
+			vim.keymap.set("n", "<leader>gL", "<Nop>", { desc = "GitLab", silent = true })
 
 			-- Define key groups (leader key mappings)
 			wk.add({
 				-- Core groups
-				{ "<leader>a", group = "ai", icon = "󰚩 " },
-				{ "<leader>ao", group = "opencode", icon = "󰘦 " },
+				{ "<leader>a", group = "AI / OpenCode fast lane", icon = "󰚩 " },
+				{ "<leader>ao", group = "Advanced OpenCode", icon = "󰘦 " },
 				{ "<leader>ap", group = "pi", icon = "π " },
 				{ "<leader>as", group = "nes", icon = "󰭹 " },
+				{ "<leader>aa", desc = "Ask opencode", mode = { "n", "x" } },
+				{ "<leader>ai", desc = "Implement (opencode)", mode = { "n", "x" } },
+				{ "<leader>ax", desc = "opencode actions", mode = { "n", "x" } },
 				{ "<leader>c", group = "code", icon = " " },
 				{ "<leader>aw", desc = "Wrapped dashboard" },
 				{ "<leader>l", group = "lsp", icon = " " },
@@ -68,13 +79,16 @@ return {
 				{ "<leader>h", group = "hunks", icon = "󰊢 " },
 				{ "<leader>q", group = "quickfix", icon = " " },
 				{ "<leader>s", group = "session", icon = "󰆓 " },
-				{ "<leader>w", group = "window", icon = " " },
+				{ "<leader>v", group = "viewport", icon = " " },
 				{ "<leader>e", desc = "Open File Browser" },
 				{ "<leader>m", group = "markdown", icon = " " },
 				{ "<leader>o", group = "obsidian", icon = "󰎞 " },
 				{ "<leader>b", group = "buffers", icon = "󰈔 " },
 				{ "<leader>k", group = "kubectl", icon = "󱃾 " },
-				{ "<leader>t", group = "trim", icon = "󰁨 " },
+				{ "<leader>t", group = "tests", icon = "󰁨 " },
+				{ "<leader>T", group = "typst", icon = " " },
+				{ "<leader>x", group = "trim", icon = "󰁨 " },
+				{ "<leader>H", group = "http", icon = " " },
 				{ "<leader>go", group = "octo", icon = " " },
 				{ "<leader>gL", group = "gitlab", icon = " " },
 				{ "<leader>R", group = "rust", icon = " " },
@@ -91,6 +105,8 @@ return {
 				{ "<leader>on", desc = "New note" },
 				{ "<leader>ot", desc = "Insert template" },
 				{ "<leader>oc", desc = "Toggle checkbox" },
+				{ "<leader>oP", desc = "Pending tasks" },
+				{ "<leader>oC", desc = "Completed tasks" },
 				{ "<leader>oL", desc = "Create link", mode = "v" },
 				{ "<leader>oN", desc = "Link to new note", mode = "v" },
 
@@ -123,6 +139,7 @@ return {
 				-- Quickfix specific
 				{ "<leader>qq", desc = "Toggle Quickfix" },
 				{ "<leader>ql", desc = "Toggle Loclist" },
+				{ "<leader>Q", desc = "Quit" },
 
 				-- File operations
 				{ "<leader>ff", desc = "Find Files" },
@@ -134,6 +151,7 @@ return {
 
 				-- Markdown operations
 				{ "<leader>mp", desc = "Toggle Markdown Preview" },
+				{ "<leader>mP", desc = "Toggle Persistent Messages" },
 
 				-- Git operations (if you add more git plugins later)
 				{ "<leader>gg", desc = "Git Status" },
@@ -153,11 +171,13 @@ return {
 				{ "<leader>gX", desc = "Clear reviewed files" },
 				{ "<leader>gK", desc = "Compare clipboard" },
 				{ "<leader>gF", desc = "Diff two files" },
+				{ "<leader>gi", desc = "Line history (cursor)" },
+				{ "<leader>gi", desc = "Line history (selection)", mode = "v" },
 
 				-- Window/viewport operations
-				{ "<leader>wv", desc = "Viewport Resize Mode" },
-				{ "<leader>wn", desc = "Viewport Navigate Mode" },
-				{ "<leader>ws", desc = "Viewport Select Mode" },
+				{ "<leader>vv", desc = "Viewport Resize Mode" },
+				{ "<leader>vn", desc = "Viewport Navigate Mode" },
+				{ "<leader>vs", desc = "Viewport Select Mode" },
 
 				-- Gitsigns hunk operations (already defined in git.lua but good to have here too)
 				{ "<leader>hs", desc = "Stage hunk" },
@@ -213,8 +233,27 @@ return {
 				{ "<leader>bD", desc = "Delete buffer (force)" },
 
 				-- Trim helpers
-				{ "<leader>tw", desc = "Trim trailing whitespace" },
-				{ "<leader>tl", desc = "Trim last empty lines" },
+				{ "<leader>xw", desc = "Trim trailing whitespace" },
+				{ "<leader>xl", desc = "Trim last empty lines" },
+
+				-- Typst helpers
+				{ "<leader>Tw", desc = "Typst: Watch & Preview" },
+				{ "<leader>Tc", desc = "Typst: Compile" },
+				{ "<leader>To", desc = "Typst: Open PDF" },
+
+				-- HTTP helpers
+				{ "<leader>Hs", desc = "Send the request" },
+				{ "<leader>Ht", desc = "Toggle headers/body" },
+				{ "<leader>Hn", desc = "Jump to next request" },
+				{ "<leader>Hp", desc = "Jump to previous request" },
+				{ "<leader>Hi", desc = "Inspect current request" },
+				{ "<leader>He", desc = "Set environment" },
+				{ "<leader>Hc", desc = "Copy as cURL" },
+				{ "<leader>Hr", desc = "Replay last request" },
+				{ "<leader>Ha", desc = "Run all requests" },
+				{ "<leader>HS", desc = "Open scratchpad" },
+				{ "<leader>Hq", desc = "Close window" },
+				{ "<leader>HG", desc = "Download GraphQL schema" },
 
 				-- Rust tools
 				{ "<leader>Ra", desc = "Rust code action" },
@@ -222,13 +261,14 @@ return {
 				{ "<leader>Rr", desc = "Rust runnables" },
 				{ "<leader>RT", desc = "Rust testables" },
 				{ "<leader>Re", desc = "Rust expand macro" },
-				{ "<leader>Rc", desc = "Rust open Cargo" },
+				{ "<leader>Ro", desc = "Rust open Cargo" },
 				{ "<leader>Rp", desc = "Rust parent module" },
 				{ "<leader>Rj", desc = "Rust join lines" },
 				{ "<leader>Rs", desc = "Rust SSR" },
 				{ "<leader>Rg", desc = "Rust crate graph" },
 				{ "<leader>RV", desc = "Crate versions" },
 				{ "<leader>RF", desc = "Crate features" },
+				{ "<leader>Rc", group = "crates" },
 				{ "<leader>Rcd", desc = "Crate dependencies" },
 				{ "<leader>Rcu", desc = "Update crate" },
 				{ "<leader>Rcs", desc = "Update selected crates" },

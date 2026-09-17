@@ -195,7 +195,11 @@ function M.open_instruction_input(opts, callback)
 		local line = vim.api.nvim_buf_get_lines(input.bufnr, 0, 1, false)[1] or ""
 		local prefix, partial, suffix = line:match("^(%s*/skill%s+)(%S*)(.*)$")
 		if not prefix then
-			return "\t"
+			local indent = line:match("^(%s*)/skill$")
+			if not indent then
+				return "\t"
+			end
+			prefix, partial, suffix = indent .. "/skill ", "", ""
 		end
 		opts.complete(partial, function(skills, err)
 			if not live() then

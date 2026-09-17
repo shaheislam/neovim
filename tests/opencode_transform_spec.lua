@@ -302,11 +302,20 @@ fzf_calls[2].opts.winopts.on_close()
 eq(vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1], "/skill ", "cancelling the skill picker leaves input unchanged")
 eq(restored_inputs, 2, "cancelling the skill picker restores the instruction input")
 
+vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { "/skill" })
+eq(input_maps["i<Tab>"].callback(), "", "skill completion accepts the exact /skill token")
+assert(vim.wait(100, function() return #fzf_calls == 3 end), "exact /skill completion schedules fzf")
+eq(fzf_calls[3].opts.query, "", "exact /skill completion opens an unfiltered picker")
+fzf_calls[3].opts.actions.enter({ fzf_calls[3].entries[1] })
+eq(vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1], "/skill re-pitch ", "exact /skill completion inserts the selected skill")
+fzf_calls[3].opts.winopts.on_close()
+eq(restored_inputs, 3, "closing exact /skill completion restores the instruction input")
+
 vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { "/skill pr trailing" })
 input_maps["i<Tab>"].callback()
-assert(vim.wait(100, function() return #fzf_calls == 3 end), "skill completion opens another scheduled picker")
+assert(vim.wait(100, function() return #fzf_calls == 4 end), "skill completion opens another scheduled picker")
 input_live = false
-fzf_calls[3].opts.actions.enter({ fzf_calls[3].entries[2] })
+fzf_calls[4].opts.actions.enter({ fzf_calls[4].entries[2] })
 eq(vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1], "/skill pr trailing", "stale fzf selection cannot alter a closed input")
 input_live = true
 
@@ -327,7 +336,7 @@ vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { "/skill missing" })
 input_maps["i<Tab>"].callback()
 eq(vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1], "/skill missing", "failed skill lookup leaves input unchanged")
 eq(input_notices[#input_notices].message, "skill lookup failed", "failed skill lookup is reported")
-eq(restored_inputs, 3, "failed skill lookup restores the instruction input")
+eq(restored_inputs, 4, "failed skill lookup restores the instruction input")
 input_handlers.on_close()
 
 local function buffer_map(lhs, target_buf)

@@ -33,7 +33,7 @@ function M.open_commit(hash, extra_args)
 		return
 	end
 
-	M.open(append_extra(hash .. "^!", extra_args))
+	M.open(append_extra(vim.fn.fnameescape(hash) .. "^!", extra_args))
 end
 
 function M.open_range(base, head, extra_args)
@@ -44,7 +44,18 @@ function M.open_range(base, head, extra_args)
 		return
 	end
 
-	M.open(append_extra(base .. ".." .. head, extra_args))
+	M.open(append_extra(vim.fn.fnameescape(base) .. ".." .. vim.fn.fnameescape(head), extra_args))
+end
+
+function M.open_file(revision, file)
+	revision = trim(revision)
+	file = trim(file)
+	if file == "" then
+		vim.notify("No file to compare", vim.log.levels.WARN)
+		return
+	end
+
+	M.open(append_extra(revision == "" and "" or vim.fn.fnameescape(revision), "-- " .. vim.fn.fnameescape(file)))
 end
 
 return M

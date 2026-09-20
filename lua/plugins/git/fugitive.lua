@@ -2,7 +2,7 @@
 
 return {
 	"tpope/vim-fugitive",
-	cmd = { "Git", "G", "Gread", "Gwrite", "Gdiffsplit", "Gvdiffsplit", "Gedit", "Gsplit", "GBrowse" },
+	cmd = { "Git", "G", "Gread", "Gwrite", "Gedit", "Gsplit", "GBrowse" },
 	keys = {
 		{
 			"<leader>gp",
@@ -43,8 +43,8 @@ return {
 				cnoreabbrev <expr> gcm getcmdtype() == ':' && getcmdline() == 'gcm' ? 'Git commit -m' : 'gcm'
 
 				" Viewing changes
-				cnoreabbrev <expr> gd getcmdtype() == ':' && getcmdline() == 'gd' ? 'Git diff' : 'gd'
-				cnoreabbrev <expr> gds getcmdtype() == ':' && getcmdline() == 'gds' ? 'Git diff --staged' : 'gds'
+				cnoreabbrev <expr> gd getcmdtype() == ':' && getcmdline() == 'gd' ? 'DiffviewOpen' : 'gd'
+				cnoreabbrev <expr> gds getcmdtype() == ':' && getcmdline() == 'gds' ? 'DiffviewOpen --staged' : 'gds'
 				cnoreabbrev <expr> gl getcmdtype() == ':' && getcmdline() == 'gl' ? 'Git log' : 'gl'
 				cnoreabbrev <expr> glo getcmdtype() == ':' && getcmdline() == 'glo' ? 'Git log --oneline -20' : 'glo'
 				cnoreabbrev <expr> glg getcmdtype() == ':' && getcmdline() == 'glg' ? 'Git log --graph --oneline --decorate --all --date-order' : 'glg'

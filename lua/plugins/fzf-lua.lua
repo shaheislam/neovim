@@ -2266,7 +2266,7 @@ return {
 					local file_preview_commit = [[bash -c 'format="$1"; ref="$2"; git show --no-patch --format="$format" --date=local --color=always "$ref"; printf "\033[1;34m\nChanged files:\033[0m\n"; git diff-tree --no-commit-id --stat --color=always -r "$ref"' -- ]] .. vim.fn.shellescape(preview_log_format) .. [[ {1}]]
 					local file_preview_branch = [[bash -c 'format="$1"; ref="$2"; [ "$ref" = "*" ] && ref="$3"; printf "\033[34mRef:\033[0m %s\n" "$ref"; git log -1 --format="$format" --date=local --color=always "$ref"; printf "\033[1;34m\nChanged files vs HEAD:\033[0m\n"; git diff --stat --color=always HEAD..."$ref"' -- ]] .. vim.fn.shellescape(preview_log_format) .. [[ {1} {2}]]
 					local file_preview_stash = [[bash -c 'format="$1"; ref="$2"; printf "\033[34mRef:\033[0m %s\n" "$ref"; git show --no-patch --format="$format" --date=local --color=always "$ref"; printf "\033[1;34m\nChanged files:\033[0m\n"; git stash show --stat --color=always "$ref"' -- ]] .. vim.fn.shellescape(preview_log_format) .. [[ {1}]]
-					local file_preview_worktree = [[bash -c 'format="$1"; path="$2"; printf "\033[34mPath:\033[0m %s\n" "$path"; printf "\033[34mBranch:\033[0m "; git -C "$path" branch --show-current; git -C "$path" log -1 --format="$format" --date=local --color=always; printf "\033[1;34m\nWorktree changes vs HEAD:\033[0m\n"; git -C "$path" diff --stat --color=always HEAD' -- ]] .. vim.fn.shellescape(preview_log_format) .. [[ {1}]]
+					local file_preview_worktree = [[bash -c 'format="$1"; path="$2"; printf "\033[34mPath:\033[0m %s\n" "$path"; printf "\033[34mBranch:\033[0m "; git -C "$path" branch --show-current; git -C "$path" log -1 --format="$format" --date=local --color=always; printf "\033[1;34m\nWorktree changes vs HEAD:\033[0m\n"; git -C "$path" diff --stat --color=always HEAD' -- ]] .. vim.fn.shellescape(preview_log_format) .. [[ {}]]
 
 					-- Dynamic header showing current selection and worktree context
 					local function get_header()
@@ -2303,18 +2303,17 @@ return {
 					-- Open Diffview with optional file filter
 					local function open_with_filter()
 						local refs = selected_refs
-						local range_str
-						if #refs == 1 then
-							range_str = refs[1]
-						elseif #refs >= 2 then
-							range_str = refs[2] .. ".." .. refs[1]
-						else
+						if #refs == 0 then
 							return
 						end
 
-						local diff_cmd = #refs == 1
-								and string.format("git diff-tree --no-commit-id --name-only -r %s", refs[1])
-							or string.format("git diff --name-only %s %s", refs[2], refs[1])
+						local diff_cmd = { "git" }
+						if git_cwd then vim.list_extend(diff_cmd, { "-C", git_cwd }) end
+						if #refs == 1 then
+							vim.list_extend(diff_cmd, { "diff-tree", "--no-commit-id", "--name-only", "-r", refs[1] })
+						else
+							vim.list_extend(diff_cmd, { "diff", "--name-only", refs[2], refs[1] })
+						end
 						local files = vim.fn.systemlist(diff_cmd)
 
 						local has_files = #files > 0
@@ -2324,22 +2323,31 @@ return {
 							fzf_opts = { ["--multi"] = true },
 							actions = {
 								["default"] = function(sel)
-									local real_paths = {}
+									local extra_args = git_cwd and ("-C" .. vim.fn.fnameescape(git_cwd)) or ""
+									local paths = {}
 									if sel then
 										for _, path in ipairs(sel) do
 											if not path:match("^-- ") then
-												table.insert(real_paths, vim.fn.shellescape(path))
+												table.insert(paths, vim.fn.fnameescape(path))
 											end
 										end
 									end
-									if #real_paths > 0 then
-										vim.cmd("DiffviewOpen " .. range_str .. " -- " .. table.concat(real_paths, " "))
+									if #paths > 0 then extra_args = extra_args .. " -- " .. table.concat(paths, " ") end
+									local diffview = require("git.diffview")
+									if #refs == 1 then
+										diffview.open_commit(refs[1], extra_args)
 									else
-										vim.cmd("DiffviewOpen " .. range_str)
+										diffview.open_range(refs[2], refs[1], extra_args)
 									end
 								end,
 								["ctrl-a"] = function()
-									vim.cmd("DiffviewOpen " .. range_str)
+									local extra_args = git_cwd and ("-C" .. vim.fn.fnameescape(git_cwd)) or nil
+									local diffview = require("git.diffview")
+									if #refs == 1 then
+										diffview.open_commit(refs[1], extra_args)
+									else
+										diffview.open_range(refs[2], refs[1], extra_args)
+									end
 								end,
 								["ctrl-y"] = has_files and fzf_yank.action("path", {
 									base_dir = function() return git_cwd or vim.fn.getcwd() end,
@@ -2406,11 +2414,8 @@ return {
 											return
 										end
 										-- Add selected ref(s)
-										for _, item in ipairs(selected) do
-											local hash = item:match("[a-f0-9]+")
-											if hash then
-												add_ref(hash)
-											end
+										for _, hash in ipairs(selected_commit_hashes(selected)) do
+											add_ref(hash)
 										end
 										-- Auto-proceed if we have 2 refs, otherwise re-open picker
 										if #selected_refs >= 2 then
@@ -2459,7 +2464,11 @@ return {
 								}),
 							})
 						elseif picker_type == "worktrees" then
-							local worktrees = vim.fn.systemlist("git worktree list")
+							local worktrees = {}
+							for _, line in ipairs(vim.fn.systemlist({ "git", "worktree", "list", "--porcelain" })) do
+								local path = line:match("^worktree (.+)$")
+								if path then table.insert(worktrees, path) end
+							end
 							fzf.fzf_exec(worktrees, {
 								prompt = "Diffview Worktrees> ",
 								preview = file_preview_worktree,
@@ -2477,8 +2486,7 @@ return {
 											return
 										end
 										-- Extract worktree path and set as git context
-										local item = selected[1]
-										local worktree_path = item:match("^(%S+)")
+										local worktree_path = selected[1]
 										if worktree_path then
 											git_cwd = worktree_path
 											-- Switch to commits picker from this worktree context

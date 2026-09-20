@@ -199,20 +199,25 @@ return {
 					end)
 				end, { desc = "Open blame commit in DiffView" })
 
-				-- Advanced diff features
-				map("n", "<leader>hd", gs.diffthis, { desc = "Diff this" })
+				-- Full-file comparisons use the canonical Diffview workflow.
+				local function open_file_diff(revision)
+					require("git.diffview").open_file(revision, vim.api.nvim_buf_get_name(bufnr))
+				end
+				map("n", "<leader>hd", function()
+					open_file_diff()
+				end, { desc = "Diff file in Diffview" })
 				map("n", "<leader>hD", function()
-					gs.diffthis("~")
-				end, { desc = "Diff this ~" })
+					open_file_diff("HEAD~")
+				end, { desc = "Diff file against ~ in Diffview" })
 
 				-- Diff against specific revision
 				map("n", "<leader>hc", function()
 					vim.ui.input({ prompt = "Diff against revision: " }, function(revision)
-						if revision then
-							gs.diffthis(revision)
+						if revision and vim.trim(revision) ~= "" then
+							open_file_diff(revision)
 						end
 					end)
-				end, { desc = "Diff against custom revision" })
+				end, { desc = "Diff file against revision in Diffview" })
 
 				-- Show deleted lines as virtual text
 				map("n", "<leader>ht", gs.toggle_deleted, { desc = "Toggle deleted" })

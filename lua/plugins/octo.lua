@@ -3,6 +3,14 @@
 
 local git_command = require("git.command")
 
+local function open_pr_in_diffview()
+  if _G.octo_diffview and _G.octo_diffview.open_pr_in_diffview then
+    _G.octo_diffview.open_pr_in_diffview()
+  else
+    vim.notify("Octo not loaded yet. Open a PR first.", vim.log.levels.WARN)
+  end
+end
+
 local function run_gh(args)
   local cmd = { "gh" }
   vim.list_extend(cmd, args)
@@ -82,16 +90,10 @@ return {
       -- ══════════════════════════════════════════════════════════════
       {
         "<leader>god",
-        function()
-          -- Defer to global function set up in config
-          if _G.octo_diffview and _G.octo_diffview.open_pr_in_diffview then
-            _G.octo_diffview.open_pr_in_diffview()
-          else
-            vim.notify("Octo not loaded yet. Open a PR first.", vim.log.levels.WARN)
-          end
-        end,
+        open_pr_in_diffview,
         desc = "Open PR in DiffView",
       },
+      { "<leader>gopd", open_pr_in_diffview, desc = "Open PR in DiffView" },
     },
     config = function()
       require("octo").setup({
@@ -168,7 +170,7 @@ return {
             rebase_and_merge_pr = { lhs = "<leader>gopr", desc = "Rebase and merge" },
             list_commits = { lhs = "<leader>gopc", desc = "List commits" },
             list_changed_files = { lhs = "<leader>gopf", desc = "List changed files" },
-            show_pr_diff = { lhs = "<leader>gopd", desc = "Show PR diff" },
+            show_pr_diff = { lhs = "", desc = "Show PR diff" },
             add_reviewer = { lhs = "<leader>gova", desc = "Add reviewer" },
             remove_reviewer = { lhs = "<leader>govd", desc = "Remove reviewer" },
             close_issue = { lhs = "<leader>goic", desc = "Close PR" },

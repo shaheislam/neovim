@@ -200,7 +200,7 @@ return {
 				{ "<leader>hb", desc = "Blame line" },
 				{ "<leader>hB", desc = "Toggle blame line" },
 				{ "<leader>hO", desc = "Open blame commit in DiffView" },
-				{ "<leader>hd", desc = "Diff this" },
+				{ "<leader>hd", desc = "Diff file in Diffview" },
 				{ "<leader>ht", desc = "Toggle deleted" },
 				{ "<leader>hw", desc = "Toggle word diff" },
 				{ "<leader>hl", desc = "Toggle line highlight" },

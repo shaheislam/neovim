@@ -2605,7 +2605,7 @@ return {
 	-- Enhanced with folder scoping (Alt-g/s/l) matching find files and grep patterns
 	{
 		"nanotee/zoxide.vim",
-		dependencies = { "ibhagwan/fzf-lua", "barrettruth/canola.nvim" },
+		dependencies = { "ibhagwan/fzf-lua", "canola.nvim" },
 		keys = {
 			{
 				"<leader>cd",

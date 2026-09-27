@@ -87,5 +87,16 @@
     "playwright",
     "steampipe",
     "context7"
+  ],
+  "enabledMcpjsonServers": [
+    "grep-app",
+    "aws-docs",
+    "peekaboo",
+    "firefox-devtools",
+    "hound",
+    "obsidian",
+    "trvl",
+    "fli",
+    "airbnb"
   ]
 }

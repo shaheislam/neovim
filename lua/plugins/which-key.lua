@@ -66,7 +66,6 @@ return {
 			vim.keymap.set("n", "<leader>t", "<Nop>", { desc = "Tests", silent = true })
 			vim.keymap.set("n", "<leader>T", "<Nop>", { desc = "Typst", silent = true })
 			vim.keymap.set("n", "<leader>x", "<Nop>", { desc = "Trim", silent = true })
-			vim.keymap.set("n", "<leader>H", "<Nop>", { desc = "HTTP", silent = true })
 			vim.keymap.set("n", "<leader>R", "<Nop>", { desc = "Rust", silent = true })
 			vim.keymap.set("n", "<leader>gL", "<Nop>", { desc = "GitLab", silent = true })
 
@@ -99,7 +98,6 @@ return {
 				{ "<leader>t", group = "tests", icon = "󰁨 " },
 				{ "<leader>T", group = "typst", icon = " " },
 				{ "<leader>x", group = "trim", icon = "󰁨 " },
-				{ "<leader>H", group = "http", icon = " " },
 				{ "<leader>go", group = "octo", icon = " " },
 				{ "<leader>gL", group = "gitlab", icon = " " },
 				{ "<leader>R", group = "rust", icon = " " },
@@ -251,20 +249,6 @@ return {
 				{ "<leader>Tw", desc = "Typst: Watch & Preview" },
 				{ "<leader>Tc", desc = "Typst: Compile" },
 				{ "<leader>To", desc = "Typst: Open PDF" },
-
-				-- HTTP helpers
-				{ "<leader>Hs", desc = "Send the request" },
-				{ "<leader>Ht", desc = "Toggle headers/body" },
-				{ "<leader>Hn", desc = "Jump to next request" },
-				{ "<leader>Hp", desc = "Jump to previous request" },
-				{ "<leader>Hi", desc = "Inspect current request" },
-				{ "<leader>He", desc = "Set environment" },
-				{ "<leader>Hc", desc = "Copy as cURL" },
-				{ "<leader>Hr", desc = "Replay last request" },
-				{ "<leader>Ha", desc = "Run all requests" },
-				{ "<leader>HS", desc = "Open scratchpad" },
-				{ "<leader>Hq", desc = "Close window" },
-				{ "<leader>HG", desc = "Download GraphQL schema" },
 
 				-- Rust tools
 				{ "<leader>Ra", desc = "Rust code action" },

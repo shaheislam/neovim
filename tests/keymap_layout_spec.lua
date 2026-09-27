@@ -117,31 +117,6 @@ vim.cmd = original_cmd
 eq(typst_commands.compile, "!typst compile --root /tmp /tmp/doc/main.typ", "Typst compile callback is preserved")
 eq(typst_commands.open, { "open", "/tmp/doc/main.pdf" }, "Typst PDF callback is preserved")
 
-local kulala = plugin("lua/plugins/kulala.lua")
-local kulala_commands = {
-	s = "run",
-	t = "toggle_view",
-	n = "jump_next",
-	p = "jump_prev",
-	i = "inspect",
-	e = "set_selected_env",
-	c = "copy",
-	r = "replay",
-	a = "run_all",
-	S = "scratchpad",
-	q = "close",
-	G = "download_graphql_schema",
-}
-for suffix, action in pairs(kulala_commands) do
-	local lhs = "<leader>H" .. suffix
-	local key = mapping(kulala.keys, lhs)
-	assert(key and key.desc, "Kulala owns described " .. lhs)
-	eq(key[2], "<cmd>lua require('kulala')." .. action .. "()<cr>", lhs .. " keeps its command")
-end
-for _, key in ipairs(kulala.keys) do
-	assert(not key[1]:match("^<leader>R"), "Kulala no longer owns Rust's R prefix")
-end
-
 local viewport = plugin("lua/plugins/viewport.lua")
 for suffix, desc in pairs({ v = "Viewport Resize Mode", n = "Viewport Navigate Mode", s = "Viewport Select Mode" }) do
 	local key = mapping(viewport.keys, "<leader>v" .. suffix)

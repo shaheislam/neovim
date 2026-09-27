@@ -8,7 +8,7 @@ Persistent audit of repo-configured executable mappings. The approved target lay
 - Modes: `n` normal, `x` visual, `s` select, `v` visual/select as written by the source, `o` operator-pending, `i` insert, `t` terminal.
 - Scope: `global` survives across ordinary buffers; `lazy` is a global lazy.nvim loader map; `buffer` is attached only to the named buffer/filetype/UI; `native` is a plugin-owned mapping explicitly configured in this repo.
 - Namespace policy: global/editor maps live in `lua/config/keymaps.lua`; plugin maps live with their plugin; LSP maps attach per buffer. Every executable leader prefix must have one semantic owner. Buffer-local UI maps may intentionally shadow global maps because the local owner is visible and bounded.
-- Prefix guards: `<leader>a`, `<leader>ao`, `<leader>ap`, and `<leader>as` are explicit `n,x <Nop>` guards; normal mode also guards `<leader>q`, `<leader>v`, `<leader>t`, `<leader>T`, `<leader>x`, `<leader>H`, `<leader>R`, and `<leader>gL`. They prevent incomplete prefixes from falling through to native commands. Executable exact-prefix maps must not block descendants: quit moves off `<leader>q`, viewport moves off `<leader>w`, Diffview moves off `<leader>gL`, and Rust open-Cargo moves off `<leader>Rc`.
+- Prefix guards: `<leader>a`, `<leader>ao`, `<leader>ap`, and `<leader>as` are explicit `n,x <Nop>` guards; normal mode also guards `<leader>q`, `<leader>v`, `<leader>t`, `<leader>T`, `<leader>x`, `<leader>R`, and `<leader>gL`. They prevent incomplete prefixes from falling through to native commands. Executable exact-prefix maps must not block descendants: quit moves off `<leader>q`, viewport moves off `<leader>w`, Diffview moves off `<leader>gL`, and Rust open-Cargo moves off `<leader>Rc`.
 - Descriptions are the configured `desc`/plugin action labels, compacted only for punctuation/case. A semicolon separates distinct mappings; every key remains named.
 
 ## Namespace Layout
@@ -22,7 +22,6 @@ Persistent audit of repo-configured executable mappings. The approved target lay
 | `<leader>f` | Find/FZF; `<leader>fd` is DAP discovery. |
 | `<leader>g` | Git; `<leader>go` Octo, `<leader>gL` GitLab, `<leader>gi` Diffview line history. |
 | `<leader>h` | Git hunks. |
-| `<leader>H` | HTTP/Kulala target namespace. |
 | `<leader>J` | Structured-data graph UI. |
 | `<leader>k` | kubectl. |
 | `<leader>l` | LSP/trace; `<leader>L` lint/security. |
@@ -39,7 +38,7 @@ Persistent audit of repo-configured executable mappings. The approved target lay
 | `<leader>x` | Cleanup: Mini trailspace. |
 | `<leader>y` | Yank/permalink. |
 
-Reserved top-level prefixes are `a b c d f g h H J k l L m n o O p q R s t T v w x y`. Repo-explicit free top-level letter prefixes are `i j r u z`; singleton `<leader>-`, `<leader>e`, `<leader>Q`, and `<leader><leader>` are occupied and are not free prefixes.
+Reserved top-level prefixes are `a b c d f g h J k l L m n o O p q R s t T v w x y`. Repo-explicit free top-level letter prefixes are `H i j r u z`; singleton `<leader>-`, `<leader>e`, `<leader>Q`, and `<leader><leader>` are occupied and are not free prefixes.
 
 ## Global And Lazy Maps
 
@@ -59,7 +58,7 @@ Target keys are shown for approved migrations.
 | Yank | `v global`, startup | `<leader>yr`: selection with relative path; `<leader>ya`: selection with absolute path | `lua/config/keymaps.lua` |
 | Permalinks | `n,v global`, startup | `<leader>yl`: Git forge permalink for line/selection; `<leader>yL`: Markdown permalink for line/selection | `lua/config/keymaps.lua` |
 | Annotations | `global`, setup | `n,x <leader>ana`: add; `n <leader>anc`/`<leader>anC`: copy current/all; `<leader>ano`/`<leader>anO`: ask OpenCode current/all; `<leader>anl`: list; `<leader>and`/`<leader>anD`: delete current/all; `]a`/`[a`: next/previous | `lua/config/annotations.lua` |
-| Prefix guards | `global`, eager which-key config | `n,x <leader>a`: AI; `<leader>ao`: advanced OpenCode; `<leader>ap`: Pi; `<leader>as`: NES. Normal-only `<leader>q`: quickfix; `<leader>v`: viewport; `<leader>t`: tests; `<leader>T`: Typst; `<leader>x`: trim; `<leader>H`: HTTP; `<leader>R`: Rust; `<leader>gL`: GitLab. All are `<Nop>`. | `lua/plugins/which-key.lua` |
+| Prefix guards | `global`, eager which-key config | `n,x <leader>a`: AI; `<leader>ao`: advanced OpenCode; `<leader>ap`: Pi; `<leader>as`: NES. Normal-only `<leader>q`: quickfix; `<leader>v`: viewport; `<leader>t`: tests; `<leader>T`: Typst; `<leader>x`: trim; `<leader>R`: Rust; `<leader>gL`: GitLab. All are `<Nop>`. | `lua/plugins/which-key.lua` |
 | OpenCode | `lazy`; listed modes; `:Opencode`/key/startup flag | `n,t <leader>aoc`: toggle; `n,t <C-.>`: toggle; `n,x <leader>aa`: ask current context/selection; `x <leader>aoS`: append selection; `n <leader>aoB`/`aoV`/`aoQ`: ask buffer/visible/quickfix; `n,x <leader>ax`: actions; `x <leader>aoI`: transform selection; `n,x go`: range operator; `n goo`: line operator | `lua/plugins/opencode.lua` |
 | OpenCode prompts | `lazy n,x` | `<leader>aoe`: explain; `<leader>aof`: fix; `<leader>aor`: review; `<leader>aot`: tests; `<leader>aod`: document; `<leader>aoo`: optimize; `<leader>ai`: implement; `<leader>aoE`: explain diagnostics | `lua/plugins/opencode.lua` |
 | OpenCode session/search | `lazy n` | `<leader>aon`: new; `<leader>aop`: pick; `<leader>aom`: compact; `<leader>aou`/`aoU`: undo/redo; `<leader>aoA`: cycle agent; `<leader>ao/`: all messages; `<leader>aoP`: prompts; `<leader>aoL`: assistant; `<leader>aoT`: tools; `<leader>aoR`: reasoning; `<leader>aoO`: tool output; `<leader>aoG`: all local sessions; `<leader>aoF`: fork pane; `<leader>aoW`: fork worktree; `<leader>aog`: live grep | `lua/plugins/opencode.lua` |
@@ -89,7 +88,6 @@ Target keys are shown for approved migrations.
 | Typr | `lazy n`, commands/keys | `<leader>ty`: game; `<leader>tY`: stats | `lua/plugins/typr.lua` |
 | Mini cleanup | `lazy n`, eager plugin | `<leader>xw`: trim trailing whitespace; `<leader>xl`: trim last empty lines | `lua/plugins/mini.lua` |
 | Typst | `lazy n`, `typst` ft | `<leader>Tw`: watch/preview; `<leader>Tc`: compile; `<leader>To`: open PDF | `lua/plugins/typst.lua` |
-| Kulala | `lazy n`, `http`/`rest` ft | `<leader>Hs`: send; `<leader>Ht`: headers/body; `<leader>Hn`/`Hp`: next/previous; `<leader>Hi`: inspect; `<leader>He`: environment; `<leader>Hc`: copy cURL; `<leader>Hr`: replay; `<leader>Ha`: all; `<leader>HS`: scratchpad; `<leader>Hq`: close; `<leader>HG`: GraphQL schema | `lua/plugins/kulala.lua` |
 | Markdown | `lazy n`, markdown ft/commands | `<leader>mp`: browser preview; `<leader>mr`: refresh review markers; `<leader>mq`: markers to quickfix; `<leader>mt`: toggle in-buffer rendering; `<leader>mi`: clear images when image.nvim is enabled | `lua/plugins/markdown.lua`, `render-markdown.lua`, `image.lua` |
 | Noice | `lazy`, VeryLazy | `n,i,v <C-c>`: dismiss; `n <leader>mh`: history; `<leader>ml`: last; `<leader>md`: dismiss; `<leader>n`: notification history; `<leader>mP`: persistent messages | `lua/plugins/noice.lua` |
 | Obsidian | `lazy n/v`, vault events/keys | `<leader>od`/`oy`/`om`: today/yesterday/tomorrow; `<leader>oo`: switch; `<leader>os`: search; `<leader>ob`: backlinks; `<leader>ol`: outgoing; `<leader>ok`: tags; `<leader>or`/`oR`/`oF`: semantic related/query/folder; `<leader>oS`: suggest backlinks; `<leader>oH`: history; `<leader>on`: new; `<leader>ot`: template; `<leader>oc`: checkbox; `<leader>oP`/`oC`: pending/completed tasks; `<leader>op`: paste image; `v <leader>oL`/`oN`: link/new link | `lua/plugins/obsidian.lua`, `img-clip.lua` |
@@ -182,7 +180,7 @@ Only mappings whose keys/actions are explicitly present in this repo are listed.
 - `<leader>e` and `<leader>b` are global Oil/buffer namespaces, but Diffview intentionally shadows them within its panels/views for focus/toggle.
 - `]c`/`[c` are Treesitter class navigation in ordinary parsed buffers, Gitsigns hunks in Git-attached buffers, native diff movement in diff windows, and Octo comments in review threads. Buffer-local context decides the surviving owner.
 - `]q`/`[q`/`[Q`/`]Q` remain quickfix-style navigation in Octo review buffers. Diffview uses separate file keys except its configured panel mappings.
-- After migration, surviving global owners are: OpenCode on `aa`/`ai`/`ax`; Markdown preview on `mp`; Noice on `mP`; Obsidian tasks on `oP`/`oC`; Neotest on `tt`/`tl`/`to`/`tw`; Mini cleanup on `xw`/`xl`; Typst on `Tw`/`Tc`/`To`; Kulala on `H*`; Rust on `R*` with open-Cargo `Ro` and crates `Rc*`; GitLab on `gL*`; Diffview line history on `gi`; quickfix on `q*`; quit on `Q`; save on `w`; viewport on `v*`.
+- After migration, surviving global owners are: OpenCode on `aa`/`ai`/`ax`; Markdown preview on `mp`; Noice on `mP`; Obsidian tasks on `oP`/`oC`; Neotest on `tt`/`tl`/`to`/`tw`; Mini cleanup on `xw`/`xl`; Typst on `Tw`/`Tc`/`To`; Rust on `R*` with open-Cargo `Ro` and crates `Rc*`; GitLab on `gL*`; Diffview line history on `gi`; quickfix on `q*`; quit on `Q`; save on `w`; viewport on `v*`.
 
 ## Pre-Change Conflicts And Approved Resolutions
 
@@ -196,7 +194,6 @@ These conflicts were present in the inspected source before migration. “Prefix
 | exact | Obsidian pending `<leader>tt` vs Neotest file tests; Obsidian completed `<leader>tc` vs Typst compile | Obsidian `<leader>oP`/`<leader>oC`; Neotest `<leader>tt` and Typst `<leader>Tc` survive |
 | exact | Mini trim `<leader>tw`/`tl` vs Neotest watch/last; `tw` also Typst watch | Mini `<leader>xw`/`xl`; Neotest `<leader>tw`/`tl` survive |
 | exact | Typst `<leader>tw`/`tc`/`to` vs Mini/Neotest/Obsidian | Typst `<leader>Tw`/`Tc`/`To`; Neotest retains lowercase test namespace |
-| exact | Kulala `<leader>Rs`/`Rp`/`Re`/`Rc`/`Rr`/`Ra` vs Rust | All Kulala `<leader>R*` become same-suffix `<leader>H*`; Rust survives on `<leader>R*` |
 | prefix | Rust open Cargo `<leader>Rc` vs crates `<leader>Rcd`, `Rcu`, `Rcs`, `Rca`, `RcU`, `RcS`, `RcA`, `Rch`, `Rcr`, `RcD`, `RcC`, `RcL` | Rust open Cargo `<leader>Ro`; crates retain `<leader>Rc*` |
 | prefix | Diffview line history `<leader>gL` vs GitLab `<leader>gL*` | Diffview `<leader>gi`; GitLab retains `<leader>gL*` |
 | prefix | Quit `<leader>q` vs quickfix `<leader>qq`/`ql` | Quit `<leader>Q`; quickfix retains `<leader>q*` |
@@ -217,7 +214,6 @@ These conflicts were present in the inspected source before migration. “Prefix
 | Typst watch/preview | `<leader>tw` | `<leader>Tw` |
 | Typst compile | `<leader>tc` | `<leader>Tc` |
 | Typst open PDF | `<leader>to` | `<leader>To` |
-| Kulala send/toggle/next/previous/inspect/environment/copy/replay/all/scratch/close/schema | `<leader>Rs/Rt/Rn/Rp/Ri/Re/Rc/Rr/Ra/RS/Rq/RG` | `<leader>Hs/Ht/Hn/Hp/Hi/He/Hc/Hr/Ha/HS/Hq/HG` |
 | Rust open Cargo | `<leader>Rc` | `<leader>Ro` |
 | Diffview line/range history | `<leader>gL` | `<leader>gi` |
 | Core quit | `<leader>q` | `<leader>Q` |

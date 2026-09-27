@@ -96,7 +96,7 @@ end
 for _, lhs in ipairs({ "<leader>a", "<leader>ao", "<leader>ap", "<leader>as" }) do
 	assert(has_mode(guarded[lhs], "n") and has_mode(guarded[lhs], "x"), lhs .. " guards normal and visual modes")
 end
-for _, lhs in ipairs({ "<leader>q", "<leader>v", "<leader>t", "<leader>T", "<leader>x", "<leader>H", "<leader>R", "<leader>gL" }) do
+for _, lhs in ipairs({ "<leader>q", "<leader>v", "<leader>t", "<leader>T", "<leader>x", "<leader>R", "<leader>gL" }) do
 	eq(guarded[lhs], "n", lhs .. " is protected from normal-mode prefix fallthrough")
 end
 assert(not guarded["<leader>w"], "<leader>w remains an actionable save mapping, not a Nop prefix")

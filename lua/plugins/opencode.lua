@@ -225,6 +225,9 @@ local function open_worktree_layout(dir)
 	require("config.project_terminal").open(dir)
 
 	terminal_adapter.open(dir)
+	if ocv_term and ocv_term.window and vim.api.nvim_win_is_valid(ocv_term.window) then
+		vim.api.nvim_win_set_width(ocv_term.window, math.floor(vim.o.columns * 0.5))
+	end
 	if vim.bo.buftype == "terminal" then
 		vim.cmd("startinsert")
 	end

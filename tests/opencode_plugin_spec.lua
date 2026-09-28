@@ -543,13 +543,24 @@ local original_layout_terminal_open = terminal_adapter.open
 local original_layout_defer_fn = vim.defer_fn
 local original_layout_set_current_win = vim.api.nvim_set_current_win
 local layout_defer_delays = {}
+local layout_ocv_win
 
 terminal_adapter.open = function(dir)
 	table.insert(layout_actions, { action = "ocv_open", dir = dir })
+	if not layout_ocv_win then
+		vim.cmd("vsplit")
+		layout_ocv_win = vim.api.nvim_get_current_win()
+		vim.api.nvim_win_set_width(layout_ocv_win, math.floor(vim.o.columns * 0.5))
+	else
+		original_layout_set_current_win(layout_ocv_win)
+	end
+	return { window = layout_ocv_win }
 end
 package.loaded["config.project_terminal"] = {
 	open = function(dir)
 		table.insert(layout_actions, { action = "shell_open", dir = dir })
+		vim.cmd("split")
+		vim.api.nvim_win_set_width(layout_ocv_win, math.floor(vim.o.columns * 0.25))
 	end,
 }
 vim.api.nvim_set_current_win = function(win)
@@ -563,6 +574,8 @@ end
 
 layout_plugin_specs[1].config()
 vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
+eq(vim.api.nvim_win_get_width(layout_ocv_win), math.floor(vim.o.columns * 0.5), "OCV stays half-width after the shell split")
+vim.cmd("only")
 
 terminal_adapter.open = original_layout_terminal_open
 vim.defer_fn = original_layout_defer_fn

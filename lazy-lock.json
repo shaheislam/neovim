@@ -8,7 +8,7 @@
   "blink.pairs": { "branch": "main", "commit": "c382bc4ba0229211c8ae19491bb7aa930c051a42" },
   "canola.nvim": { "branch": "main", "commit": "407c8949deafb39c5aa373bb06f9796c09e0635e" },
   "catppuccin": { "branch": "main", "commit": "edefef779ab08ce1a4a404713e3012b0d202bd35" },
-  "codecompanion.nvim": { "branch": "main", "commit": "d0fa5d8e079e5c2129f6c4aae28148717e6e5cf5" },
+  "codecompanion.nvim": { "branch": "main", "commit": "8cd0052083f0ae4f03b95e0a857fde68acf468c8" },
   "crates.nvim": { "branch": "main", "commit": "7039bc1d130e424232a7aa64ceddb170a154ff5b" },
   "csvview.nvim": { "branch": "main", "commit": "2466bdda54047f525d4faca53040fe657c9c33db" },
   "cyberdream.nvim": { "branch": "main", "commit": "b3f4ef5e9b8ee370c913a48b63e130b730ee8782" },
@@ -67,7 +67,7 @@
   "quicker.nvim": { "branch": "master", "commit": "4a6883cb13fe097a20a046eb55f6dffd239276e3" },
   "render-markdown.nvim": { "branch": "main", "commit": "640a3ec6d538bad17c328be373c7cad0293d9589" },
   "rose-pine": { "branch": "main", "commit": "ff483051a47e27d84bdef47703538df1ed9f4a47" },
-  "rustaceanvim": { "branch": "main", "commit": "e9c5aaba16fead831379d5f44617547a90b913c7" },
+  "rustaceanvim": { "branch": "master", "commit": "e9c5aaba16fead831379d5f44617547a90b913c7" },
   "sidekick.nvim": { "branch": "main", "commit": "3d80a47e6375f6d647c9695d3afea6fa1b3275df" },
   "sqlite.lua": { "branch": "master", "commit": "50092d60feb242602d7578398c6eb53b4a8ffe7b" },
   "sshfs.nvim": { "branch": "main", "commit": "07fc74206d3bf7671e8b13aef2d0d871e0516746" },
@@ -85,6 +85,6 @@
   "volt": { "branch": "main", "commit": "620de1321f275ec9d80028c68d1b88b409c0c8b1" },
   "which-key.nvim": { "branch": "main", "commit": "3aab2147e74890957785941f0c1ad87d0a44c15a" },
   "wrapped.nvim": { "branch": "master", "commit": "1f22d80f85113667efce93df84419dc63eabad48" },
-  "yazi.nvim": { "branch": "main", "commit": "9b1206cafe09401ab455db3dbce341a869cdebb0" },
+  "yazi.nvim": { "branch": "main", "commit": "88f0fffdb9ae42ef92744a8c4cf966dbda1b9282" },
   "zoxide.vim": { "branch": "master", "commit": "d4c3d088a70a4edae9def6209644c092f4221fe5" }
 }

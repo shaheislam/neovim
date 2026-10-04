@@ -100,65 +100,26 @@ end
 -- Shared git helpers (cached, non-blocking)
 -- ============================================================================
 
--- Cache git remote URL per cwd (invalidated on DirChanged)
-local _git_cache = {}
-vim.api.nvim_create_autocmd('DirChanged', {
-  callback = function() _git_cache = {} end,
-})
-
 local function git_cmd(args)
   local result = vim.fn.system(args)
   if vim.v.shell_error ~= 0 then return nil end
   return vim.trim(result)
 end
 
--- Parse git remote URL into a supported code forge.
-local function get_git_forge()
-  local cwd = vim.fn.getcwd()
-  if _git_cache[cwd] then return _git_cache[cwd] end
-
-  local url = git_cmd({ "git", "-C", cwd, "remote", "get-url", "origin" })
-  if not url then return nil end
-
-  local host, path = url:match("^git@([^:]+):(.+)$")
-  if not host then
-    local without_scheme = url:match("^https?://(.+)$")
-    if without_scheme then
-      without_scheme = without_scheme:gsub("^[^/@]+@", "")
-      host, path = without_scheme:match("^([^/]+)/(.+)$")
-    else
-      local ssh_url = url:match("^ssh://(.+)$")
-      if ssh_url then
-        local user_host
-        user_host, path = ssh_url:match("^([^/]+)/(.+)$")
-        if user_host then
-          host = user_host:gsub("^.+@", "")
-        end
-      end
-    end
+-- Keep Bitbucket out of Octo's GitHub-only auth and command path.
+keymap("n", "<leader>gop", function()
+  local forge = require("git.forge").get()
+  if forge and forge.type == "bitbucket" then
+    require("git.bitbucket").open()
+    return
   end
-
-  if not host or not path then return nil end
-
-  path = path:gsub("%.git$", ""):gsub("/$", "")
-
-  local forge_type = "github"
-  local web_host = host
-  if host:find("github%.com") then
-    forge_type = "github"
-    web_host = "github.com"
-  elseif host:find("gitlab%.com") then
-    forge_type = "gitlab"
-    web_host = "gitlab.com"
-  elseif host:find("bitbucket%.org") then
-    forge_type = "bitbucket"
-    web_host = "bitbucket.org"
+  require("lazy").load({ plugins = { "octo.nvim" } })
+  if _G.octo_pr_picker then
+    _G.octo_pr_picker()
+  else
+    vim.cmd("Octo pr list")
   end
-
-  local result = { type = forge_type, host = web_host, path = path }
-  _git_cache[cwd] = result
-  return result
-end
+end, { desc = "Pull requests (Bitbucket or Octo GitHub hub)" })
 
 -- Get current commit SHA
 local function get_commit_sha()
@@ -226,7 +187,7 @@ keymap("v", "<leader>ya", function() yank_with_path(false) end, { desc = "Yank w
 -- Build a git forge permalink for current file + lines.
 local function git_permalink(opts)
   opts = opts or {}
-  local forge = get_git_forge()
+  local forge = require("git.forge").get()
   if not forge then
     vim.notify("Could not determine git remote", vim.log.levels.WARN)
     return

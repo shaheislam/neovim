@@ -48,17 +48,6 @@ return {
       -- PULL REQUESTS & ISSUES
       -- ══════════════════════════════════════════════════════════════
       {
-        "<leader>gop",
-        function()
-          if _G.octo_pr_picker then
-            _G.octo_pr_picker()
-          else
-            vim.cmd("Octo pr list")
-          end
-        end,
-        desc = "PRs & Issues hub (M-t entity | M-s state | M-m scope | M-u author | M-l label | M-f search | M-g global | M-k checks | CR open | ^o create | ^d diffview | ^x checkout | ^b browser)",
-      },
-      {
         "<leader>gok",
         function()
           -- Defer to the global set up in config; falls back to the buffer cmd

@@ -30,7 +30,7 @@ local function tmux_get(option)
 	if not pane or pane == "" or vim.fn.executable("tmux") ~= 1 then
 		return ""
 	end
-	return vim.trim(vim.fn.system({ "tmux", "show-option", "-p", "-v", "-t", pane, option }))
+	return vim.trim(vim.fn.system({ "tmux", "show-option", "-q", "-p", "-v", "-t", pane, option }))
 end
 
 local function register_server()

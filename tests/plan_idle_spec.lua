@@ -236,6 +236,9 @@ vim.fn.system = function(args)
 		return ""
 	end
 	if args[2] == "show-option" then
+		if pane_options[args[#args]] == nil and not vim.list_contains(args, "-q") then
+			return "invalid option: " .. args[#args] .. "\n"
+		end
 		return (pane_options[args[#args]] or "") .. "\n"
 	end
 	if args[2] == "set-option" and vim.list_contains(args, "-u") then

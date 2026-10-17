@@ -6,7 +6,7 @@ local ns = vim.api.nvim_create_namespace("repo_annotations")
 local icon = "󰅺"
 local max_ghost_length = 80
 local post_instruction =
-	"after resolving each annotation, edit the item from annotation file and prepend the annotation with 'RESOLVED: '"
+	"After resolving each annotation, edit its item in .tmp/annotations.json and prepend item.text with 'RESOLVED: '. Preserve the other items and fields."
 local root_cache = {}
 local annotation_cache = {}
 
@@ -44,14 +44,33 @@ local function should_skip_buffer(bufnr)
 	end
 
 	local buftype = vim.api.nvim_get_option_value("buftype", { buf = bufnr })
-	if buftype ~= "" then
+	if buftype ~= "" and not vim.api.nvim_buf_get_name(bufnr):match("^diffview://") then
 		return true
 	end
 
 	return current_buffer_path(bufnr) == nil
 end
 
+local function diff_file(bufnr)
+	bufnr = (not bufnr or bufnr == 0) and vim.api.nvim_get_current_buf() or bufnr
+	local ok, lib = pcall(require, "diffview.lib")
+	if not ok then
+		return
+	end
+	for _, view in pairs(lib.views or {}) do
+		for _, window in ipairs(view.cur_layout and view.cur_layout.windows or {}) do
+			if window.file and window.file.bufnr == bufnr then
+				return window.file
+			end
+		end
+	end
+end
+
 local function repo_root(path)
+	local file = diff_file(path and vim.fn.bufnr(path) or 0)
+	if file and file.adapter and file.adapter.ctx then
+		return file.adapter.ctx.toplevel
+	end
 	path = path or current_buffer_path() or vim.fn.getcwd()
 
 	local start = vim.fn.fnamemodify(path, ":p")
@@ -119,6 +138,10 @@ end
 
 local function current_file(root, bufnr)
 	bufnr = bufnr or 0
+	local file = diff_file(bufnr)
+	if file and file.path then
+		return file.path, file.symbol == "a"
+	end
 	local path, is_diffview = current_buffer_path(bufnr)
 	if not path then
 		return nil
@@ -126,39 +149,11 @@ local function current_file(root, bufnr)
 	return annotation_filename(path, root, is_diffview), is_diffview
 end
 
-function M.diff_side(bufnr, winid)
-	bufnr = bufnr == 0 and vim.api.nvim_get_current_buf() or bufnr
-	winid = winid or vim.api.nvim_get_current_win()
-	local ok, lib = pcall(require, "diffview.lib")
-	if not ok then
-		return nil
+function M.diff_side(bufnr)
+	local file = diff_file(bufnr)
+	if file then
+		return file.symbol == "a" and "old" or file.symbol == "b" and "new" or nil
 	end
-
-	local views = {}
-	local current = lib.get_current_view()
-	if current then
-		table.insert(views, current)
-	end
-	for _, view in pairs(lib.views or {}) do
-		if view ~= current then
-			table.insert(views, view)
-		end
-	end
-
-	for _, view in ipairs(views) do
-		local windows = view.cur_layout and view.cur_layout.windows or {}
-		for _, window in ipairs(windows) do
-			local file = window.file
-			if (window.id == winid or (file and file.bufnr == bufnr)) and file then
-				if file.symbol == "a" then
-					return "old"
-				elseif file.symbol == "b" then
-					return "new"
-				end
-			end
-		end
-	end
-	return nil
 end
 
 local function read_annotations(root)
@@ -193,8 +188,8 @@ local function write_annotations(root, annotations)
 	annotation_cache[root] = nil
 end
 
-local function diff_for_file(root, file)
-	local result = vim.system({ "git", "-C", root, "diff", "--no-color", "--unified=3", "HEAD", "--", file }, {
+local function diff_for_file(root, file, base)
+	local result = vim.system({ "git", "-C", root, "diff", "--no-color", "--unified=3", base or "HEAD", "--", file }, {
 		text = true,
 	}):wait()
 	local diff = result.stdout or ""
@@ -206,7 +201,8 @@ local function diff_for_file(root, file)
 	if vim.fn.filereadable(absolute) ~= 1 then
 		return ""
 	end
-	local untracked = vim.system({ "git", "-C", root, "ls-files", "--error-unmatch", "--", file }, { text = true }):wait()
+	local untracked = vim.system({ "git", "-C", root, "ls-files", "--error-unmatch", "--", file }, { text = true })
+		:wait()
 	if untracked.code == 0 then
 		return ""
 	end
@@ -225,8 +221,8 @@ local function diff_for_file(root, file)
 	return new_file.stdout or ""
 end
 
-local function hunk_for_range(root, file, start_line, end_line, side)
-	return review_context.hunk_for_range(diff_for_file(root, file), start_line, end_line, side)
+local function hunk_for_range(root, file, start_line, end_line, side, base)
+	return review_context.hunk_for_range(diff_for_file(root, file, base), start_line, end_line, side)
 end
 
 local function truncate(text)
@@ -261,11 +257,18 @@ function M.refresh_buffer(bufnr)
 			and type(item.text) == "string"
 			and not item.text:match("^RESOLVED:")
 		then
-			local line = math.max((item.line or 1) - 1, 0)
+			local line = math.min(math.max((item.line or 1) - 1, 0), vim.api.nvim_buf_line_count(bufnr) - 1)
 			vim.api.nvim_buf_set_extmark(bufnr, ns, line, 0, {
 				sign_text = icon,
 				sign_hl_group = "DiagnosticSignInfo",
-				virt_text = { { icon .. " " .. truncate(item.text), "DiagnosticVirtualTextInfo" } },
+				virt_text = {
+					{
+						icon .. " " .. (item.delivery and ("[" .. item.delivery.state .. "] ") or "") .. truncate(
+							item.text
+						),
+						"DiagnosticVirtualTextInfo",
+					},
+				},
 				virt_text_pos = "eol",
 			})
 		end
@@ -278,6 +281,39 @@ function M.refresh_all()
 			M.refresh_buffer(bufnr)
 		end
 	end
+end
+
+function M.update_delivery(root, items, state, err)
+	local annotations = read_annotations(root)
+	for _, item in ipairs(annotations) do
+		for _, sent in ipairs(items) do
+			if
+				item.file == sent.file
+				and item.line == sent.line
+				and item.side == sent.side
+				and item.text == sent.text
+				and vim.deep_equal(item.review, sent.review)
+			then
+				item.delivery = { state = state, error = err }
+			end
+		end
+	end
+	write_annotations(root, annotations)
+	M.refresh_all()
+end
+
+function M.transfer(root, source, target)
+	local annotations, transferred = read_annotations(root), {}
+	for _, item in ipairs(active_annotations(annotations)) do
+		if item.review and vim.deep_equal(item.review.provenance, source) then
+			item.review.provenance = vim.deepcopy(target)
+			item.delivery = nil
+			transferred[#transferred + 1] = item
+		end
+	end
+	write_annotations(root, annotations)
+	M.refresh_all()
+	return transferred
 end
 
 local function add_range(start_line, end_line)
@@ -294,6 +330,11 @@ local function add_range(start_line, end_line)
 	end
 
 	local side = M.diff_side(0) or (is_diffview and "old" or "new")
+	local review, view = require("config.opencode_review").current(root)
+	if review and (view.left.commit ~= review.base or view.right.type ~= 1) then
+		notify("Review revisions changed; close Diffview and start a new review", vim.log.levels.WARN)
+		return
+	end
 	local annotations = read_annotations(root)
 	local existing
 	for _, item in ipairs(annotations) do
@@ -302,29 +343,40 @@ local function add_range(start_line, end_line)
 			break
 		end
 	end
+	review = vim.deepcopy(review or (existing and existing.review))
+	local hunk = hunk_for_range(root, file, start_line, end_line, side, review and review.base)
+	local context = table.concat(vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false), "\n")
 
 	vim.ui.input({ prompt = "Annotation: ", default = existing and existing.text or "" }, function(text)
 		if not text or text == "" then
 			return
 		end
-		if existing then
-			existing.text = text
-			existing.line = start_line
-			existing.end_line = end_line
-			existing.side = side
-			existing.hunk = hunk_for_range(root, file, start_line, end_line, side)
-		else
-			table.insert(annotations, {
-				file = file,
-				line = start_line,
-				end_line = end_line,
-				text = text,
-				side = side,
-				hunk = hunk_for_range(root, file, start_line, end_line, side),
-			})
+		annotations = read_annotations(root)
+		local saved = {
+			file = file,
+			line = start_line,
+			end_line = end_line,
+			text = text,
+			side = side,
+			hunk = hunk,
+			context = context,
+			review = review,
+		}
+		local replaced = false
+		for index, item in ipairs(annotations) do
+			if review_context.item_matches(item, file, start_line, side) then
+				annotations[index], replaced = saved, true
+				break
+			end
+		end
+		if not replaced then
+			table.insert(annotations, saved)
 		end
 		write_annotations(root, annotations)
 		M.refresh_all()
+		if review then
+			require("config.opencode_review").submit({ saved }, root)
+		end
 	end)
 end
 
@@ -393,6 +445,13 @@ function M.prompt_for_items(items)
 end
 
 local function ask_items(items, root)
+	local review = require("config.opencode_review")
+	if review.current(root) or vim.iter(items):any(function(item)
+		return item.review ~= nil
+	end) then
+		review.submit(items, root)
+		return
+	end
 	local prompt = M.prompt_for_items(items)
 	if not prompt then
 		return
@@ -493,6 +552,31 @@ local function jump_to_item(item)
 		return
 	end
 	close_panel_window()
+	local review, view = require("config.opencode_review").current(item.root)
+	if review then
+		for _, entry in view.files:iter() do
+			if entry.path == item.file or entry.oldpath == item.file then
+				local async = require("diffview.async")
+				async.void(function()
+					async.await(view:set_file(entry, false))
+					if vim.api.nvim_get_current_tabpage() ~= view.tabpage then
+						return
+					end
+					for _, window in ipairs(view.cur_layout.windows) do
+						if window.file.symbol == (item.side == "old" and "a" or "b") then
+							vim.api.nvim_set_current_win(window.id)
+							local line = math.min(item.line, vim.api.nvim_buf_line_count(window.file.bufnr))
+							vim.api.nvim_win_set_cursor(window.id, { math.max(line, 1), 0 })
+							return
+						end
+					end
+				end)()
+				return
+			end
+		end
+		notify("Commented file is no longer in this diff", vim.log.levels.WARN)
+		return
+	end
 	vim.cmd.edit(vim.fn.fnameescape(item.root .. "/" .. item.file))
 	vim.api.nvim_win_set_cursor(0, { item.line, 0 })
 end
@@ -502,11 +586,16 @@ local function delete_item(item)
 		return
 	end
 	local annotations = vim.tbl_filter(function(candidate)
-		return not (candidate.file == item.file and candidate.line == item.line and candidate.text == item.text)
+		return not (
+			candidate.file == item.file
+			and candidate.line == item.line
+			and candidate.side == item.side
+			and candidate.text == item.text
+		)
 	end, read_annotations(item.root))
 	write_annotations(item.root, annotations)
 	M.refresh_all()
-	M.list()
+	M.list(item.root)
 end
 
 local function edit_item(item)
@@ -518,22 +607,36 @@ local function edit_item(item)
 			return
 		end
 		local annotations = read_annotations(item.root)
+		local saved
 		for _, candidate in ipairs(annotations) do
-			if candidate.file == item.file and candidate.line == item.line and candidate.text == item.text then
+			if
+				candidate.file == item.file
+				and candidate.line == item.line
+				and candidate.side == item.side
+				and candidate.text == item.text
+			then
 				candidate.text = text
+				saved = candidate
 				break
 			end
 		end
 		write_annotations(item.root, annotations)
 		M.refresh_all()
-		M.list()
+		if saved and saved.review then
+			require("config.opencode_review").submit({ saved }, item.root)
+		end
+		M.list(item.root)
 	end)
 end
 
-function M.list()
-	local root = repo_root()
+function M.list(root)
+	root = root or repo_root()
 	if not root then
 		return
+	end
+	local panel = vim.fn.bufnr("annotate://list")
+	if panel ~= -1 then
+		vim.api.nvim_buf_delete(panel, { force = true })
 	end
 
 	local annotations = active_annotations(read_annotations(root))
@@ -668,7 +771,7 @@ function M.setup()
 	})
 	vim.api.nvim_create_autocmd("User", {
 		group = vim.api.nvim_create_augroup("repo_annotations_external", { clear = true }),
-		pattern = "NvimMiniExternalFilesChanged",
+		pattern = { "NvimMiniExternalFilesChanged", "DiffviewDiffBufRead", "DiffviewDiffBufWinEnter" },
 		callback = M.refresh_all,
 		desc = "Refresh annotations after external agent edits",
 	})

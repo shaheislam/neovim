@@ -265,6 +265,7 @@ return {
 
 		local function diffview_auto_switch_enabled()
 			return vim.g.diffview_auto_switch ~= false
+				and (vim.in_fast_event() or not require("config.opencode_review").current())
 		end
 
 		-- Forward declarations: auto-follow functions referenced in

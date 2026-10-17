@@ -75,6 +75,7 @@ local function opencode_launch(dir, _, launch_context)
 	local env = {
 		OPENCODE_TMUX_WRAPPER_ACTIVE = "1",
 		OPENTUI_GRAPHICS = "0",
+		OPENCODE_RESTORE_LATEST = launch_context and launch_context.restore_latest and "1" or "0",
 		OPENCODE_SERVER_USERNAME = auth.username,
 		TMUX = "",
 		STY = "",
@@ -1103,6 +1104,10 @@ return {
 					once = true,
 					callback = function()
 						vim.defer_fn(function()
+							local session = package.loaded["config.opencode_session"]
+							if session and session.restored then
+								return
+							end
 							if nvim_open_toggleterm then
 								open_worktree_layout()
 							else

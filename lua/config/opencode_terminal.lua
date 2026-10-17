@@ -559,11 +559,11 @@ end
 -- reconcile()) and right
 -- before spawning/opening (via ensure_live() below), where a dead terminal
 -- must be explicitly replaced rather than reopened.
-function M.get_terminal(dir)
+function M.get_terminal(dir, launch_context)
 	dir = opts.project_root(dir)
 	local entry = state.by_project[dir]
 	if not entry then
-		entry = { dir = dir, generation = new_generation() }
+		entry = { dir = dir, generation = new_generation(), launch_context = vim.deepcopy(launch_context) }
 		state.by_project[dir] = entry
 	end
 	local launch = resolve_launch(dir, entry.generation, entry.launch_context)
@@ -638,10 +638,10 @@ local function ensure_spawned(term)
 	start_ready_timeout(term)
 end
 
-function M.start(dir)
+function M.start(dir, launch_context)
 	dir = opts.project_root(dir)
 	ensure_rpc_server()
-	local term = ensure_live(dir, M.get_terminal(dir))
+	local term = ensure_live(dir, M.get_terminal(dir, launch_context))
 	local entry = state.by_project[dir]
 	if opts.on_start then
 		opts.on_start(term, dir, entry.generation)
@@ -774,6 +774,20 @@ function M.generation_for(dir)
 	dir = opts.project_root(dir)
 	local entry = state.by_project[dir]
 	return entry and entry.generation or nil
+end
+
+function M.session_snapshot()
+	local snapshot = {}
+	for dir, entry in pairs(state.by_project) do
+		if entry.term and entry.term.bufnr and vim.api.nvim_buf_is_valid(entry.term.bufnr) then
+			snapshot[dir] = {
+				bufnr = entry.term.bufnr,
+				generation = entry.generation,
+				session_id = entry.launch_context and entry.launch_context.session_id,
+			}
+		end
+	end
+	return snapshot
 end
 
 function M.job_pid_for(dir, generation)

@@ -150,6 +150,11 @@ local function process_project(project)
 	end
 	vim.fn.setqflist({}, " ", { title = "OpenCode changed files", items = items })
 
+	local review = package.loaded["config.opencode_review"]
+	if review and review.current(project) then
+		return
+	end
+
 	if pending.latest and pending.latest ~= project .. "/.plan.md" then
 		focus_path(pending.latest)
 	end
@@ -337,6 +342,14 @@ function M.active_bindings()
 		end
 	end
 	return bindings
+end
+
+function M.capture_route(project)
+	project = canonical_project(project)
+	local current = project and state.projects[project] or nil
+	if current and current.sessionID then
+		return plan_provenance(project, current)
+	end
 end
 
 function M.resolve_plan_route(provenance)

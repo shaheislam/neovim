@@ -18,6 +18,8 @@ require("config.claude-bridge").setup()
 
 -- Load repo-local annotations (stored in .tmp/annotations.json)
 require("config.annotations").setup()
+require("config.opencode_review").setup()
+require("config.agent_session").setup()
 
 -- Register this pane for deliberate tmux/Claude Diffview review fallback.
 require("config.diffview_idle").setup()

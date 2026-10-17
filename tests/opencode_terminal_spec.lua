@@ -961,6 +961,17 @@ assert(not default_reopen.cmd:find("--session", 1, true), "deliberate close clea
 
 print("PASS selected-session launch context survives automatic replacement but not deliberate close")
 
+setup_adapter({
+	launch = function(dir, _, context)
+		return { cmd = dir .. " --session " .. (context and context.session_id or "fresh"), env = {} }
+	end,
+})
+local restored = terminal_adapter.start(context_dir, { session_id = "ses_saved" })
+assert(restored.cmd:match("ses_saved$"), "cold restore selects the saved session before spawning")
+eq(terminal_adapter.start(context_dir, { session_id = "ses_other" }), restored, "repeated restore reuses its owner")
+assert(restored.cmd:match("ses_saved$"), "a repeated start cannot silently retarget a live owner")
+eq(terminal_adapter.session_snapshot()[context_dir].bufnr, restored.bufnr, "snapshot identifies the owned buffer")
+
 for _, term in pairs(registry) do
 	pcall(function()
 		term:shutdown()

@@ -207,6 +207,9 @@ eq(terminal_closes, {}, "a retried idle handoff keeps the terminal generation op
 
 local route = handoff.resolve_plan_route(handoffs[1].provenance)
 eq(route.sessionID, "ses_two", "a live native plan route resolves to its exact session")
+assert(type(handoff.capture_route) == "function", "review can capture the exact bound route before opening a diff")
+local review_route = handoff.capture_route(root)
+eq(handoff.resolve_plan_route(review_route), route, "captured review provenance uses the existing native route validator")
 
 vim.bo.modified = true
 eq(batch({ "alpha.txt" }).status, "queued", "the old route can queue work while the editor is unsafe")
@@ -231,6 +234,7 @@ local rebound = handoff.receive({
 eq(rebound.status, "handled", "a newer route replaces the session while old work is deferred")
 eq(handoff.active_bindings()[root].sessionID, "ses_three", "the replacement route becomes active")
 eq(handoff.resolve_plan_route(handoffs[1].provenance), nil, "the previous route provenance becomes stale")
+eq(handoff.resolve_plan_route(review_route), nil, "review comments cannot follow a session switch")
 
 vim.bo.modified = false
 vim.api.nvim_exec_autocmds("BufWritePost", { buffer = 0 })

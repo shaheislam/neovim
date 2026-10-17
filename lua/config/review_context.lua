@@ -71,6 +71,16 @@ function M.prompt_for_items(items, post_instruction)
 	local lines = { "Annotations:", "" }
 	for _, item in ipairs(items) do
 		table.insert(lines, "- " .. M.format_item(item))
+		if item.review then
+			table.insert(lines, "  " .. (item.side or "new") .. " side; review base " .. item.review.base)
+		end
+		if item.context and item.context ~= "" then
+			table.insert(lines, "  Selected code at comment time:\n  ```")
+			for _, line in ipairs(vim.split(item.context, "\n", { plain = true })) do
+				table.insert(lines, "  " .. line)
+			end
+			table.insert(lines, "  ```")
+		end
 		if item.hunk and item.hunk ~= "" then
 			table.insert(lines, "  ```diff")
 			for _, line in ipairs(vim.split(item.hunk, "\n", { plain = true })) do

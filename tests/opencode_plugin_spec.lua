@@ -261,6 +261,7 @@ first_auth_env.OPENCODE_NVIM_GENERATION = nil
 assert(type(first_generation) == "string" and first_generation:match("^nvim_"), "the terminal receives a native handoff generation")
 eq(first_auth_env, {
 	OPENCODE_TMUX_WRAPPER_ACTIVE = "1",
+	OPENCODE_RESTORE_LATEST = "0",
 	OPENTUI_GRAPHICS = "0",
 	OPENCODE_SERVER_USERNAME = "opencode-spec-user-1",
 	OPENCODE_SERVER_PASSWORD = "opencode-spec-password-1",
@@ -344,6 +345,8 @@ eq(
 )
 assert(not selected_restart.term.cmd:find("opencode-spec-user-2", 1, true), "selected-session command still excludes the username")
 assert(not selected_restart.term.cmd:find("opencode-spec-password-2", 1, true), "selected-session command still excludes the password")
+local legacy_terminal = terminal_adapter.get_terminal("/tmp/opencode-plugin-spec/legacy", { restore_latest = true })
+eq(legacy_terminal.env.OPENCODE_RESTORE_LATEST, "1", "legacy session restore enables exact-worktree lookup")
 
 package.loaded["opencode.config"] = original_auth_config
 
@@ -593,6 +596,19 @@ eq(layout_actions[4].action, "ocv_open", "OCV is re-focused last (open() is idem
 assert(type(layout_actions[1].dir) == "string" and layout_actions[1].dir ~= "", "OCV opens against a resolved project directory")
 eq(layout_actions[3].dir, layout_actions[1].dir, "the shell opens against the same resolved project directory as OCV")
 eq(layout_actions[4].dir, layout_actions[1].dir, "the final OCV re-focus targets the same resolved project directory")
+
+package.loaded["config.opencode_session"] = { restored = true }
+vim.env.NVIM_OPEN_OPENCODE = "1"
+vim.env.NVIM_OPEN_TOGGLETERM = "1"
+local restored_startup = dofile("lua/plugins/opencode.lua")
+local restored_actions = 0
+terminal_adapter.open = function() restored_actions = restored_actions + 1 end
+restored_startup[1].config()
+vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
+vim.wait(50, function() return restored_actions > 0 end)
+eq(restored_actions, 0, "startup flags never rebuild an already-restored session layout")
+terminal_adapter.open = original_layout_terminal_open
+package.loaded["config.opencode_session"] = nil
 
 print("PASS NVIM_OPEN_TOGGLETERM=1 builds the coordinated editor+shell+OCV layout on worktree startup")
 

@@ -80,6 +80,7 @@ package.loaded["diffview.lib"] = {
 local annotations = require("config.annotations")
 assert_equal(annotations.diff_side(11, 101), "old", "identifies the left Diffview pane")
 assert_equal(annotations.diff_side(12, 102), "new", "identifies the right Diffview pane")
+assert_equal(annotations.diff_side(12, 101), "new", "refreshing another buffer does not inherit the focused pane's side")
 
 local old_annotation = { file = "lua/example.lua", line = 30, end_line = 31, side = "old" }
 assert(review_context.item_matches(old_annotation, "lua/example.lua", 30, "old"), "old annotation appears on old pane")
@@ -132,6 +133,27 @@ assert_equal(#sink_calls, 1, "annotation ask routes through the local composer f
 assert(sink_calls[1].text:find("Handle the missing value explicitly", 1, true), "routed prompt includes the annotation text")
 assert_equal(sink_calls[1].opts.dir, root, "targets the OpenCode terminal for the reviewed repo")
 
+local original_input = vim.ui.input
+local panel_notes = {
+	{ file = "lua/example.lua", line = 1, side = "new", text = "Shared feedback" },
+	{ file = "lua/example.lua", line = 1, side = "old", text = "Shared feedback" },
+}
+vim.fn.writefile({ vim.json.encode(panel_notes) }, root .. "/.tmp/annotations.json")
+annotations.list()
+vim.ui.input = function(_, callback)
+	callback("Edited in panel")
+end
+vim.fn.maparg("e", "n", false, true).callback()
+assert(vim.api.nvim_get_current_line():find("Edited in panel", 1, true), "editing refreshes the existing panel")
+vim.fn.writefile({ vim.json.encode(panel_notes) }, root .. "/.tmp/annotations.json")
+annotations.list(root)
+vim.fn.maparg("d", "n", false, true).callback()
+local remaining = vim.json.decode(table.concat(vim.fn.readfile(root .. "/.tmp/annotations.json"), "\n"))
+assert_equal(#remaining, 1, "deleting a comment does not remove identical feedback on the opposite side")
+assert_equal(remaining[1].side, "old", "panel deletion keeps the unselected diff side")
+vim.fn.maparg("q", "n", false, true).callback()
+vim.ui.input = original_input
+
 vim.api.nvim_buf_delete(annotation_buf, { force = true })
 vim.notify = original_notify
 package.loaded["config.opencode_prompt"] = original_prompt_module
@@ -139,3 +161,4 @@ assert(vim.fn.delete(root, "rf") == 0, "failed to remove temporary annotation ro
 
 print("PASS annotation hunk context")
 print("PASS annotation OpenCode directory routing")
+print("PASS annotation panel edits and side-specific deletion")

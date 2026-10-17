@@ -5,6 +5,7 @@ return {
 		version = false,
 		config = function()
 			vim.opt.sessionoptions:append("curdir")
+			require("config.opencode_session").setup()
 
 			local function project_session()
 				local root = vim.fs.root(0, ".git")

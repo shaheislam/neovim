@@ -330,11 +330,13 @@ local function add_range(start_line, end_line)
 	end
 
 	local side = M.diff_side(0) or (is_diffview and "old" or "new")
-	local review, view = require("config.opencode_review").current(root)
-	if review and (view.left.commit ~= review.base or view.right.type ~= 1) then
+	local review_module = require("config.opencode_review")
+	local review, view = review_module.current(root)
+	if view and review and (view.left.commit ~= review.base or view.right.type ~= 1) then
 		notify("Review revisions changed; close Diffview and start a new review", vim.log.levels.WARN)
 		return
 	end
+	review = review or review_module.active(root)
 	local annotations = read_annotations(root)
 	local existing
 	for _, item in ipairs(annotations) do
@@ -343,7 +345,7 @@ local function add_range(start_line, end_line)
 			break
 		end
 	end
-	review = vim.deepcopy(review or (existing and existing.review))
+	review = vim.deepcopy((existing and existing.review) or review)
 	local hunk = hunk_for_range(root, file, start_line, end_line, side, review and review.base)
 	local context = table.concat(vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false), "\n")
 
@@ -446,7 +448,7 @@ end
 
 local function ask_items(items, root)
 	local review = require("config.opencode_review")
-	if review.current(root) or vim.iter(items):any(function(item)
+	if review.active(root) or vim.iter(items):any(function(item)
 		return item.review ~= nil
 	end) then
 		review.submit(items, root)
@@ -577,8 +579,7 @@ local function jump_to_item(item)
 		notify("Commented file is no longer in this diff", vim.log.levels.WARN)
 		return
 	end
-	vim.cmd.edit(vim.fn.fnameescape(item.root .. "/" .. item.file))
-	vim.api.nvim_win_set_cursor(0, { item.line, 0 })
+	require("config.bufutil").open_file_in_editor(item.root .. "/" .. item.file, item.line)
 end
 
 local function delete_item(item)

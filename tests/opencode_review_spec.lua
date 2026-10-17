@@ -280,6 +280,58 @@ end, "idle batch did not run")
 eq(vim.api.nvim_get_current_win(), focused, "idle does not steal review focus")
 eq(lib.get_current_view(), view, "idle keeps the pinned review open")
 
+-- Ordinary buffers keep the review route even after its Diffview closes.
+local editor_tab = vim.api.nvim_list_tabpages()[1]
+vim.api.nvim_set_current_tabpage(editor_tab)
+vim.cmd.edit(root .. "/src/new.txt")
+eq(review.active(root), context, "ordinary buffers retain the worktree review")
+vim.ui.input = function(_, callback)
+	callback("Review from the normal editor")
+end
+annotations.add_current()
+wait_for(function()
+	return #calls == 5
+end, "ordinary-buffer annotation did not auto-submit")
+eq(calls[5].path, "/session/ses_review/prompt_async", "normal editor uses the captured session")
+view:close()
+vim.wait(200, function()
+	return false
+end)
+eq(lib.get_current_view(), nil, "closing review stays closed without another changed idle batch")
+eq(review.active(root).base, baseline, "closing Diffview keeps the pinned review")
+vim.cmd.edit(root .. "/src/example.txt")
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+annotations.add_current()
+wait_for(function()
+	return #calls == 6
+end, "annotation after closing Diffview did not auto-submit")
+assert(calls[6].text:find(baseline, 1, true), "new notes without Diffview use the original base")
+local original_route = vim.deepcopy(context.provenance)
+review.rebind(original_route, vim.tbl_extend("force", original_route, { sessionID = "handoff-target" }))
+eq(review.active(root).provenance.sessionID, "handoff-target", "harness handoff rebinds a closed review")
+review.rebind(review.active(root).provenance, original_route)
+handoff.receive({
+	version = 1,
+	type = "idle_batch",
+	directory = root,
+	generation = "gen_review",
+	lease = hello.lease,
+	sessionID = "ses_review",
+	routeRevision = 1,
+	paths = { "src/new.txt" },
+})
+wait_for(function()
+	return lib.get_current_view() ~= nil
+end, "next changed idle batch did not reopen Diffview")
+assert(review.start(), "manual open reuses the automatically reopened review")
+view = lib.get_current_view()
+eq(view.left.commit, baseline, "reopening after HEAD moved preserves the original base")
+wait_for(function()
+	return side("b") and side("a")
+end, "reopened review did not load")
+vim.api.nvim_set_current_tabpage(editor_tab)
+vim.cmd.edit(root .. "/src/example.txt")
+vim.api.nvim_win_set_cursor(0, { 2, 0 })
 -- A route change during the comment input cannot send the note elsewhere.
 local input_callback
 vim.ui.input = function(_, callback)
@@ -288,9 +340,9 @@ end
 annotations.add_current()
 bind("ses_other", 2)
 input_callback("Saved but stale")
-eq(#calls, 4, "a session switch during input blocks automatic delivery")
+eq(#calls, 6, "a session switch during input blocks automatic delivery")
 annotations.ask_all()
-eq(#calls, 4, "retry cannot redirect old comments to a new session")
+eq(#calls, 6, "retry cannot redirect old comments to a new session")
 saved = vim.json.decode(table.concat(vim.fn.readfile(root .. "/.tmp/annotations.json"), "\n"))
 assert(
 	vim.iter(saved):any(function(item)
@@ -306,7 +358,8 @@ view:update_files(nil, function()
 	drained = true
 end)
 wait_for(function()
-	return drained
+	local pending = view:set_file_in_flight()
+	return drained and (not pending or pending:is_done())
 end, "Diffview refresh did not drain before teardown")
 view:close()
 vim.cmd.edit(root .. "/src/example.txt")
@@ -316,12 +369,58 @@ vim.ui.input = function(_, callback)
 end
 annotations.add_current()
 annotations.ask_current()
-eq(#calls, 4, "editing a saved review note outside Diffview cannot redirect delivery")
+eq(#calls, 6, "editing a saved review note outside Diffview cannot redirect delivery")
 saved = vim.json.decode(table.concat(vim.fn.readfile(root .. "/.tmp/annotations.json"), "\n"))
 eq(saved[1].review.provenance.sessionID, "ses_review", "editing outside review retains the original provenance")
 assert(not vim.wait(300, function()
-	return #calls > 4
+	return #calls > 6
 end, 20), "stale comments never issue an asynchronous request to another session")
+
+-- Exercise effective buffer mappings, not just the plugin's configuration table.
+local function quit_view(label, select_window, history)
+	vim.cmd.edit(root .. "/src/example.txt")
+	local return_win = vim.api.nvim_get_current_win()
+	if history then
+		vim.cmd("DiffviewFileHistory")
+	else
+		vim.cmd("DiffviewOpen " .. baseline)
+	end
+	view = lib.get_current_view()
+	wait_for(function()
+		local pending = view:set_file_in_flight()
+		return view.ready
+			and (history or view.cur_entry)
+			and not view.panel.updating
+			and (not pending or pending:is_done())
+	end, label .. " did not load")
+	select_window(view)
+	local mapping = vim.fn.maparg("q", "n", false, true)
+	assert(mapping.callback or mapping.rhs, label .. " has no q mapping")
+	vim.api.nvim_feedkeys("q", "xt", false)
+	wait_for(function()
+		return not vim.api.nvim_tabpage_is_valid(view.tabpage)
+	end, "q only closed a panel from " .. label)
+	wait_for(function()
+		return vim.api.nvim_get_current_win() == return_win
+	end, label .. " did not restore the editor")
+end
+for _, symbol in ipairs({ "a", "b" }) do
+	quit_view("diff side " .. symbol, function()
+		wait_for(function()
+			return side(symbol) ~= nil
+		end, "diff side missing")
+		vim.api.nvim_set_current_win(side(symbol).id)
+	end)
+end
+quit_view("file panel", function(current)
+	current.panel:focus()
+end)
+quit_view("history panel", function(current)
+	current.panel:focus()
+end, true)
+quit_view("option panel", function(current)
+	current.panel.option_panel:focus()
+end, true)
 handoff.unregister_terminal(root, "gen_review")
 vim.cmd.cd(original_cwd)
 vim.fn.jobstop(server)

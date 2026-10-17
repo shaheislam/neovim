@@ -1,4 +1,16 @@
 local M = {}
+local reviews = {}
+
+function M.active(root)
+	return root and reviews[vim.uv.fs_realpath(root) or root] or nil
+end
+
+function M.rebind(source, target)
+	local review = M.active(source.project)
+	if review and vim.deep_equal(review.provenance, source) then
+		review.provenance = vim.deepcopy(target)
+	end
+end
 
 local function notify(text, level)
 	vim.notify(text, level or vim.log.levels.INFO, { title = "Agent review" })
@@ -42,8 +54,12 @@ function M.current(root)
 	end
 end
 
-function M.start(base)
-	local result = vim.system({ "git", "rev-parse", "--show-toplevel" }, { text = true }):wait()
+function M.start(base, directory)
+	local result = vim.system(
+		{ "git", "-C", directory or vim.fn.getcwd(), "rev-parse", "--show-toplevel" },
+		{ text = true }
+	)
+		:wait()
 	if result.code ~= 0 then
 		notify("Review requires a Git repository", vim.log.levels.WARN)
 		return false
@@ -55,24 +71,32 @@ function M.start(base)
 		return false
 	end
 	local lib_ok, lib = pcall(require, "diffview.lib")
+	base = base ~= "" and base or nil
+	local context = not base and M.active(root) or nil
+	if context and not vim.deep_equal(context.provenance, provenance) then
+		notify(
+			"The review session changed; use :AgentReview HEAD to explicitly start a new review",
+			vim.log.levels.WARN
+		)
+		return false
+	end
 	for _, view in pairs(lib_ok and lib.views or {}) do
 		local review = view.opencode_review
-		if review and review.provenance.project == root and (not base or base == "") then
-			if not vim.deep_equal(review.provenance, provenance) then
-				notify(
-					"The review session changed; close its Diffview before starting a new review",
-					vim.log.levels.WARN
-				)
-				return false
-			end
+		if review and review == context then
 			vim.api.nvim_set_current_tabpage(view.tabpage)
+			view:update_files()
 			return true
 		end
 	end
-	result = vim.system(
-		{ "git", "-C", root, "rev-parse", "--verify", "--end-of-options", (base or "HEAD") .. "^{commit}" },
-		{ text = true }
-	):wait()
+	result = vim.system({
+		"git",
+		"-C",
+		root,
+		"rev-parse",
+		"--verify",
+		"--end-of-options",
+		(context and context.base or base or "HEAD") .. "^{commit}",
+	}, { text = true }):wait()
 	if result.code ~= 0 then
 		notify("Invalid review base: " .. (base or "HEAD"), vim.log.levels.WARN)
 		return false
@@ -83,7 +107,9 @@ function M.start(base)
 	if not view or not view.left or view.left.commit ~= sha then
 		return false
 	end
-	view.opencode_review = { base = sha, provenance = provenance }
+	context = context or { base = sha, provenance = provenance }
+	reviews[root] = context
+	view.opencode_review = context
 	serialize_refresh(view)
 	-- The fork normally hides untracked files in commit-to-worktree diffs.
 	local show_untracked = view.adapter.show_untracked
@@ -102,7 +128,7 @@ end
 
 -- Review comments keep their original route even after their tab has closed.
 function M.submit(items, root)
-	local review = M.current(root)
+	local review = M.active(root)
 	local provenance
 	for _, item in ipairs(items) do
 		local captured = item.review or review

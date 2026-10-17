@@ -132,6 +132,7 @@ function M.continue(cancel)
 	end
 	local target = assert(agent.capture(draft.root))
 	agent.set_preference(draft.root, draft.harness)
+	require("config.opencode_review").rebind(draft.source, target)
 	local lib_ok, lib = pcall(require, "diffview.lib")
 	for _, view in pairs(lib_ok and lib.views or {}) do
 		if view.opencode_review and vim.deep_equal(view.opencode_review.provenance, draft.source) then

@@ -150,18 +150,17 @@ local function process_project(project)
 	end
 	vim.fn.setqflist({}, " ", { title = "OpenCode changed files", items = items })
 
-	local review = package.loaded["config.opencode_review"]
-	if review and review.current(project) then
-		return
-	end
-
-	if pending.latest and pending.latest ~= project .. "/.plan.md" then
+	local review = require("config.opencode_review")
+	if not review.current(project) and pending.latest and pending.latest ~= project .. "/.plan.md" then
 		focus_path(pending.latest)
+	end
+	if vim.g.opencode_auto_diffview ~= false then
+		review.start(nil, project)
 	end
 	if pending.plan_changed then
 		require("config.diffview_idle").open_handoff({
 			project_dir = project,
-			open_diff = true,
+			open_diff = false,
 			provenance = plan_provenance(project, project_state),
 		})
 	end

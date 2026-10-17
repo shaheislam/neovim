@@ -97,6 +97,28 @@ function M.focus_buffer_preserving_terminal(buf)
 	vim.api.nvim_win_set_buf(0, buf)
 end
 
+-- Annotation navigation stays in this tab's upper-left normal editor.
+function M.open_file_in_editor(path, line)
+	local buf = vim.fn.bufadd(path)
+	vim.fn.bufload(buf)
+	local target
+	for _, win in ipairs(code_windows_left_to_right()) do
+		local current = vim.api.nvim_win_get_buf(win)
+		if not M.should_skip_normal_file_buffer(current, { allow_unnamed = true }) and not vim.wo[win].diff then
+			target = win
+			break
+		end
+	end
+	if target then
+		vim.api.nvim_set_current_win(target)
+	else
+		vim.cmd("tabnew")
+	end
+	vim.api.nvim_win_set_buf(0, buf)
+	vim.api.nvim_win_set_cursor(0, { math.max(1, math.min(line or 1, vim.api.nvim_buf_line_count(buf))), 0 })
+	return buf
+end
+
 --- Open `path` in a safe code window, or a new tab when every available
 --- window is a terminal, locked, or modified. Closing that tab naturally
 --- returns to the preserved terminal tab.

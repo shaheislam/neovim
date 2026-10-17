@@ -114,4 +114,31 @@ do
 	vim.fn.delete(path)
 end
 
+do
+	local editor = reset_layout()
+	vim.cmd("rightbelow split")
+	local shell = vim.api.nvim_get_current_win()
+	local terminal = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_win_set_buf(shell, terminal)
+	vim.api.nvim_open_term(terminal, {})
+	local path = vim.fn.tempname()
+	vim.fn.writefile({ "one", "two" }, path)
+	vim.cmd("tabnew " .. path)
+	local other_tab = vim.api.nvim_get_current_tabpage()
+	vim.cmd("tabprevious")
+	bufutil.open_file_in_editor(path, 2)
+	eq(vim.api.nvim_get_current_win(), editor, "annotation navigation chooses upper-left editor over another tab")
+	eq(vim.api.nvim_win_get_cursor(0)[1], 2, "annotation navigation selects its line")
+	eq(vim.api.nvim_win_get_buf(shell), terminal, "annotation navigation preserves the project shell")
+	vim.bo.modified = true
+	local special = vim.api.nvim_create_buf(false, true)
+	vim.bo[special].buftype = "nofile"
+	local special_win = split_right(special)
+	bufutil.open_file_in_editor(path, 1)
+	assert(vim.api.nvim_get_current_tabpage() ~= other_tab, "unsafe layout creates its own editor tab")
+	eq(vim.api.nvim_win_get_buf(special_win), special, "special buffers are never navigation targets")
+	eq(vim.bo[vim.api.nvim_win_get_buf(editor)].modified, true, "modified editor remains intact")
+	vim.fn.delete(path)
+end
+
 print("PASS buffer focus preserves terminal, locked windows, and modified work")

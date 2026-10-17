@@ -25,6 +25,14 @@ assert(vim.uv.fs_symlink(sibling, root .. "/escape"), "failed to create symlink 
 
 local reloads = {}
 local handoffs = {}
+local reviews = {}
+package.loaded["config.opencode_review"] = {
+	current = function() end,
+	start = function(base, project)
+		table.insert(reviews, { base = base, project = project })
+		return true
+	end,
+}
 local terminal_closes = {}
 local binding_changes = 0
 
@@ -181,7 +189,9 @@ eq(#quickfix, 3, "quickfix contains every changed file without opening it")
 eq(vim.fn.getqflist({ winid = 0 }).winid, 0, "quickfix remains closed")
 
 eq(handoffs[1].project_dir, root, "plan handoff targets the bound project")
-eq(handoffs[1].open_diff, true, "a changed root plan refreshes Diffview")
+eq(handoffs[1].open_diff, false, "plan handling cannot retarget the pinned review")
+eq(#reviews, 1, "one idle batch opens one review")
+eq(reviews[1].project, root, "auto review targets the bound project")
 eq(handoffs[1].provenance.kind, "native", "plan records native provenance")
 eq(handoffs[1].provenance.sessionID, "ses_two", "plan provenance records the exact session")
 eq(handoffs[1].provenance.generation, generation, "plan provenance records the exact terminal generation")
@@ -203,6 +213,7 @@ assert(vim.wait(1000, function()
 	return #reloads == 2
 end, 10), "deferred handoff did not retry after the editor became safe")
 eq(reloads[2], { root .. "/alpha.txt" }, "retry preserves the deferred path batch")
+eq(#reviews, 2, "code-only idle batches also open review after safe retry")
 eq(terminal_closes, {}, "a retried idle handoff keeps the terminal generation open")
 
 local route = handoff.resolve_plan_route(handoffs[1].provenance)
@@ -253,6 +264,24 @@ assert(vim.wait(1000, function()
 end, 10), "fresh work for the replacement route did not run")
 eq(reloads[3], { root .. "/beta.txt" }, "the replacement route processes only its fresh path batch")
 eq(terminal_closes, {}, "route replacement and fresh idle work keep the terminal generation open")
+
+local opened = #reviews
+vim.g.opencode_auto_diffview = false
+batch({ "alpha.txt" }, { sessionID = "ses_three", routeRevision = 3 })
+assert(vim.wait(1000, function()
+	return #reloads == 4
+end, 10))
+eq(#reviews, opened, "the auto-Diffview disable flag is respected")
+vim.g.opencode_auto_diffview = nil
+package.loaded["config.opencode_review"].current = function()
+	return {}
+end
+batch({ ".plan.md" }, { sessionID = "ses_three", routeRevision = 3 })
+assert(vim.wait(1000, function()
+	return #handoffs == 2
+end, 10))
+eq(#reviews, opened + 1, "an active review still refreshes on a changed plan")
+eq(handoffs[2].open_diff, false, "active review plan handling preserves pinned revisions")
 
 handoff.unregister_terminal(root, generation)
 eq(handoff.resolve_plan_route(handoffs[1].provenance), nil, "native plan provenance fails closed after terminal exit")

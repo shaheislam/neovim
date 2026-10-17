@@ -717,7 +717,7 @@ return {
 				},
 				option_panel = {
 					{ "n", "<tab>", actions.select_entry, { desc = "Select option" } },
-					{ "n", "q", actions.close, { desc = "Close panel" } },
+					{ "n", "q", close_diffview_restore, { desc = "Close Diffview" } },
 				},
 			},
 

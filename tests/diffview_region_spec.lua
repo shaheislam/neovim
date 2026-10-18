@@ -28,6 +28,7 @@ local function git(...)
 	assert(result.code == 0, result.stderr)
 end
 git("init")
+vim.fn.writefile({ ".tmp/" }, root .. "/.gitignore")
 vim.fn.writefile({ "one", "before", "three" }, root .. "/one.txt")
 vim.fn.writefile({ "before" }, root .. "/two.txt")
 git("add", ".")
@@ -38,12 +39,13 @@ vim.cmd.cd(root)
 vim.cmd.edit(root .. "/one.txt")
 api.nvim_win_set_cursor(0, { 3, 0 })
 local editor_buf = api.nvim_get_current_buf()
-local original_actions = { ga = 0, gs = 0 }
-for _, key in ipairs({ "ga", "gs" }) do
+local original_actions = { ga = 0, gb = 0, gs = 0 }
+for _, key in ipairs({ "ga", "gb", "gs" }) do
 	vim.keymap.set("n", key, function()
 		original_actions[key] = original_actions[key] + 1
 	end, { buffer = editor_buf, desc = "Original " .. key })
 end
+vim.keymap.set("x", "gb", function() end, { buffer = editor_buf, desc = "Original visual gb" })
 vim.cmd("botright vnew")
 local chat = api.nvim_get_current_win()
 local chat_job = vim.fn.jobstart({ "cat" }, { term = true })
@@ -237,6 +239,8 @@ assert(api.nvim_get_current_tabpage() == tab, "closing review closed its host ta
 assert(api.nvim_get_current_buf() == editor_buf, "closing review did not restore the editor buffer")
 assert(api.nvim_win_get_cursor(0)[1] == 3, "closing review did not restore the cursor")
 assert(vim.fn.maparg("ga", "n", false, true).desc == "Original ga", "closing review did not restore ga")
+assert(vim.fn.maparg("gb", "n", false, true).desc == "Original gb", "closing review did not restore gb")
+assert(vim.fn.maparg("gb", "x", false, true).desc == "Original visual gb", "closing review did not restore Visual gb")
 assert(vim.fn.maparg("gs", "n", false, true).desc == "Original gs", "closing review did not restore gs")
 preserved()
 assert(lib.get_current_view() == nil, "closed region is still registered")
@@ -303,6 +307,13 @@ annotations.setup()
 assert(review.start(nil, root))
 view = lib.get_current_view()
 assert(vim.wait(5000, settled, 20), "shortcut review did not load")
+for _, entry in view.files:iter() do
+	if entry.path == "one.txt" then
+		view:set_file(entry, false)
+		break
+	end
+end
+assert(vim.wait(5000, settled, 20) and view.cur_entry.path == "one.txt", "comment fixture did not load")
 local annotation_calls = {}
 local original_list, original_send = annotations.list, annotations.send_drafts
 annotations.list = function(directory)
@@ -335,25 +346,70 @@ assert(vim.fn.maparg("S", "n", false, true).desc == "Stage all", "S must keep st
 assert(vim.fn.maparg("C", "n") ~= "", "C must keep clearing reviewed marks")
 assert(vim.fn.maparg("gA", "n", false, true).callback == annotations.add_current, "gA must keep immediate comments")
 assert(vim.fn.maparg("<leader>ans", "n") ~= "", "the existing send alias must remain")
+assert(vim.fn.maparg("<leader>anb", "n") ~= "", "the existing comment-only alias must remain")
+local original_input, original_submit = vim.ui.input, review.submit
+local submitted = 0
+review.submit = function()
+	submitted = submitted + 1
+	return true
+end
+vim.ui.input = function(opts, callback)
+	assert(opts.prompt:find("save draft", 1, true), "gb must open the comment-only prompt")
+	callback("Saved comment")
+end
+for _, win in ipairs(view.cur_layout.windows) do
+	api.nvim_set_current_win(win.id)
+	assert(vim.fn.maparg("gb", "n", false, true).desc == "Comment without sending", "missing review-local gb")
+	assert(vim.fn.maparg("gb", "x", false, true).desc == "Comment without sending", "missing Visual gb")
+	api.nvim_win_set_cursor(0, { 3, 0 })
+	api.nvim_feedkeys("gb", "xt", false)
+	api.nvim_win_set_cursor(0, { 1, 0 })
+	api.nvim_feedkeys("Vjgb", "xt", false)
+end
+local notes = vim.json.decode(table.concat(vim.fn.readfile(root .. "/.tmp/annotations.json"), "\n"))
+assert(#notes == 4, "gb must save a line and a Visual comment on both diff sides")
+assert(notes[1].side ~= notes[3].side, "gb must preserve the selected diff side")
+assert(notes[2].line == 1 and notes[2].end_line == 2, "Visual gb must retain the selected range")
+assert(notes[4].line == 1 and notes[4].end_line == 2, "Visual gb must retain the other side's range")
+assert(
+	vim.iter(notes):all(function(note)
+		return note.draft == true and note.file == "one.txt"
+	end),
+	"gb comments must stay saved and unsent in the reviewed repository"
+)
+assert(submitted == 0, "gb must never submit a comment immediately")
+vim.ui.input, review.submit = original_input, original_submit
 local source = view.cur_layout.windows[2].id
 api.nvim_set_current_win(source)
 local review_tab = api.nvim_get_current_tabpage()
 vim.cmd("tabnew")
 api.nvim_win_set_buf(0, editor_buf)
 assert(vim.fn.maparg("ga", "n", false, true).desc == "Original ga", "ga leaked into an ordinary tab")
+assert(vim.fn.maparg("gb", "n", false, true).desc == "Original gb", "gb leaked into an ordinary tab")
+assert(vim.fn.maparg("gb", "x", false, true).desc == "Original visual gb", "Visual gb leaked into an ordinary tab")
 assert(vim.fn.maparg("gs", "n", false, true).desc == "Original gs", "gs leaked into an ordinary tab")
-vim.api.nvim_feedkeys("gags", "xt", false)
-assert(original_actions.ga == 1 and original_actions.gs == 1, "ordinary editing shortcuts were not restored")
+vim.api.nvim_feedkeys("gagbgs", "xt", false)
+assert(
+	original_actions.ga == 1 and original_actions.gb == 1 and original_actions.gs == 1,
+	"ordinary editing shortcuts were not restored"
+)
 assert(#annotation_calls == 6, "ordinary editing dispatched a review action")
 vim.cmd("tabclose")
 assert(api.nvim_get_current_tabpage() == review_tab, "test did not return to its review")
 api.nvim_set_current_win(source)
 assert(vim.wait(5000, settled, 20), "review shortcuts did not reattach after tab switching")
 assert(vim.fn.maparg("gs", "n", false, true).desc == "Send draft review round", "gs did not reattach")
+assert(vim.fn.maparg("gb", "n", false, true).desc == "Comment without sending", "gb did not reattach")
+assert(vim.fn.maparg("gb", "x", false, true).desc == "Comment without sending", "Visual gb did not reattach")
 annotations.list, annotations.send_drafts = original_list, original_send
 vim.cmd.cd(root)
 vim.cmd("DiffviewClose")
 assert(vim.fn.maparg("ga", "n", false, true).desc == "Original ga", "closing shortcut review did not restore ga")
+assert(vim.fn.maparg("gb", "n", false, true).desc == "Original gb", "closing shortcut review did not restore gb")
+assert(
+	vim.fn.maparg("gb", "x", false, true).desc == "Original visual gb",
+	"closing shortcut review did not restore Visual gb"
+)
 assert(vim.fn.maparg("gs", "n", false, true).desc == "Original gs", "closing shortcut review did not restore gs")
 vim.wait(200, function()
 	return false

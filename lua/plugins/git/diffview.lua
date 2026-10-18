@@ -605,6 +605,22 @@ return {
 				disable_defaults = false, -- Keep default keymaps
 				view = {
 					{ "n", "ga", review_action("list"), { desc = "Review annotations" } },
+					{
+						"n",
+						"gb",
+						function()
+							require("config.annotations").add_current({ draft = true })
+						end,
+						{ desc = "Comment without sending" },
+					},
+					{
+						"x",
+						"gb",
+						function()
+							require("config.annotations").add_visual({ draft = true })
+						end,
+						{ desc = "Comment without sending" },
+					},
 					{ "n", "gs", review_action("send_drafts"), { desc = "Send draft review round" } },
 					-- Navigation
 					{ "n", "g0", jump_to_first_change, { desc = "First change" } },

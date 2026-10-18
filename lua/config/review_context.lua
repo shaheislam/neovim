@@ -1,5 +1,21 @@
 local M = {}
 
+function M.comparison(view)
+	local revs = view.cur_entry and view.cur_entry.revs or { a = view.left, b = view.right }
+	local comparison = {}
+	for symbol, rev in pairs(revs or {}) do
+		comparison[symbol] = { type = rev.type, commit = rev.commit, stage = rev.stage }
+	end
+	return comparison
+end
+
+function M.revision_label(rev)
+	if not rev then
+		return "selected comparison"
+	end
+	return rev.commit or (rev.stage and ("index:" .. rev.stage)) or (rev.type == 1 and "working tree" or "custom")
+end
+
 local function hunk_range(header, side)
 	local old_start, old_count, new_start, new_count = header:match("^@@ %-(%d+),?(%d*) %+(%d+),?(%d*) @@")
 	if not old_start then
@@ -73,6 +89,13 @@ function M.prompt_for_items(items, post_instruction)
 		table.insert(lines, "- " .. M.format_item(item))
 		if item.review then
 			table.insert(lines, "  " .. (item.side or "new") .. " side; review base " .. item.review.base)
+		end
+		local comparison = item.comparison or (item.review and item.review.comparison)
+		for _, symbol in ipairs({ "a", "b", "c", "d" }) do
+			local rev = comparison and comparison[symbol]
+			if rev then
+				table.insert(lines, "  " .. symbol .. ": " .. M.revision_label(rev))
+			end
 		end
 		if item.context and item.context ~= "" then
 			table.insert(lines, "  Selected code at comment time:\n  ```")

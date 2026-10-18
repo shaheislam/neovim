@@ -16,6 +16,28 @@ local function notify(text, level)
 	vim.notify(text, level or vim.log.levels.INFO, { title = "Agent review" })
 end
 
+function M.attach(view)
+	if view.opencode_review then
+		return view.opencode_review
+	end
+	local directory = view.adapter and view.adapter.ctx.toplevel
+	local root = directory and (vim.uv.fs_realpath(directory) or directory)
+	local provenance = root and require("config.agent_session").capture(root)
+	if not provenance then
+		view.annotation_review_error = "No unique live agent session for this repository; annotations are saved locally"
+		return
+	end
+	view.opencode_review = {
+		base = require("config.review_context").revision_label(view.left),
+		provenance = vim.deepcopy(provenance),
+		automatic = true,
+	}
+	if view.update_files then
+		require("config.diffview_region").serialize_refresh(view)
+	end
+	return view.opencode_review
+end
+
 function M.current(root)
 	local ok, lib = pcall(require, "diffview.lib")
 	local view = ok and lib.tabpage_to_view and lib.tabpage_to_view(vim.api.nvim_get_current_tabpage()) or nil
@@ -31,6 +53,14 @@ function M.current(root)
 	local review = view and view.opencode_review
 	if review and (not root or review.provenance.project == (vim.uv.fs_realpath(root) or root)) then
 		return review, view
+	end
+	local directory = view and view.adapter and view.adapter.ctx.toplevel
+	if
+		not review
+		and directory
+		and (not root or (vim.uv.fs_realpath(directory) or directory) == (vim.uv.fs_realpath(root) or root))
+	then
+		return nil, view
 	end
 end
 
@@ -151,7 +181,7 @@ end
 
 function M.refresh()
 	local review, view = M.current()
-	if not review or view.left.commit ~= review.base then
+	if not review or not view.update_files or (not review.automatic and view.left.commit ~= review.base) then
 		return
 	end
 	require("config.hotreload").watch_directory(review.provenance.project)

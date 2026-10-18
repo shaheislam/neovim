@@ -769,6 +769,7 @@ return {
 			hooks = {
 				-- Called when diffview is opened
 				view_opened = function(view)
+					require("config.opencode_review").attach(view)
 					diffview_return_target = diffview_return_target or return_target.last()
 					return_target.suspend()
 					vim.notify("Diffview opened", vim.log.levels.DEBUG)

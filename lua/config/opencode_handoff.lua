@@ -267,6 +267,46 @@ local function receive_idle_batch(payload)
 	return response("queued", "idle_batch_queued")
 end
 
+local function receive_selection(payload)
+	local project, project_state, err = authenticate(payload)
+	if err then
+		return err
+	end
+	if payload.sessionID ~= project_state.sessionID or payload.routeRevision ~= project_state.routeRevision then
+		return response("rejected", "stale_route")
+	end
+	local selection = payload.selection
+	if
+		type(selection) ~= "table"
+		or selection.sessionID ~= payload.sessionID
+		or type(selection.text) ~= "string"
+		or #selection.text > 128 * 1024
+		or vim.trim(selection.text) == ""
+		or not vim.tbl_contains({ "char", "line", "block" }, selection.mode)
+		or type(selection.references) ~= "table"
+		or #selection.references > 128
+	then
+		return response("rejected", "invalid_selection")
+	end
+	for _, ref in ipairs(selection.references) do
+		if
+			type(ref) ~= "table"
+			or not valid_identifier(ref.messageID)
+			or (ref.partID ~= nil and not valid_identifier(ref.partID))
+			or (ref.role ~= "user" and ref.role ~= "assistant")
+		then
+			return response("rejected", "invalid_selection")
+		end
+	end
+	local provenance, snapshot = plan_provenance(project, project_state), vim.deepcopy(selection)
+	vim.schedule(function()
+		if M.resolve_plan_route(provenance) then
+			require("config.opencode_excerpt").open(provenance, snapshot)
+		end
+	end)
+	return response("queued", "annotation_prompt_queued")
+end
+
 function M.receive(payload)
 	if type(payload) ~= "table" or payload.version ~= 1 or type(payload.type) ~= "string" then
 		return response("rejected", "invalid_payload")
@@ -280,11 +320,19 @@ function M.receive(payload)
 	if payload.type == "idle_batch" then
 		return receive_idle_batch(payload)
 	end
+	if payload.type == "annotate_selection" then
+		return receive_selection(payload)
+	end
 	return response("rejected", "unsupported_type")
 end
 
 function M.receive_base64(encoded)
-	if type(encoded) ~= "string" or #encoded == 0 or #encoded > max_payload_bytes or not encoded:match("^[A-Za-z0-9+/=]+$") then
+	if
+		type(encoded) ~= "string"
+		or #encoded == 0
+		or #encoded > max_payload_bytes
+		or not encoded:match("^[A-Za-z0-9+/=]+$")
+	then
 		return vim.json.encode(response("rejected", "invalid_encoding"))
 	end
 	local decoded_ok, decoded = pcall(vim.base64.decode, encoded)

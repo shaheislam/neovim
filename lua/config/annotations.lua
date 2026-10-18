@@ -152,7 +152,7 @@ end
 function M.diff_side(bufnr)
 	local file = diff_file(bufnr)
 	if file then
-		return file.symbol == "a" and "old" or file.symbol == "b" and "new" or nil
+		return ({ a = "old", b = "new", c = "theirs", d = "base" })[file.symbol]
 	end
 end
 
@@ -188,13 +188,44 @@ local function write_annotations(root, annotations)
 	annotation_cache[root] = nil
 end
 
-local function diff_for_file(root, file, base)
-	local result = vim.system({ "git", "-C", root, "diff", "--no-color", "--unified=3", base or "HEAD", "--", file }, {
+local function diff_for_file(root, file, base, comparison, side)
+	local args = { "git", "-C", root, "diff", "--no-color", "--unified=3" }
+	local a = comparison and comparison[side == "theirs" and "c" or side == "base" and "d" or "a"]
+	local b = comparison and comparison.b
+	if a and b then
+		if a.type == 2 and b.type == 2 then
+			vim.list_extend(args, { a.commit, b.commit })
+		elseif a.type == 2 and b.type == 3 and b.stage == 0 then
+			vim.list_extend(args, { "--cached", a.commit })
+		elseif a.type == 2 and b.type == 1 then
+			args[#args + 1] = a.commit
+		elseif a.type == 3 and b.type == 1 then
+			local flag = ({ [1] = "--base", [2] = "--ours", [3] = "--theirs" })[a.stage]
+			if flag then
+				args[#args + 1] = flag
+			end
+		elseif a.type == 1 and b.type == 2 then
+			vim.list_extend(args, { "--reverse", b.commit })
+		elseif a.type == 3 and a.stage == 0 and b.type == 2 then
+			vim.list_extend(args, { "--cached", "--reverse", b.commit })
+		elseif a.type == 1 and b.type == 3 and b.stage == 0 then
+			args[#args + 1] = "--reverse"
+		else
+			return ""
+		end
+	else
+		args[#args + 1] = base or "HEAD"
+	end
+	vim.list_extend(args, { "--", file })
+	local result = vim.system(args, {
 		text = true,
 	}):wait()
 	local diff = result.stdout or ""
 	if diff ~= "" then
 		return diff
+	end
+	if b and b.type ~= 1 then
+		return ""
 	end
 
 	local absolute = root .. "/" .. file
@@ -221,8 +252,13 @@ local function diff_for_file(root, file, base)
 	return new_file.stdout or ""
 end
 
-local function hunk_for_range(root, file, start_line, end_line, side, base)
-	return review_context.hunk_for_range(diff_for_file(root, file, base), start_line, end_line, side)
+local function hunk_for_range(root, file, start_line, end_line, side, base, comparison)
+	return review_context.hunk_for_range(
+		diff_for_file(root, file, base, comparison, side),
+		start_line,
+		end_line,
+		side == "new" and "new" or "old"
+	)
 end
 
 local function truncate(text)
@@ -316,6 +352,11 @@ function M.transfer(root, source, target)
 	return transferred
 end
 
+function M.prompt_label(provenance)
+	local action = provenance and ("save + send to " .. provenance.sessionID) or "save locally"
+	return "Annotation (Enter: " .. action .. "; Esc: cancel): "
+end
+
 local function add_range(start_line, end_line)
 	local root = repo_root()
 	if not root then
@@ -332,54 +373,88 @@ local function add_range(start_line, end_line)
 	local side = M.diff_side(0) or (is_diffview and "old" or "new")
 	local review_module = require("config.opencode_review")
 	local review, view = review_module.current(root)
-	if view and review and (view.left.commit ~= review.base or view.right.type ~= 1) then
+	if view and review and not review.automatic and (view.left.commit ~= review.base or view.right.type ~= 1) then
 		notify("Review revisions changed; close Diffview and start a new review", vim.log.levels.WARN)
 		return
 	end
-	review = review or review_module.active(root)
+	if not view then
+		review = review or review_module.active(root)
+	end
+	local comparison = view and review_context.comparison(view)
+	if review and view then
+		review = vim.deepcopy(review)
+		review.comparison = comparison
+		if review.automatic then
+			review.base = review_context.revision_label(review.comparison.a)
+		end
+	end
 	local annotations = read_annotations(root)
+	local function matches(item)
+		return review_context.item_matches(item, file, start_line, side)
+			and (
+				not view
+				or (vim.deep_equal(item.review, review) and (review or vim.deep_equal(item.comparison, comparison)))
+			)
+	end
 	local existing
 	for _, item in ipairs(annotations) do
-		if review_context.item_matches(item, file, start_line, side) then
+		if matches(item) then
 			existing = item
 			break
 		end
 	end
 	review = vim.deepcopy((existing and existing.review) or review)
-	local hunk = hunk_for_range(root, file, start_line, end_line, side, review and review.base)
+	local hunk = hunk_for_range(
+		root,
+		file,
+		start_line,
+		end_line,
+		side,
+		review and review.base,
+		review and review.comparison or comparison
+	)
 	local context = table.concat(vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false), "\n")
 
-	vim.ui.input({ prompt = "Annotation: ", default = existing and existing.text or "" }, function(text)
-		if not text or text == "" then
-			return
-		end
-		annotations = read_annotations(root)
-		local saved = {
-			file = file,
-			line = start_line,
-			end_line = end_line,
-			text = text,
-			side = side,
-			hunk = hunk,
-			context = context,
-			review = review,
-		}
-		local replaced = false
-		for index, item in ipairs(annotations) do
-			if review_context.item_matches(item, file, start_line, side) then
-				annotations[index], replaced = saved, true
-				break
+	vim.ui.input(
+		{ prompt = M.prompt_label(review and review.provenance), default = existing and existing.text or "" },
+		function(text)
+			if not text or vim.trim(text) == "" then
+				return
+			end
+			annotations = read_annotations(root)
+			local saved = {
+				file = file,
+				line = start_line,
+				end_line = end_line,
+				text = text,
+				side = side,
+				hunk = hunk,
+				context = context,
+				review = review,
+				comparison = not review and comparison or nil,
+			}
+			local replaced = false
+			for index, item in ipairs(annotations) do
+				if matches(item) then
+					annotations[index], replaced = saved, true
+					break
+				end
+			end
+			if not replaced then
+				table.insert(annotations, saved)
+			end
+			write_annotations(root, annotations)
+			M.refresh_all()
+			if review then
+				require("config.opencode_review").submit({ saved }, root)
+			elseif view then
+				notify(
+					view.annotation_review_error or "Annotation saved locally; no agent session was captured",
+					vim.log.levels.WARN
+				)
 			end
 		end
-		if not replaced then
-			table.insert(annotations, saved)
-		end
-		write_annotations(root, annotations)
-		M.refresh_all()
-		if review then
-			require("config.opencode_review").submit({ saved }, root)
-		end
-	end)
+	)
 end
 
 function M.add_current()
@@ -388,8 +463,9 @@ function M.add_current()
 end
 
 function M.add_visual()
-	local start_line = vim.fn.line("'<")
-	local end_line = vim.fn.line("'>")
+	local visual = ({ v = true, V = true, ["\22"] = true })[vim.fn.mode()]
+	local start_line = vim.fn.line(visual and "v" or "'<")
+	local end_line = visual and vim.api.nvim_win_get_cursor(0)[1] or vim.fn.line("'>")
 	if start_line > end_line then
 		start_line, end_line = end_line, start_line
 	end
@@ -556,7 +632,17 @@ local function jump_to_item(item)
 	close_panel_window()
 	local review, view = require("config.opencode_review").current(item.root)
 	if review then
-		for _, entry in view.files:iter() do
+		local entries = {}
+		if view.files then
+			for _, entry in view.files:iter() do
+				entries[#entries + 1] = entry
+			end
+		else
+			for _, log in ipairs(view.panel.entries or {}) do
+				vim.list_extend(entries, log.files or {})
+			end
+		end
+		for _, entry in ipairs(entries) do
 			if entry.path == item.file or entry.oldpath == item.file then
 				local async = require("diffview.async")
 				async.void(function()
@@ -565,7 +651,10 @@ local function jump_to_item(item)
 						return
 					end
 					for _, window in ipairs(view.cur_layout.windows) do
-						if window.file.symbol == (item.side == "old" and "a" or "b") then
+						if
+							window.file.symbol
+							== (({ old = "a", new = "b", theirs = "c", base = "d" })[item.side] or "b")
+						then
 							vim.api.nvim_set_current_win(window.id)
 							local line = math.min(item.line, vim.api.nvim_buf_line_count(window.file.bufnr))
 							vim.api.nvim_win_set_cursor(window.id, { math.max(line, 1), 0 })
@@ -809,6 +898,8 @@ function M.setup()
 
 	vim.keymap.set("n", "<leader>ana", M.add_current, { desc = "Add annotation" })
 	vim.keymap.set("x", "<leader>ana", M.add_visual, { desc = "Add annotation" })
+	vim.keymap.set("n", "gA", M.add_current, { desc = "Annotate current line" })
+	vim.keymap.set("x", "gA", M.add_visual, { desc = "Annotate selection" })
 	vim.keymap.set("n", "<leader>anc", M.copy_current, { desc = "Copy annotation" })
 	vim.keymap.set("n", "<leader>anC", M.copy_all, { desc = "Copy all annotations" })
 	vim.keymap.set("n", "<leader>ano", M.ask_current, { desc = "Ask OpenCode about annotation" })

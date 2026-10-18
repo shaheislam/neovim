@@ -268,9 +268,16 @@ function M.open(harness, root, opts)
 		})
 		assert(connection:start_agent_process() and connection:_initialize(), "ACP adapter initialization failed")
 		if harness == "hermes" then
-			-- This only acknowledges existing credentials; terminal setup stays out of band.
+			-- Hermes serializes failed authentication as {}; require advertised native credentials too.
+			local method
+			for _, candidate in ipairs((connection._agent_info or {}).authMethods or {}) do
+				if type(candidate.id) == "string" and candidate.id ~= "" and candidate.id ~= "hermes-setup" then
+					method = candidate.id
+					break
+				end
+			end
 			assert(
-				type(connection:send_rpc_request("authenticate", { methodId = "hermes-setup" })) == "table",
+				method and type(connection:send_rpc_request("authenticate", { methodId = method })) == "table",
 				"Hermes credentials unavailable; run hermes setup in a terminal first"
 			)
 		end
@@ -310,6 +317,11 @@ function M.open(harness, root, opts)
 				type(session) == "table",
 				"Exact ACP resume failed; nothing replaced. Use :AgentOpen! for an explicit new session"
 			)
+			if harness == "hermes" then
+				-- Its transport also normalizes unknown-ID loads to {}; provenance proves exact restoration.
+				local provenance = vim.tbl_get(session, "_meta", "hermes", "sessionProvenance", "acpSessionId")
+				assert(provenance == saved.sessionID, "Hermes did not confirm the saved session; nothing replaced")
+			end
 		else
 			session = connection:send_rpc_request("session/new", args)
 			assert(

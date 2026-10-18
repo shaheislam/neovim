@@ -5,6 +5,7 @@ assert(vim.system({ "git", "init", "-q", root }):wait().code == 0)
 local calls, chats, connections = {}, {}, {}
 local fail_load = false
 local auth_result = {}
+local auth_methods = { { id = "fixture-provider" }, { id = "hermes-setup", type = "terminal" } }
 package.loaded.lazy = { load = function() end }
 package.loaded["codecompanion.adapters"] = {
 	extend = function(_, opts)
@@ -54,6 +55,7 @@ package.loaded["codecompanion.acp"] = {
 			return true
 		end
 		function conn:_initialize()
+			self._agent_info = { authMethods = auth_methods }
 			return true
 		end
 		function conn:is_ready()
@@ -76,7 +78,8 @@ package.loaded["codecompanion.acp"] = {
 			end
 			local id = method == "session/new" and "exact-session-" .. #connections or params.sessionId
 			self:handle_available_commands_update(id, { { name = "goal" } })
-			return method == "session/new" and { sessionId = id } or {}
+			return method == "session/new" and { sessionId = id }
+				or { _meta = { hermes = { sessionProvenance = { acpSessionId = id } } } }
 		end
 		function conn:disconnect()
 			self.closed = true
@@ -156,9 +159,17 @@ fail_load = false
 local hermes = assert(acp.open("hermes", root, { hidden = true }))
 assert(vim.deep_equal(hermes.connection.adapter.commands.default, { "hermes", "acp" }))
 assert(hermes.connection.adapter.type == "acp" and hermes.connection.adapter.env.HERMES_HOME())
-assert(calls[#calls - 1].method == "authenticate" and calls[#calls - 1].params.methodId == "hermes-setup")
+assert(calls[#calls - 1].method == "authenticate" and calls[#calls - 1].params.methodId == "fixture-provider")
 assert(hermes.connection._authenticated and acp.close(root))
-for _, invalid in ipairs({ vim.NIL, false, "malformed" }) do
+local hermes_restored = assert(acp.open("hermes", root, { hidden = true }))
+assert(hermes_restored.sessionID == hermes.sessionID and acp.close(root))
+for _, invalid in ipairs({
+	vim.NIL,
+	false,
+	"malformed",
+	{},
+	{ _meta = { hermes = { sessionProvenance = { acpSessionId = "wrong" } } } },
+}) do
 	fail_load = invalid == false and true or invalid
 	count = #calls
 	assert(not acp.open("hermes", root, { hidden = true }), "null or malformed exact loads must fail closed")
@@ -168,5 +179,9 @@ fail_load, auth_result = false, vim.NIL
 count = #calls
 assert(not acp.open("hermes", root, { hidden = true }), "missing credentials cannot launch a Hermes session")
 assert(#calls == count + 1 and calls[#calls].method == "authenticate")
+auth_result, auth_methods = {}, { { id = "hermes-setup", type = "terminal" } }
+count = #calls
+assert(not acp.open("hermes", root, { hidden = true }), "terminal setup alone is not evidence of provider credentials")
+assert(#calls == count, "unconfigured Hermes cannot authenticate or open a session")
 vim.fn.delete(root, "rf")
 print("PASS ACP ownership, busy queue, retirement, and fail-closed exact restoration")

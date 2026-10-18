@@ -261,6 +261,14 @@ return {
 	config = function()
 		local actions = require("diffview.actions")
 		local api = require("diffview.api")
+		local function review_action(action)
+			return function()
+				local view = require("diffview.lib").get_current_view()
+				if view then
+					require("config.annotations")[action](view.adapter.ctx.toplevel)
+				end
+			end
+		end
 		local function jump_to_first_change()
 			local ok, lib = pcall(require, "diffview.lib")
 			local view = ok and lib.get_current_view() or nil
@@ -596,6 +604,8 @@ return {
 			keymaps = {
 				disable_defaults = false, -- Keep default keymaps
 				view = {
+					{ "n", "ga", review_action("list"), { desc = "Review annotations" } },
+					{ "n", "gs", review_action("send_drafts"), { desc = "Send draft review round" } },
 					-- Navigation
 					{ "n", "g0", jump_to_first_change, { desc = "First change" } },
 					{ "n", "<tab>", actions.select_next_entry, { desc = "Next file" } },
@@ -656,6 +666,8 @@ return {
 				},
 				},
 				file_panel = {
+					{ "n", "ga", review_action("list"), { desc = "Review annotations" } },
+					{ "n", "gs", review_action("send_drafts"), { desc = "Send draft review round" } },
 					-- Navigation
 					{ "n", "j", actions.next_entry, { desc = "Next entry" } },
 					{ "n", "<down>", actions.next_entry, { desc = "Next entry" } },

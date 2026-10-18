@@ -38,6 +38,12 @@ vim.cmd.cd(root)
 vim.cmd.edit(root .. "/one.txt")
 api.nvim_win_set_cursor(0, { 3, 0 })
 local editor_buf = api.nvim_get_current_buf()
+local original_actions = { ga = 0, gs = 0 }
+for _, key in ipairs({ "ga", "gs" }) do
+	vim.keymap.set("n", key, function()
+		original_actions[key] = original_actions[key] + 1
+	end, { buffer = editor_buf, desc = "Original " .. key })
+end
 vim.cmd("botright vnew")
 local chat = api.nvim_get_current_win()
 local chat_job = vim.fn.jobstart({ "cat" }, { term = true })
@@ -230,6 +236,8 @@ assert(not api.nvim_tabpage_is_valid(zoom_tab), "closing zoomed review leaked it
 assert(api.nvim_get_current_tabpage() == tab, "closing review closed its host tab")
 assert(api.nvim_get_current_buf() == editor_buf, "closing review did not restore the editor buffer")
 assert(api.nvim_win_get_cursor(0)[1] == 3, "closing review did not restore the cursor")
+assert(vim.fn.maparg("ga", "n", false, true).desc == "Original ga", "closing review did not restore ga")
+assert(vim.fn.maparg("gs", "n", false, true).desc == "Original gs", "closing review did not restore gs")
 preserved()
 assert(lib.get_current_view() == nil, "closed region is still registered")
 -- Narrow editor regions retain the full native UI and can be opened from chat.
@@ -289,6 +297,64 @@ preserved()
 vim.cmd("DiffviewOpen HEAD")
 assert(api.nvim_get_current_tabpage() ~= tab, "standalone DiffviewOpen must retain its own tab")
 vim.cmd("DiffviewClose")
+-- Shortcut lifecycle is independent of the zoom stress sequence above.
+local annotations = require("config.annotations")
+annotations.setup()
+assert(review.start(nil, root))
+view = lib.get_current_view()
+assert(vim.wait(5000, settled, 20), "shortcut review did not load")
+local annotation_calls = {}
+local original_list, original_send = annotations.list, annotations.send_drafts
+annotations.list = function(directory)
+	annotation_calls[#annotation_calls + 1] = { "list", directory }
+end
+annotations.send_drafts = function(directory)
+	annotation_calls[#annotation_calls + 1] = { "send", directory }
+end
+vim.cmd.cd(cwd)
+for _, source in ipairs({ view.panel.winid, view.cur_layout.windows[1].id, view.cur_layout.windows[2].id }) do
+	api.nvim_set_current_win(source)
+	assert(vim.fn.maparg("ga", "n", false, true).desc == "Review annotations", "missing review-local ga")
+	assert(vim.fn.maparg("gs", "n", false, true).desc == "Send draft review round", "missing review-local gs")
+	vim.api.nvim_feedkeys("gags", "xt", false)
+end
+assert(
+	vim.deep_equal(annotation_calls, {
+		{ "list", root },
+		{ "send", root },
+		{ "list", root },
+		{ "send", root },
+		{ "list", root },
+		{ "send", root },
+	}),
+	"review shortcuts must use the current view's repository in every pane"
+)
+api.nvim_set_current_win(view.panel.winid)
+assert(vim.fn.maparg("s", "n", false, true).desc == "Stage/unstage file", "s must keep staging")
+assert(vim.fn.maparg("S", "n", false, true).desc == "Stage all", "S must keep staging all")
+assert(vim.fn.maparg("C", "n") ~= "", "C must keep clearing reviewed marks")
+assert(vim.fn.maparg("gA", "n", false, true).callback == annotations.add_current, "gA must keep immediate comments")
+assert(vim.fn.maparg("<leader>ans", "n") ~= "", "the existing send alias must remain")
+local source = view.cur_layout.windows[2].id
+api.nvim_set_current_win(source)
+local review_tab = api.nvim_get_current_tabpage()
+vim.cmd("tabnew")
+api.nvim_win_set_buf(0, editor_buf)
+assert(vim.fn.maparg("ga", "n", false, true).desc == "Original ga", "ga leaked into an ordinary tab")
+assert(vim.fn.maparg("gs", "n", false, true).desc == "Original gs", "gs leaked into an ordinary tab")
+vim.api.nvim_feedkeys("gags", "xt", false)
+assert(original_actions.ga == 1 and original_actions.gs == 1, "ordinary editing shortcuts were not restored")
+assert(#annotation_calls == 6, "ordinary editing dispatched a review action")
+vim.cmd("tabclose")
+assert(api.nvim_get_current_tabpage() == review_tab, "test did not return to its review")
+api.nvim_set_current_win(source)
+assert(vim.wait(5000, settled, 20), "review shortcuts did not reattach after tab switching")
+assert(vim.fn.maparg("gs", "n", false, true).desc == "Send draft review round", "gs did not reattach")
+annotations.list, annotations.send_drafts = original_list, original_send
+vim.cmd.cd(root)
+vim.cmd("DiffviewClose")
+assert(vim.fn.maparg("ga", "n", false, true).desc == "Original ga", "closing shortcut review did not restore ga")
+assert(vim.fn.maparg("gs", "n", false, true).desc == "Original gs", "closing shortcut review did not restore gs")
 vim.wait(200, function()
 	return false
 end)

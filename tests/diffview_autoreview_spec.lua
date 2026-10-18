@@ -112,7 +112,7 @@ end
 local function saved()
 	return vim.json.decode(table.concat(vim.fn.readfile(root .. "/.tmp/annotations.json"), "\n"))
 end
-for _, harness in ipairs({ "opencode", "claude", "codex" }) do
+for _, harness in ipairs({ "opencode", "claude", "codex", "hermes" }) do
 	owner = {
 		kind = harness == "opencode" and "native" or "acp",
 		harness = harness,

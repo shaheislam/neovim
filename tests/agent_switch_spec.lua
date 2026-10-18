@@ -3,8 +3,15 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root, "p")
 assert(vim.system({ "git", "init", "-q", root }):wait().code == 0)
 root = vim.uv.fs_realpath(root)
-local source = { kind = "acp", project = root, harness = "claude", sessionID = "old", generation = "first" }
-local target = { kind = "acp", project = root, harness = "codex", sessionID = "new", generation = "second" }
+local destination = vim.env.AGENT_TEST_DESTINATION or "codex"
+local source = {
+	kind = "acp",
+	project = root,
+	harness = destination == "hermes" and "claude" or "hermes",
+	sessionID = "old",
+	generation = "first",
+}
+local target = { kind = "acp", project = root, harness = destination, sessionID = "new", generation = "second" }
 local route, busy, cancelled, closed, launched, preference = source, true, false, false, false, "claude"
 local sent, transferred = {}, false
 local view = { opencode_review = { base = "unchanged-sha", provenance = source } }
@@ -25,7 +32,7 @@ package.loaded["config.agent_session"] = {
 	end,
 	open = function(harness)
 		assert(closed and not busy, "source must be quiescent and retired before destination launch")
-		assert(harness == "codex")
+		assert(harness == destination)
 		launched, route = true, target
 		return target
 	end,
@@ -69,7 +76,7 @@ require("config.opencode_review").submit = function(items)
 	feedback = items
 end
 assert(not switch.quiesce(source, false) and not closed and not launched, "busy source cannot be hidden and replaced")
-assert(switch.begin("codex"))
+assert(switch.begin(destination))
 local draftbuf = vim.api.nvim_get_current_buf()
 assert(not switch.continue(false) and not cancelled, "uninspected placeholder handoff cannot launch")
 local lines = vim.api.nvim_buf_get_lines(draftbuf, 0, -1, false)
@@ -83,7 +90,7 @@ vim.ui.select = function(_, _, callback)
 	callback("Transfer outstanding feedback to the new session")
 end
 assert(switch.continue(true))
-assert(cancelled and launched and closed and preference == "codex")
+assert(cancelled and launched and closed and preference == destination)
 assert(view.opencode_review.base == "unchanged-sha" and vim.deep_equal(view.opencode_review.provenance, target))
 assert(transferred and #sent == 1 and sent[1]:find("Finish the reviewed feature", 1, true))
 assert(#feedback == 1 and feedback[1].text == "Send existing feedback", "handoff transfer must not send drafts")

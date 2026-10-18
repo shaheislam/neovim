@@ -12,20 +12,21 @@ local function claim(path)
 	return claimed
 end
 
-local function get(path, root)
+local function get(path, root, timeout)
+	timeout = timeout or 5
 	local done, success, output
 	local cancel = require("config.opencode_http").get(path, function(ok, value)
 		success, output, done = ok, value, true
-	end, { dir = root, timeout = 5 })
-	if not vim.wait(6000, function()
+	end, { dir = root, timeout = timeout })
+	if not vim.wait((timeout + 1) * 1000, function()
 		return done
 	end, 20) then
 		if cancel then
 			cancel()
 		end
-		error("OpenCode discovery timed out")
+		error("OpenCode " .. path .. " discovery timed out")
 	end
-	assert(success, "OpenCode discovery failed: " .. tostring(output))
+	assert(success, "OpenCode " .. path .. " discovery failed: " .. tostring(output))
 	return vim.json.decode(output)
 end
 
@@ -45,7 +46,7 @@ function M.run(path, root, harness)
 			"Startup request does not match this project and harness"
 		)
 		assert(
-			vim.tbl_contains({ "opencode", "claude", "codex" }, harness)
+			vim.tbl_contains({ "opencode", "claude", "codex", "hermes" }, harness)
 				and type(payload.prompt) == "string"
 				and type(payload.model) == "string",
 			"Invalid startup request"
@@ -83,7 +84,8 @@ function M.run(path, root, harness)
 		local catalog
 		if command or skill then
 			if harness == "opencode" then
-				catalog = get("/command", root)
+				-- Command discovery also waits for MCP connections and their prompt catalogs.
+				catalog = get("/command", root, 60)
 			else
 				catalog, reason = require("config.agent_acp").commands(route)
 				assert(catalog, reason or "The adapter has not published its commands")

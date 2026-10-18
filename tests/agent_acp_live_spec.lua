@@ -1,6 +1,6 @@
--- Opt in: AGENT_LIVE_HARNESS=claude|codex nvim --headless -u ./init.lua -l ...
+-- Opt in: AGENT_LIVE_HARNESS=claude|codex|hermes nvim --headless -u ./init.lua -l ...
 local harness = assert(vim.env.AGENT_LIVE_HARNESS, "set AGENT_LIVE_HARNESS")
-assert(harness == "claude" or harness == "codex")
+assert(vim.tbl_contains({ "claude", "codex", "hermes" }, harness))
 local root = vim.fn.tempname()
 vim.fn.mkdir(root, "p")
 assert(vim.system({ "git", "init", "-q", root }):wait().code == 0)
@@ -56,4 +56,4 @@ assert(remembered_after > remembered_before, "the new reply did not recall the r
 assert(acp.close(root))
 require("config.hotreload").unwatch_directory(root)
 vim.fn.delete(root, "rf")
-print("PASS " .. harness .. " owned ACP chat, queued turns, subscription login, and exact process-restart resume")
+print("PASS " .. harness .. " owned ACP chat, queued turns, native credentials, and exact process-restart resume")

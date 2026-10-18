@@ -46,7 +46,10 @@ package.loaded["config.agent_acp"] = {
 	end,
 }
 package.loaded["config.opencode_http"] = {
-	get = function(path, callback)
+	get = function(path, callback, opts)
+		if path == "/command" then
+			assert(opts.timeout >= 30, "command discovery must allow the MCP connection startup budget")
+		end
 		callback(
 			true,
 			vim.json.encode(
@@ -66,18 +69,15 @@ local files = {}
 local function request(harness, model, prompt, project)
 	local file = vim.fn.tempname()
 	files[#files + 1] = file
-	vim.fn.writefile(
-		{
-			vim.json.encode({
-				version = 1,
-				harness = harness,
-				model = model,
-				prompt = prompt,
-				project = project or root,
-			}),
-		},
-		file
-	)
+	vim.fn.writefile({
+		vim.json.encode({
+			version = 1,
+			harness = harness,
+			model = model,
+			prompt = prompt,
+			project = project or root,
+		}),
+	}, file)
 	assert(vim.uv.fs_chmod(file, 384))
 	return file
 end
@@ -122,6 +122,8 @@ assert(startup.run(request("claude", "opus", "/goal task"), root, "claude"))
 assert(opened[#opened].model == "opus" and sent[#sent].text == "/goal task")
 assert(startup.run(request("codex", "gpt-6-sol", "$goal task"), root, "codex"))
 assert(sent[#sent].text == "$goal task", "Codex skill spelling is preserved")
+assert(startup.run(request("hermes", "", "/goal task"), root, "hermes"))
+assert(sent[#sent].harness == "hermes" and sent[#sent].text == "/goal task")
 outcome = function(callback)
 	callback(false, "timeout")
 	callback(true, "late acceptance")

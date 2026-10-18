@@ -2,6 +2,7 @@
 local M = {}
 local owners, opening = {}, {}
 local packages = {
+	hermes = true,
 	claude = { "@agentclientprotocol/claude-agent-acp@0.93.0", "claude-agent-acp", "claude_code" },
 	codex = { "@agentclientprotocol/codex-acp@2.2.2", "codex-acp", "codex" },
 }
@@ -208,24 +209,54 @@ function M.open(harness, root, opts)
 	local ok, result = pcall(function()
 		require("lazy").load({ plugins = { "codecompanion.nvim" } })
 		local spec = packages[harness]
-		local adapter = require("codecompanion.adapters").extend(spec[3], {
-			commands = { default = { "bunx", "--package", spec[1], spec[2] } },
-			defaults = { timeout = 90000, auth_method = harness == "codex" and "chat-gpt" or nil },
-			-- Missing string env references become literal tokens in the upstream client.
-			env = {
-				CLAUDE_CODE_OAUTH_TOKEN = function()
-					return vim.env.CLAUDE_CODE_OAUTH_TOKEN
-				end,
-				OPENAI_API_KEY = function()
-					return vim.env.OPENAI_API_KEY
-				end,
-			},
-			handlers = {
-				auth = function()
-					return true
-				end,
-			}, -- Native stored login; no implicit browser flow.
-		})
+		local adapter
+		if harness == "hermes" then
+			adapter = require("codecompanion.adapters.acp").extend({
+				name = "hermes",
+				formatted_name = "Hermes",
+				type = "acp",
+				roles = { llm = "assistant", user = "user" },
+				commands = { default = { "hermes", "acp" } },
+				defaults = { timeout = 90000, mcpServers = {} },
+				env = {
+					HERMES_HOME = function()
+						return vim.env.HERMES_HOME or vim.fn.expand("~/.hermes")
+					end,
+				},
+				parameters = {
+					protocolVersion = 1,
+					clientCapabilities = { fs = { readTextFile = true, writeTextFile = true } },
+					clientInfo = { name = "CodeCompanion.nvim", version = "1.0.0" },
+				},
+				handlers = {
+					setup = function()
+						return true
+					end,
+					form_messages = function(self, messages, capabilities)
+						return require("codecompanion.adapters.acp.helpers").form_messages(self, messages, capabilities)
+					end,
+				},
+			})
+		else
+			adapter = require("codecompanion.adapters").extend(spec[3], {
+				commands = { default = { "bunx", "--package", spec[1], spec[2] } },
+				defaults = { timeout = 90000, auth_method = harness == "codex" and "chat-gpt" or nil },
+				-- Missing string env references become literal tokens in the upstream client.
+				env = {
+					CLAUDE_CODE_OAUTH_TOKEN = function()
+						return vim.env.CLAUDE_CODE_OAUTH_TOKEN
+					end,
+					OPENAI_API_KEY = function()
+						return vim.env.OPENAI_API_KEY
+					end,
+				},
+				handlers = {
+					auth = function()
+						return true
+					end,
+				}, -- Native stored login; no implicit browser flow.
+			})
+		end
 		connection = require("codecompanion.acp").new({
 			adapter = adapter,
 			opts = {
@@ -236,6 +267,13 @@ function M.open(harness, root, opts)
 			},
 		})
 		assert(connection:start_agent_process() and connection:_initialize(), "ACP adapter initialization failed")
+		if harness == "hermes" then
+			-- This only acknowledges existing credentials; terminal setup stays out of band.
+			assert(
+				type(connection:send_rpc_request("authenticate", { methodId = "hermes-setup" })) == "table",
+				"Hermes credentials unavailable; run hermes setup in a terminal first"
+			)
+		end
 		connection._authenticated = true
 		local command_updates = {}
 		local register_commands = connection.handle_available_commands_update
@@ -268,10 +306,16 @@ function M.open(harness, root, opts)
 			)
 			args.sessionId, connection.session_id = saved.sessionID, saved.sessionID
 			session = connection:send_rpc_request("session/load", args)
-			assert(session, "Exact ACP resume failed; nothing replaced. Use :AgentOpen! for an explicit new session")
+			assert(
+				type(session) == "table",
+				"Exact ACP resume failed; nothing replaced. Use :AgentOpen! for an explicit new session"
+			)
 		else
 			session = connection:send_rpc_request("session/new", args)
-			assert(session and session.sessionId, "ACP session creation failed; check the native harness login")
+			assert(
+				type(session) == "table" and type(session.sessionId) == "string" and session.sessionId ~= "",
+				"ACP session creation failed; check the native harness login"
+			)
 			connection.session_id = session.sessionId
 		end
 		connection._loading_session, connection._on_session_update = nil, nil

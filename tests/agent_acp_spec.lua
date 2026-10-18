@@ -4,10 +4,21 @@ vim.fn.mkdir(root, "p")
 assert(vim.system({ "git", "init", "-q", root }):wait().code == 0)
 local calls, chats, connections = {}, {}, {}
 local fail_load = false
+local auth_result = {}
 package.loaded.lazy = { load = function() end }
 package.loaded["codecompanion.adapters"] = {
 	extend = function(_, opts)
 		return opts
+	end,
+}
+package.loaded["codecompanion.adapters.acp"] = {
+	extend = function(adapter)
+		return adapter
+	end,
+}
+package.loaded["codecompanion.adapters.acp.helpers"] = {
+	form_messages = function(_, messages)
+		return messages
 	end,
 }
 package.loaded["codecompanion.utils.context"] = {
@@ -53,8 +64,15 @@ package.loaded["codecompanion.acp"] = {
 		end
 		function conn:send_rpc_request(method, params)
 			calls[#calls + 1] = { method = method, params = params }
+			if method == "authenticate" then
+				assert(not self._authenticated, "Hermes must acknowledge credentials before becoming authenticated")
+				return auth_result
+			end
 			if method == "session/load" and fail_load then
-				return nil
+				if fail_load == true then
+					return nil
+				end
+				return fail_load
 			end
 			local id = method == "session/new" and "exact-session-" .. #connections or params.sessionId
 			self:handle_available_commands_update(id, { { name = "goal" } })
@@ -134,5 +152,21 @@ assert(
 	"failed exact resume does not create a replacement conversation"
 )
 assert(#calls == count + 1 and calls[#calls].method == "session/load", "no session/new fallback")
+fail_load = false
+local hermes = assert(acp.open("hermes", root, { hidden = true }))
+assert(vim.deep_equal(hermes.connection.adapter.commands.default, { "hermes", "acp" }))
+assert(hermes.connection.adapter.type == "acp" and hermes.connection.adapter.env.HERMES_HOME())
+assert(calls[#calls - 1].method == "authenticate" and calls[#calls - 1].params.methodId == "hermes-setup")
+assert(hermes.connection._authenticated and acp.close(root))
+for _, invalid in ipairs({ vim.NIL, false, "malformed" }) do
+	fail_load = invalid == false and true or invalid
+	count = #calls
+	assert(not acp.open("hermes", root, { hidden = true }), "null or malformed exact loads must fail closed")
+	assert(#calls == count + 2 and calls[#calls].method == "session/load", "Hermes never falls back to new/resume")
+end
+fail_load, auth_result = false, vim.NIL
+count = #calls
+assert(not acp.open("hermes", root, { hidden = true }), "missing credentials cannot launch a Hermes session")
+assert(#calls == count + 1 and calls[#calls].method == "authenticate")
 vim.fn.delete(root, "rf")
 print("PASS ACP ownership, busy queue, retirement, and fail-closed exact restoration")

@@ -58,6 +58,7 @@ assert(#sent == 2, "stale ACP routes never fall back to native HTTP")
 assert(agent.preference(root) == "opencode")
 assert(agent.set_preference(root, "codex"))
 assert(agent.preference(root) == "codex")
+assert(agent.set_preference(root, "hermes") and agent.preference(root) == "hermes")
 assert(not pcall(agent.set_preference, root, "codex;bad"))
 local created, launched = 0, {}
 package.loaded.lazy = { load = function() end }
@@ -91,7 +92,7 @@ package.loaded["config.project_terminal"] = {
 	end,
 }
 agent.open = function(harness, dir)
-	assert(harness == "codex" and dir == root, "startup preserves the selected harness and project")
+	assert(harness == "hermes" and dir == root, "startup preserves the selected harness and project")
 	assert(vim.api.nvim_get_current_win() == editor, "restore the editor before opening the agent pane")
 	startup[#startup + 1] = "agent"
 end
@@ -102,7 +103,7 @@ package.loaded["config.agent_startup"] = {
 		agent.open(harness, dir)
 	end,
 }
-vim.env.NVIM_AGENT_HARNESS, vim.env.NVIM_AGENT_LAYOUT = "codex", "1"
+vim.env.NVIM_AGENT_HARNESS, vim.env.NVIM_AGENT_LAYOUT = "hermes", "1"
 vim.env.NVIM_AGENT_STARTUP_FILE = "/tmp/agent-startup-spec-request"
 agent.setup()
 assert(

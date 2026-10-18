@@ -1,4 +1,4 @@
--- Opt-in provider test: AGENT_LIVE_HARNESS=claude|codex|opencode, with -u ./init.lua.
+-- Opt-in provider test: AGENT_LIVE_HARNESS=claude|codex|hermes|opencode, with -u ./init.lua.
 local harness = assert(vim.env.AGENT_LIVE_HARNESS, "set AGENT_LIVE_HARNESS")
 local notify = vim.notify
 vim.notify = function(text, level, opts)
@@ -6,7 +6,7 @@ vim.notify = function(text, level, opts)
 		notify(text, level, opts)
 	end
 end
-assert(vim.tbl_contains({ "claude", "codex", "opencode" }, harness))
+assert(vim.tbl_contains({ "claude", "codex", "hermes", "opencode" }, harness))
 local scratch, cwd = vim.fn.tempname(), vim.fn.getcwd()
 vim.fn.mkdir(scratch .. "/repo/src", "p")
 local function git(root, ...)
@@ -142,7 +142,8 @@ assert(
 	"source did not finish its turn"
 )
 if vim.env.AGENT_LIVE_SWITCH == "1" then
-	local destination = harness == "claude" and "codex" or "claude"
+	local destination = vim.env.AGENT_LIVE_DESTINATION or (harness == "claude" and "codex" or "claude")
+	assert(destination ~= harness and vim.tbl_contains({ "claude", "codex", "hermes", "opencode" }, destination))
 	assert(switch.begin(destination))
 	local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
 	for i, line in ipairs(lines) do

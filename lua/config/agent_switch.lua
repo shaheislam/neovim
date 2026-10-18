@@ -58,7 +58,7 @@ end
 
 function M.begin(harness)
 	local agent = require("config.agent_session")
-	if not vim.tbl_contains({ "opencode", "claude", "codex" }, harness) then
+	if not vim.tbl_contains({ "opencode", "claude", "codex", "hermes" }, harness) then
 		return false
 	end
 	local root = agent.root()
@@ -169,16 +169,20 @@ function M.setup()
 		if opts.args ~= "" then
 			M.begin(opts.args)
 		else
-			vim.ui.select({ "opencode", "claude", "codex" }, { prompt = "Destination harness" }, function(choice)
-				if choice then
-					M.begin(choice)
+			vim.ui.select(
+				{ "opencode", "claude", "codex", "hermes" },
+				{ prompt = "Destination harness" },
+				function(choice)
+					if choice then
+						M.begin(choice)
+					end
 				end
-			end)
+			)
 		end
 	end, {
 		nargs = "?",
 		complete = function()
-			return { "opencode", "claude", "codex" }
+			return { "opencode", "claude", "codex", "hermes" }
 		end,
 		desc = "Prepare an inspectable harness handoff",
 	})

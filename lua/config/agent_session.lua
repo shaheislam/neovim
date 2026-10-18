@@ -1,6 +1,6 @@
 -- Worktree preference is durable; live ownership is always revalidated.
 local M = {}
-local harnesses = { "opencode", "claude", "codex" }
+local harnesses = { "opencode", "claude", "codex", "hermes" }
 
 function M.root()
 	local result = vim.system({ "git", "rev-parse", "--show-toplevel" }, { text = true }):wait()

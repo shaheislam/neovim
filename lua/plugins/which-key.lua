@@ -44,8 +44,40 @@ return {
 			local wk = require("which-key")
 			wk.setup(opts)
 
+			local group = vim.api.nvim_create_augroup("nvim_mini_which_key_refresh", { clear = true })
+			local normal_entered
+			vim.api.nvim_create_autocmd("ModeChanged", {
+				group = group,
+				pattern = { "*:n", "*:nt" },
+				callback = function(event)
+					normal_entered = event.buf
+				end,
+			})
+			-- Late registrations and mode changes briefly remove which-key's triggers.
+			vim.on_key(function(key, typed)
+				local new_command = normal_entered and normal_entered == vim.api.nvim_get_current_buf()
+				normal_entered = nil
+				local leader = vim.g.mapleader
+				if key ~= leader or typed ~= leader or vim.fn.mode() ~= "n" then
+					return
+				end
+				if vim.fn.state("mo") ~= "" or (vim.fn.state("S") ~= "" and not new_command) then
+					return
+				end
+				if vim.fn.reg_recording() ~= "" or vim.fn.reg_executing() ~= "" or require("which-key.state").state then
+					return
+				end
+				local buf = vim.api.nvim_get_current_buf()
+				vim.schedule(function()
+					if vim.api.nvim_get_current_buf() == buf and vim.fn.mode() == "n" then
+						wk.show({ keys = leader, mode = "n" })
+					end
+				end)
+				return ""
+			end, vim.api.nvim_create_namespace("nvim_mini_which_key_leader"))
+
 			vim.api.nvim_create_autocmd({ "BufReadPost", "LspAttach", "LspDetach" }, {
-				group = vim.api.nvim_create_augroup("nvim_mini_which_key_refresh", { clear = true }),
+				group = group,
 				callback = function(event)
 					vim.schedule(function()
 						if require("which-key.config").loaded then

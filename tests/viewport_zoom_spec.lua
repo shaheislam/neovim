@@ -50,7 +50,7 @@ local original_keymap_set = vim.keymap.set
 vim.keymap.set = function(mode, lhs, rhs, opts)
 	if lhs == "<C-z>" then
 		captured[mode] = rhs
-	elseif lhs == "<C-S-z>" then
+	elseif lhs == "<C-g>" then
 		panes[mode] = rhs
 	end
 	return original_keymap_set(mode, lhs, rhs, opts)
@@ -66,12 +66,13 @@ collective = true
 captured.n()
 eq(collective_calls, 1, "normal zoom checks for a collective Diffview region")
 eq(zoom_win, nil, "collective zoom must not also zoom the focused buffer")
-assert(panes.n and panes.t, "Ctrl-Shift-Z must be mapped in normal and terminal modes")
+assert(panes.n and not panes.t, "Ctrl-G must be mapped only in Normal mode")
+eq(vim.fn.maparg("<C-S-z>", "n"), "", "shifted zoom mapping must be removed")
 panes.n()
-assert(zoom_win, "Ctrl-Shift-Z did not zoom an individual pane")
+assert(zoom_win, "Ctrl-G did not zoom an individual pane")
 eq(collective_calls, 1, "pane zoom must bypass collective zoom")
 panes.n()
-eq(zoom_win, nil, "Ctrl-Shift-Z did not restore the individual pane")
+eq(zoom_win, nil, "Ctrl-G did not restore the individual pane")
 collective = false
 
 -- A real terminal buffer so 'buftype' matches production (headless Neovim
@@ -112,16 +113,8 @@ eq(
 	"zooming out re-enters insert mode instead of stranding the cursor in Normal mode"
 )
 
--- Reuse the same terminal-mode transition path for the individual-pane shortcut.
-commands = {}
-panes.t()
-assert(zoom_win, "terminal pane zoom did not open")
-eq(commands, { "stopinsert", "startinsert" }, "terminal pane zoom did not re-enter insert mode")
-commands = {}
-panes.t()
-assert(not zoom_win, "terminal pane zoom did not restore")
-eq(commands, { "stopinsert", "startinsert" }, "terminal pane restore did not re-enter insert mode")
-eq(vim.api.nvim_get_current_win(), term_win, "terminal pane zoom lost its source window")
+eq(vim.fn.maparg("<C-g>", "t"), "", "Ctrl-G must reach terminal applications unchanged")
+eq(vim.fn.maparg("<C-S-z>", "t"), "", "shifted terminal zoom mapping must be removed")
 vim.cmd = original_vim_cmd
 vim.schedule = original_schedule
 

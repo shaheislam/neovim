@@ -18,7 +18,16 @@ package.loaded["codecompanion.utils.context"] = {
 package.loaded["codecompanion.interactions.chat.acp.commands"] = { link_buffer_to_session = function() end }
 package.loaded["codecompanion.acp"] = {
 	new = function(opts)
-		local conn = { adapter = opts.adapter, _state = { handle = {} } }
+		local conn = { adapter = opts.adapter, _state = { handle = {} }, model = "claude-opus-test" }
+		function conn:get_models()
+			return { currentModelId = self.model, availableModels = { { modelId = "claude-opus-test", name = "Opus" }, { modelId = "gpt-6-sol", name = "Codex" } } }
+		end
+		function conn:set_model(value)
+			if value == "opus" then value = "claude-opus-test" end
+			if value ~= "claude-opus-test" and value ~= "gpt-6-sol" then return false end
+			self.model = value
+			return true
+		end
 		function conn:start_agent_process()
 			return true
 		end
@@ -66,7 +75,9 @@ package.loaded["codecompanion.interactions.chat"] = {
 	open = function() end,
 }
 local acp = require("config.agent_acp")
-local owner = assert(acp.open("claude", root, { hidden = true }))
+local owner = assert(acp.open("claude", root, { hidden = true, model = "opus" }))
+assert(owner.connection.model == "claude-opus-test", "native Claude aliases resolve to verified advertised models")
+assert(not acp.open("claude", root, { hidden = true, model = "missing" }), "an existing owner cannot silently ignore a rejected model")
 local route = assert(acp.capture(root))
 assert(route.sessionID == owner.connection.session_id and route.harness == "claude")
 assert(calls[1].params.cwd == vim.uv.fs_realpath(root), "session creation pins the canonical worktree")

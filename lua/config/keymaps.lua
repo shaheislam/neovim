@@ -5,8 +5,7 @@ local keymap = vim.keymap.set
 
 -- Exit terminal mode in any terminal buffer (toggleterm, opencode, etc.)
 keymap("t", "<Esc><Esc>", [[<C-\><C-n>]], { desc = "Exit terminal mode" })
-keymap("t", "<C-Space>", [[<C-\><C-n><Space>]], {
-  remap = true,
+keymap("t", "<C-Space>", [[<C-\><C-n><Cmd>lua require("which-key").show({ keys = vim.g.mapleader, mode = "n" })<CR>]], {
   desc = "Start leader from terminal",
 })
 

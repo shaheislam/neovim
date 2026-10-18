@@ -39,8 +39,12 @@ jobs:
         run: nvim --headless "+checkhealth nvim_mini" +qa
 
       - name: Which-key leader test
+        env:
+          NVIM_APPNAME: nvim-mini
         run: |
           nvim --headless -l tests/which_key_leader_spec.lua
+          nvim --headless -u NONE -i NONE -n -l tests/which_key_leader_integration_spec.lua
+          nvim --headless -l tests/terminal_leader_spec.lua
           nvim --headless -l tests/keymap_layout_spec.lua
 
       - name: Oil startup keymap test

@@ -11,7 +11,7 @@ dofile("lua/config/keymaps.lua")
 
 local mapping = vim.fn.maparg("<C-Space>", "t", false, true)
 
-eq(mapping.rhs, [[<C-\><C-n><Space>]], "Ctrl-Space exits terminal mode and starts a leader sequence")
-eq(mapping.noremap, 0, "the replayed Space is recursively resolved as the Normal-mode leader trigger")
+eq(mapping.rhs, [[<C-\><C-n><Cmd>lua require("which-key").show({ keys = vim.g.mapleader, mode = "n" })<CR>]], "Ctrl-Space exits terminal mode and opens the leader directly")
+eq(mapping.noremap, 1, "Ctrl-Space does not replay Space through a temporarily detached leader trigger")
 
 print("PASS Ctrl-Space starts a leader sequence from terminal mode")

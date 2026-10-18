@@ -38,11 +38,20 @@ package.loaded["mini.misc"] = {
 	end,
 }
 
-local captured = {}
+local captured, panes = {}, {}
+local collective, collective_calls = false, 0
+package.loaded["config.diffview_region"] = {
+	toggle_zoom = function()
+		collective_calls = collective_calls + 1
+		return collective
+	end,
+}
 local original_keymap_set = vim.keymap.set
 vim.keymap.set = function(mode, lhs, rhs, opts)
 	if lhs == "<C-z>" then
 		captured[mode] = rhs
+	elseif lhs == "<C-S-z>" then
+		panes[mode] = rhs
 	end
 	return original_keymap_set(mode, lhs, rhs, opts)
 end
@@ -53,6 +62,17 @@ vim.keymap.set = original_keymap_set
 
 local terminal_toggle = captured.t
 assert(terminal_toggle, "terminal-mode <C-z> mapping is registered")
+collective = true
+captured.n()
+eq(collective_calls, 1, "normal zoom checks for a collective Diffview region")
+eq(zoom_win, nil, "collective zoom must not also zoom the focused buffer")
+assert(panes.n and panes.t, "Ctrl-Shift-Z must be mapped in normal and terminal modes")
+panes.n()
+assert(zoom_win, "Ctrl-Shift-Z did not zoom an individual pane")
+eq(collective_calls, 1, "pane zoom must bypass collective zoom")
+panes.n()
+eq(zoom_win, nil, "Ctrl-Shift-Z did not restore the individual pane")
+collective = false
 
 -- A real terminal buffer so 'buftype' matches production (headless Neovim
 -- has no UI attached, so mode() can't actually reach Terminal-mode here --
@@ -92,7 +112,17 @@ eq(
 	"zooming out re-enters insert mode instead of stranding the cursor in Normal mode"
 )
 
+-- Reuse the same terminal-mode transition path for the individual-pane shortcut.
+commands = {}
+panes.t()
+assert(zoom_win, "terminal pane zoom did not open")
+eq(commands, { "stopinsert", "startinsert" }, "terminal pane zoom did not re-enter insert mode")
+commands = {}
+panes.t()
+assert(not zoom_win, "terminal pane zoom did not restore")
+eq(commands, { "stopinsert", "startinsert" }, "terminal pane restore did not re-enter insert mode")
+eq(vim.api.nvim_get_current_win(), term_win, "terminal pane zoom lost its source window")
 vim.cmd = original_vim_cmd
 vim.schedule = original_schedule
 
-print("PASS terminal-mode <C-z> re-enters insert mode after both zoom-in and zoom-out")
+print("PASS workspace and individual-pane zoom shortcuts, terminal insert mode, and restore")

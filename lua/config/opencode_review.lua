@@ -16,38 +16,18 @@ local function notify(text, level)
 	vim.notify(text, level or vim.log.levels.INFO, { title = "Agent review" })
 end
 
-local function serialize_refresh(view)
-	local update, running, pending, callbacks = view.update_files, false, nil, {}
-	local function drain()
-		if running or not pending then
-			return
-		end
-		local opts, listeners = pending, callbacks
-		pending, callbacks, running = nil, {}, true
-		update(view, opts, function(err)
-			running = false
-			for _, callback in ipairs(listeners) do
-				callback(err)
-			end
-			vim.schedule(drain)
-		end)
-	end
-	-- The fork's debounce coalesces starts but permits overlapping async renders.
-	view.update_files = function(_, opts, callback)
-		if type(opts) == "function" then
-			opts, callback = nil, opts
-		end
-		pending = vim.tbl_extend("force", pending or {}, type(opts) == "table" and opts or {})
-		if callback then
-			callbacks[#callbacks + 1] = callback
-		end
-		drain()
-	end
-end
-
 function M.current(root)
 	local ok, lib = pcall(require, "diffview.lib")
-	local view = ok and lib.get_current_view and lib.get_current_view() or nil
+	local view = ok and lib.tabpage_to_view and lib.tabpage_to_view(vim.api.nvim_get_current_tabpage()) or nil
+	if ok and not view then
+		for _, candidate in pairs(lib.views or {}) do
+			local zoom = candidate.region and candidate.region.zoom
+			if zoom and zoom.host == vim.api.nvim_get_current_tabpage() then
+				view = candidate
+				break
+			end
+		end
+	end
 	local review = view and view.opencode_review
 	if review and (not root or review.provenance.project == (vim.uv.fs_realpath(root) or root)) then
 		return review, view
@@ -83,7 +63,7 @@ function M.start(base, directory)
 	for _, view in pairs(lib_ok and lib.views or {}) do
 		local review = view.opencode_review
 		if review and review == context then
-			vim.api.nvim_set_current_tabpage(view.tabpage)
+			require("config.diffview_region").focus(view)
 			view:update_files()
 			return true
 		end
@@ -110,14 +90,16 @@ function M.start(base, directory)
 	context = context or { base = sha, provenance = provenance }
 	reviews[root] = context
 	view.opencode_review = context
-	serialize_refresh(view)
+	require("config.diffview_region").serialize_refresh(view)
 	-- The fork normally hides untracked files in commit-to-worktree diffs.
 	local show_untracked = view.adapter.show_untracked
 	view.adapter.show_untracked = function(adapter, opts)
 		return show_untracked(adapter, { dv_opt = opts and opts.dv_opt })
 	end
 	if not view.tabpage or not vim.api.nvim_tabpage_is_valid(view.tabpage) then
-		view:open()
+		if not require("config.diffview_region").open(view) then
+			return false
+		end
 	else
 		view:update_files()
 	end

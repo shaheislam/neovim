@@ -117,9 +117,19 @@ local original_watch_directory = hotreload.watch_directory
 local return_target = require("config.return_target")
 local original_capture = return_target.capture
 local original_diffview_lib = package.loaded["diffview.lib"]
+local region = require("config.diffview_region")
+local original_region_open = region.open
 local commands = {}
 local system_calls = {}
 local lib = { views = {} }
+lib.diffview_open = function(args)
+	table.insert(commands, args)
+	return { test_view = true }
+end
+region.open = function(view)
+	assert(view.test_view, "handoff opens the view through the shared region adapter")
+	return true
+end
 
 package.loaded["diffview.lib"] = lib
 hotreload.watch_directory = function() end
@@ -140,7 +150,7 @@ vim.cmd = function(command)
 end
 
 assert_status(idle.open_diff(root, "abc123"), "opened", "diff_opened")
-eq(commands, { "DiffviewOpen -C" .. vim.fn.fnameescape(root) .. " " .. vim.fn.fnameescape("abc123") }, "Diffview command targets project and base")
+eq(commands, { { "-C=" .. root, "abc123" } }, "Diffview arguments target project and base without command interpolation")
 eq(system_calls[#system_calls], { "git", "-C", root, "cat-file", "-e", "abc123^{commit}" }, "base is validated as a commit")
 
 commands = {}
@@ -184,6 +194,7 @@ vim.system = original_system
 hotreload.watch_directory = original_watch_directory
 return_target.capture = original_capture
 package.loaded["diffview.lib"] = original_diffview_lib
+region.open = original_region_open
 
 local original_open_diff = idle.open_diff
 local original_open_plan = idle.open_plan

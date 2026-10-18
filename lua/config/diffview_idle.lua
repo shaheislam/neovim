@@ -375,7 +375,7 @@ function M.open_diff(project_dir, base)
 	local ok, lib = pcall(require, "diffview.lib")
 	local view = ok and find_repo_view(lib, project_dir, base) or nil
 	if view then
-		vim.api.nvim_set_current_tabpage(view.tabpage)
+		require("config.diffview_region").focus(view)
 		watch_project(project_dir)
 		if view.rev_arg == base then
 			if view.update_files then
@@ -405,12 +405,15 @@ function M.open_diff(project_dir, base)
 	end
 
 	watch_project(project_dir)
-	local command = "DiffviewOpen -C" .. vim.fn.fnameescape(project_dir)
-	if base then
-		command = command .. " " .. vim.fn.fnameescape(base)
-	end
-	local opened = pcall(vim.cmd, command)
-	if not opened then
+	local opened, success = pcall(function()
+		local args = { "-C=" .. project_dir }
+		if base then
+			args[#args + 1] = base
+		end
+		local new_view = require("diffview.lib").diffview_open(args)
+		return new_view and require("config.diffview_region").open(new_view)
+	end)
+	if not opened or not success then
 		return result("refused", "diff_open_failed")
 	end
 	return result("opened", "diff_opened")

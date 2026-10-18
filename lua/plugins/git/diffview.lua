@@ -1042,7 +1042,9 @@ return {
 
 					if not diffview_suppress_restore and not commit_cycle_state.is_cycling then
 						vim.schedule(function()
-							return_target.restore(diffview_return_target)
+							if not view.region then
+								return_target.restore(diffview_return_target)
+							end
 							diffview_return_target = nil
 							return_target.resume()
 						end)

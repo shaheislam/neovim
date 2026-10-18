@@ -5,7 +5,8 @@ return {
   {
     "chancez/viewport.nvim",
     keys = {
-      { "<C-z>", mode = { "n", "t" }, desc = "Toggle maximize current window" },
+      { "<C-z>", mode = { "n", "t" }, desc = "Toggle window or Diffview zoom" },
+      { "<C-S-z>", mode = { "n", "t" }, desc = "Toggle individual pane zoom" },
       { "<leader>vv", desc = "Viewport Resize Mode" },
       { "<leader>vn", desc = "Viewport Navigate Mode" },
       { "<leader>vs", desc = "Viewport Select Mode" },
@@ -13,10 +14,15 @@ return {
     config = function()
       local viewport = require("viewport")
 
-      local function toggle_zoom()
-        local ok, mini_misc = pcall(require, "mini.misc")
-        if ok and mini_misc.zoom then
-          mini_misc.zoom(nil, { border = "none" })
+      local function toggle_zoom(pane_only)
+        local pane = require("config.window_zoom")
+        if not pane_only then
+          local restored = pane.restore()
+          if require("config.diffview_region").toggle_zoom() or restored then
+            return
+          end
+        end
+        if pane.toggle() then
           return
         end
 
@@ -47,31 +53,31 @@ return {
       })
 
       -- Keymaps
-      vim.keymap.set('n', '<C-z>', function()
-        toggle_zoom()
-      end, { desc = "Toggle maximize current window" })
+      for _, key in ipairs({ '<C-z>', '<C-S-z>' }) do
+        local pane_only = key == '<C-S-z>'
+        local description = pane_only and 'Toggle individual pane zoom' or 'Toggle window or Diffview zoom'
+        vim.keymap.set('n', key, function()
+          toggle_zoom(pane_only)
+        end, { desc = description })
 
-      -- Terminal-mode zoom (works in opencode.nvim and other terminal buffers)
-      vim.keymap.set('t', '<C-z>', function()
-        -- Track the terminal buffer, not the window: zooming in opens a new
-        -- floating window over it, and zooming out closes that window, so a
-        -- window-validity check always fails on zoom-out and strands the
-        -- cursor in Normal mode.
-        local buf = vim.api.nvim_get_current_buf()
-        vim.cmd([[stopinsert]])
-        -- stopinsert doesn't synchronously leave Terminal-mode; scheduling
-        -- lets the transition finish before zoom's internal `normal!` runs.
-        vim.schedule(function()
-          toggle_zoom()
-          if
-            vim.api.nvim_buf_is_valid(buf)
-            and vim.api.nvim_get_current_buf() == buf
-            and vim.bo.buftype == 'terminal'
-          then
-            vim.cmd('startinsert')
-          end
-        end)
-      end, { desc = "Toggle maximize current window (terminal mode)" })
+        -- Terminal-mode zoom (works in opencode.nvim and other terminal buffers)
+        vim.keymap.set('t', key, function()
+          -- Track the buffer: zoom-out closes the floating window.
+          local buf = vim.api.nvim_get_current_buf()
+          vim.cmd([[stopinsert]])
+          -- Let Terminal-mode exit before zoom's internal `normal!` runs.
+          vim.schedule(function()
+            toggle_zoom(pane_only)
+            if
+              vim.api.nvim_buf_is_valid(buf)
+              and vim.api.nvim_get_current_buf() == buf
+              and vim.bo.buftype == 'terminal'
+            then
+              vim.cmd('startinsert')
+            end
+          end)
+        end, { desc = description .. ' (terminal mode)' })
+      end
       vim.keymap.set('n', '<leader>vv', viewport.start_resize_mode, { desc = "Viewport Resize Mode" })
       vim.keymap.set('n', '<leader>vn', viewport.start_navigate_mode, { desc = "Viewport Navigate Mode" })
       vim.keymap.set('n', '<leader>vs', viewport.start_select_mode, { desc = "Viewport Select Mode" })

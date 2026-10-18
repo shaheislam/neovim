@@ -160,6 +160,20 @@ annotations.add_visual()
 local selected_note = saved()[#saved()]
 assert(selected_note.line == 1 and selected_note.end_line == 2, "gA used stale Visual marks")
 vim.api.nvim_feedkeys(vim.keycode("<Esc>"), "nx", false)
+local selections = require("diffview.api.selections")
+selections.select({ "example.txt" }, { view = view, kind = "working" })
+vim.fn.writefile({ "first", "ordinary view edit", "last" }, root .. "/example.txt")
+local refreshed = false
+view:update_files(nil, function()
+	refreshed = true
+end)
+assert(
+	vim.wait(5000, function()
+		return refreshed
+	end, 20),
+	"ordinary view did not refresh"
+)
+assert(selections.is_selected("example.txt", { view = view }), "ordinary Diffview reviewed marks remain unchanged")
 close()
 sent = {}
 vim.cmd("DiffviewFileHistory example.txt")

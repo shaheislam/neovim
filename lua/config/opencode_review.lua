@@ -120,6 +120,7 @@ function M.start(base, directory)
 	context = context or { base = sha, provenance = provenance }
 	reviews[root] = context
 	view.opencode_review = context
+	require("config.review_progress").attach(view, context)
 	require("config.diffview_region").serialize_refresh(view)
 	-- The fork normally hides untracked files in commit-to-worktree diffs.
 	local show_untracked = view.adapter.show_untracked

@@ -222,17 +222,46 @@ eq(#marks, 1, "comments render in real Diffview nowrite buffers")
 
 annotations.list()
 vim.api.nvim_win_set_cursor(0, { 2, 0 })
+assert(
+	not vim.api.nvim_get_current_line():find("unknown", 1, true),
+	"visible old-side source has known freshness in the panel"
+)
 vim.fn.maparg("<CR>", "n", false, true).callback()
 wait_for(function()
 	return vim.api.nvim_get_current_win() == left.id
 end, "opening an old-side comment did not focus its diff window")
 eq(vim.api.nvim_win_get_buf(left.id), left.file.bufnr, "panel navigation preserves the old-side diff buffer")
 
+local selections = require("diffview.api.selections")
+selections.select({ "src/example.txt", "src/new.txt" }, { view = view, kind = "working" })
+view.panel.hide_selected = true
+local refreshed = false
+view:update_files(nil, function()
+	refreshed = true
+end)
+wait_for(function()
+	return refreshed
+end, "unchanged review did not refresh")
+eq(#selections.get(view), 2, "unchanged refresh preserves reviewed files")
+
 vim.fn.writefile({ "first", "agent addressed review", "last" }, root .. "/src/example.txt")
 wait_for(function()
 	return vim.api.nvim_buf_get_lines(right.file.bufnr, 1, 2, false)[1] == "agent addressed review"
 end, "external edits did not reload the visible worktree buffer")
 eq(vim.api.nvim_get_current_win(), left.id, "external source reload preserves the old-side focus")
+wait_for(function()
+	return #selections.get(view) == 1
+end, "changed file kept its reviewed mark")
+eq(selections.get(view)[1].path, "src/new.txt", "unchanged reviewed files retain their mark")
+assert(view.panel.hide_selected, "invalidation preserves the hide-reviewed preference")
+local visible = view.panel:count_visible("working")
+assert(visible > 0, "changed file is visible even while hiding reviewed files")
+selections.select({ "src/example.txt" }, { view = view, kind = "working" })
+vim.fn.writefile({ "updated untracked file" }, root .. "/src/new.txt")
+wait_for(function()
+	return not selections.is_selected("src/new.txt", { view = view })
+end, "changed untracked file kept its reviewed mark")
+assert(selections.is_selected("src/example.txt", { view = view }), "another file's edit preserves its reviewed mark")
 saved = vim.json.decode(table.concat(vim.fn.readfile(root .. "/.tmp/annotations.json"), "\n"))
 saved[2].text = "RESOLVED: " .. saved[2].text
 vim.fn.writefile({ vim.json.encode(saved) }, root .. "/.tmp/annotations.json")

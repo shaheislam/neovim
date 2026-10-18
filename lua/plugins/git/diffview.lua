@@ -56,8 +56,17 @@ return {
 		"DiffviewFocusFiles",
 		"DiffFiles",
 		"DiffDirs",
+		"ReviewScope",
 	},
 	keys = {
+		{
+			"<leader>anv",
+			function()
+				capture_return()
+				require("git.diffview_workflow").scope()
+			end,
+			desc = "Choose review scope",
+		},
 		{
 			"<leader>gd",
 			function()

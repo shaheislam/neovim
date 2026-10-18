@@ -60,10 +60,14 @@ package.loaded["config.annotations"] = {
 	transfer = function(_, old, new)
 		assert(vim.deep_equal(old, source) and vim.deep_equal(new, target))
 		transferred = true
-		return {}
+		return { { text = "Send existing feedback" }, { text = "Keep draft feedback", draft = true } }
 	end,
 }
 local switch = require("config.agent_switch")
+local feedback
+require("config.opencode_review").submit = function(items)
+	feedback = items
+end
 assert(not switch.quiesce(source, false) and not closed and not launched, "busy source cannot be hidden and replaced")
 assert(switch.begin("codex"))
 local draftbuf = vim.api.nvim_get_current_buf()
@@ -82,6 +86,7 @@ assert(switch.continue(true))
 assert(cancelled and launched and closed and preference == "codex")
 assert(view.opencode_review.base == "unchanged-sha" and vim.deep_equal(view.opencode_review.provenance, target))
 assert(transferred and #sent == 1 and sent[1]:find("Finish the reviewed feature", 1, true))
+assert(#feedback == 1 and feedback[1].text == "Send existing feedback", "handoff transfer must not send drafts")
 local native = { kind = "native", project = root, sessionID = "ses_exact", generation = "native" }
 route, busy = native, true
 local aborted, terminal_closed = false, false

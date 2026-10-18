@@ -75,7 +75,20 @@ end
 function M.format_item(item)
 	local end_line = item.end_line or item.line
 	local range = item.line == end_line and tostring(item.line) or string.format("%d-%d", item.line, end_line)
-	return string.format("%s:%s: %s", item.file, range, item.text)
+	local point = item.round and item.point and string.format("Review round %d · point %d · ", item.round, item.point)
+		or ""
+	return point .. string.format("%s:%s: %s", item.file, range, item.text)
+end
+
+function M.freshness(item, comparison, source)
+	local captured = item.comparison or (item.review and item.review.comparison)
+	if captured and comparison and not vim.deep_equal(captured, comparison) then
+		return "outdated"
+	end
+	if item.context == nil or source == nil then
+		return "unknown"
+	end
+	return item.context == source and "current" or "outdated"
 end
 
 function M.item_matches(item, file, line, side)

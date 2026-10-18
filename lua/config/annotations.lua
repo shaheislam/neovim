@@ -60,7 +60,7 @@ local function diff_file(bufnr)
 	for _, view in pairs(lib.views or {}) do
 		for _, window in ipairs(view.cur_layout and view.cur_layout.windows or {}) do
 			if window.file and window.file.bufnr == bufnr then
-				return window.file
+				return window.file, view
 			end
 		end
 	end
@@ -269,6 +269,53 @@ local function truncate(text)
 	return text:sub(1, max_ghost_length - 1) .. "…"
 end
 
+local function freshness(item, root, bufnr, view)
+	local source
+	if not bufnr and view then
+		for _, window in ipairs(view.cur_layout and view.cur_layout.windows or {}) do
+			local file = window.file
+			if
+				file
+				and file.path == item.file
+				and file.symbol == (({ old = "a", new = "b", theirs = "c", base = "d" })[item.side] or "b")
+				and file.bufnr
+				and vim.api.nvim_buf_is_loaded(file.bufnr)
+			then
+				bufnr = file.bufnr
+				break
+			end
+		end
+	end
+	if bufnr then
+		source = table.concat(vim.api.nvim_buf_get_lines(bufnr, item.line - 1, item.end_line or item.line, false), "\n")
+	elseif (not item.side or item.side == "new") and (not view or view.right and view.right.type == 1) then
+		local path = root .. "/" .. item.file
+		local buf = vim.fn.bufnr(path)
+		if buf ~= -1 and vim.api.nvim_buf_is_loaded(buf) then
+			source =
+				table.concat(vim.api.nvim_buf_get_lines(buf, item.line - 1, item.end_line or item.line, false), "\n")
+		elseif vim.fn.filereadable(path) == 1 then
+			source = table.concat(vim.list_slice(vim.fn.readfile(path), item.line, item.end_line or item.line), "\n")
+		end
+	end
+	return review_context.freshness(item, view and review_context.comparison(view), source)
+end
+
+local function item_status(item, state)
+	local labels = {}
+	if item.text:match("^RESOLVED:") then
+		labels[#labels + 1] = "handled"
+	elseif item.draft then
+		labels[#labels + 1] = "draft"
+	elseif item.delivery then
+		labels[#labels + 1] = item.delivery.state
+	end
+	if state ~= "current" then
+		labels[#labels + 1] = state
+	end
+	return #labels > 0 and ("[" .. table.concat(labels, "; ") .. "] ") or ""
+end
+
 function M.refresh_buffer(bufnr)
 	bufnr = bufnr or vim.api.nvim_get_current_buf()
 	if should_skip_buffer(bufnr) then
@@ -286,6 +333,7 @@ function M.refresh_buffer(bufnr)
 		return
 	end
 	local side = M.diff_side(bufnr) or (is_diffview and "old" or "new")
+	local _, view = diff_file(bufnr)
 
 	for _, item in ipairs(read_annotations(root)) do
 		if
@@ -299,9 +347,7 @@ function M.refresh_buffer(bufnr)
 				sign_hl_group = "DiagnosticSignInfo",
 				virt_text = {
 					{
-						icon .. " " .. (item.delivery and ("[" .. item.delivery.state .. "] ") or "") .. truncate(
-							item.text
-						),
+						icon .. " " .. item_status(item, freshness(item, root, bufnr, view)) .. truncate(item.text),
 						"DiagnosticVirtualTextInfo",
 					},
 				},
@@ -328,9 +374,17 @@ function M.update_delivery(root, items, state, err)
 				and item.line == sent.line
 				and item.side == sent.side
 				and item.text == sent.text
+				and item.id == sent.id
 				and vim.deep_equal(item.review, sent.review)
 			then
 				item.delivery = { state = state, error = err }
+				if
+					vim.tbl_contains({ "queued", "submitted", "working", "awaiting_permission", "turn_ended" }, state)
+				then
+					if item.draft then
+						item.draft = false
+					end
+				end
 			end
 		end
 	end
@@ -352,12 +406,15 @@ function M.transfer(root, source, target)
 	return transferred
 end
 
-function M.prompt_label(provenance)
-	local action = provenance and ("save + send to " .. provenance.sessionID) or "save locally"
+function M.prompt_label(provenance, draft)
+	local action = draft and "save draft"
+		or provenance and ("save + send to " .. provenance.sessionID)
+		or "save locally"
 	return "Annotation (Enter: " .. action .. "; Esc: cancel): "
 end
 
-local function add_range(start_line, end_line)
+local function add_range(start_line, end_line, opts)
+	local draft = type(opts) == "table" and opts.draft == true
 	local root = repo_root()
 	if not root then
 		vim.notify("Annotations require a git repository", vim.log.levels.WARN)
@@ -391,6 +448,7 @@ local function add_range(start_line, end_line)
 	local annotations = read_annotations(root)
 	local function matches(item)
 		return review_context.item_matches(item, file, start_line, side)
+			and (item.draft == true) == draft
 			and (
 				not view
 				or (vim.deep_equal(item.review, review) and (review or vim.deep_equal(item.comparison, comparison)))
@@ -416,7 +474,7 @@ local function add_range(start_line, end_line)
 	local context = table.concat(vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false), "\n")
 
 	vim.ui.input(
-		{ prompt = M.prompt_label(review and review.provenance), default = existing and existing.text or "" },
+		{ prompt = M.prompt_label(review and review.provenance, draft), default = existing and existing.text or "" },
 		function(text)
 			if not text or vim.trim(text) == "" then
 				return
@@ -432,6 +490,11 @@ local function add_range(start_line, end_line)
 				context = context,
 				review = review,
 				comparison = not review and comparison or nil,
+				id = existing and existing.id
+					or (draft and vim.fn.sha256(root .. tostring(vim.uv.hrtime())):sub(1, 16) or nil),
+				draft = draft or nil,
+				round = existing and existing.round,
+				point = existing and existing.point,
 			}
 			local replaced = false
 			for index, item in ipairs(annotations) do
@@ -445,9 +508,9 @@ local function add_range(start_line, end_line)
 			end
 			write_annotations(root, annotations)
 			M.refresh_all()
-			if review then
+			if review and not draft then
 				require("config.opencode_review").submit({ saved }, root)
-			elseif view then
+			elseif view and not review then
 				notify(
 					view.annotation_review_error or "Annotation saved locally; no agent session was captured",
 					vim.log.levels.WARN
@@ -457,19 +520,19 @@ local function add_range(start_line, end_line)
 	)
 end
 
-function M.add_current()
+function M.add_current(opts)
 	local line = math.max(vim.api.nvim_win_get_cursor(0)[1], 1)
-	add_range(line, line)
+	add_range(line, line, opts)
 end
 
-function M.add_visual()
+function M.add_visual(opts)
 	local visual = ({ v = true, V = true, ["\22"] = true })[vim.fn.mode()]
 	local start_line = vim.fn.line(visual and "v" or "'<")
 	local end_line = visual and vim.api.nvim_win_get_cursor(0)[1] or vim.fn.line("'>")
 	if start_line > end_line then
 		start_line, end_line = end_line, start_line
 	end
-	add_range(start_line, end_line)
+	add_range(start_line, end_line, opts)
 end
 
 function M.delete_current()
@@ -590,7 +653,74 @@ function M.ask_all()
 	if not root then
 		return
 	end
-	ask_items(active_annotations(read_annotations(root)), root)
+	ask_items(
+		vim.tbl_filter(function(item)
+			return not item.draft
+		end, active_annotations(read_annotations(root))),
+		root
+	)
+end
+
+function M.send_drafts(root)
+	root = root or repo_root()
+	if not root then
+		return
+	end
+	local function pending(items)
+		return vim.tbl_filter(function(item)
+			return item.draft == true
+		end, active_annotations(items))
+	end
+	local drafts = pending(read_annotations(root))
+	if #drafts == 0 then
+		notify("No draft annotations")
+		return
+	end
+	local provenance = drafts[1].review and drafts[1].review.provenance
+	if
+		not provenance
+		or vim.iter(drafts):any(function(item)
+			return not item.review or not vim.deep_equal(item.review.provenance, provenance)
+		end)
+	then
+		notify("Drafts need one captured review session; send individually or copy them", vim.log.levels.WARN)
+		return
+	end
+	vim.ui.select({ "Send", "Cancel" }, {
+		prompt = string.format("Send %d draft(s) to %s?", #drafts, provenance.sessionID),
+	}, function(choice)
+		if choice ~= "Send" then
+			return
+		end
+		local annotations = read_annotations(root)
+		local items = pending(annotations)
+		if not vim.deep_equal(items, drafts) then
+			notify("Drafts changed during confirmation; review and send again", vim.log.levels.WARN)
+			return
+		end
+		local round = 0
+		for _, item in ipairs(annotations) do
+			round = math.max(round, item.round or 0)
+		end
+		local retry_round, points = items[1].round, {}
+		local retry = retry_round ~= nil
+		for _, item in ipairs(items) do
+			if item.round ~= retry_round or not item.point or points[item.point] then
+				retry = false
+			end
+			if item.point then
+				points[item.point] = true
+			end
+		end
+		for point, item in ipairs(items) do
+			if not retry then
+				item.round, item.point = round + 1, point
+			end
+		end
+		write_annotations(root, annotations)
+		require("config.opencode_review").submit(items, root)
+		M.refresh_all()
+	end)
 end
 
 function M.qflist()
@@ -681,6 +811,7 @@ local function delete_item(item)
 			and candidate.line == item.line
 			and candidate.side == item.side
 			and candidate.text == item.text
+			and candidate.id == item.id
 		)
 	end, read_annotations(item.root))
 	write_annotations(item.root, annotations)
@@ -704,6 +835,7 @@ local function edit_item(item)
 				and candidate.line == item.line
 				and candidate.side == item.side
 				and candidate.text == item.text
+				and candidate.id == item.id
 			then
 				candidate.text = text
 				saved = candidate
@@ -712,14 +844,14 @@ local function edit_item(item)
 		end
 		write_annotations(item.root, annotations)
 		M.refresh_all()
-		if saved and saved.review then
+		if saved and saved.review and not saved.draft and not saved.text:match("^RESOLVED:") then
 			require("config.opencode_review").submit({ saved }, item.root)
 		end
 		M.list(item.root)
 	end)
 end
 
-function M.list(root)
+function M.list(root, filter)
 	root = root or repo_root()
 	if not root then
 		return
@@ -729,10 +861,15 @@ function M.list(root)
 		vim.api.nvim_buf_delete(panel, { force = true })
 	end
 
-	local annotations = active_annotations(read_annotations(root))
-	if #annotations == 0 then
-		notify("No annotations", vim.log.levels.INFO)
-		return
+	filter = filter or "active"
+	local annotations = read_annotations(root)
+	if filter ~= "all" then
+		annotations = active_annotations(annotations)
+	end
+	if filter == "drafts" then
+		annotations = vim.tbl_filter(function(item)
+			return item.draft == true
+		end, annotations)
 	end
 
 	local width = math.min(math.max(math.floor(vim.o.columns * 0.75), 60), vim.o.columns - 4)
@@ -742,11 +879,15 @@ function M.list(root)
 	local bufnr = vim.api.nvim_create_buf(false, true)
 	local lines = {}
 	local items = {}
+	local _, view = require("config.opencode_review").current(root)
 
 	for _, item in ipairs(annotations) do
 		local panel_item = vim.tbl_extend("force", { root = root }, item)
 		table.insert(items, panel_item)
-		table.insert(lines, format_item(item))
+		table.insert(lines, item_status(item, freshness(item, root, nil, view)) .. format_item(item))
+	end
+	if #lines == 0 then
+		lines = { "No annotations · f changes filter" }
 	end
 
 	vim.api.nvim_buf_set_name(bufnr, "annotate://list")
@@ -764,7 +905,7 @@ function M.list(root)
 		width = width,
 		height = height,
 		border = "rounded",
-		title = " Annotations ",
+		title = " Annotations · " .. filter .. " ",
 		title_pos = "center",
 		style = "minimal",
 	})
@@ -801,10 +942,46 @@ function M.list(root)
 		end
 	end, "Ask OpenCode")
 	map("A", function()
-		ask_items(items, root)
+		ask_items(
+			vim.tbl_filter(function(item)
+				return not item.draft
+			end, active_annotations(items)),
+			root
+		)
 	end, "Ask OpenCode about all")
+	map("s", function()
+		M.send_drafts(root)
+	end, "Send confirmed draft round")
+	map("f", function()
+		M.list(root, ({ active = "drafts", drafts = "all", all = "active" })[filter])
+	end, "Filter active/drafts/all annotations")
+	map("r", function()
+		local item = selected_panel_item(bufnr)
+		if not item then
+			return
+		end
+		local saved = read_annotations(root)
+		for _, candidate in ipairs(saved) do
+			if
+				candidate.file == item.file
+				and candidate.line == item.line
+				and candidate.side == item.side
+				and candidate.text == item.text
+				and candidate.id == item.id
+			then
+				candidate.text = candidate.text:match("^RESOLVED:") and candidate.text:gsub("^RESOLVED: ?", "", 1)
+					or "RESOLVED: " .. candidate.text
+				break
+			end
+		end
+		write_annotations(root, saved)
+		M.refresh_all()
+		M.list(root, filter)
+	end, "Toggle handled annotation")
 	map("?", function()
-		notify("Keys: <CR>/o open, e edit, d delete, c copy, a ask, A ask all, q close")
+		notify(
+			"Keys: <CR>/o open, e edit, d delete, c copy, a ask, A ask all, s send drafts, f active/drafts/all, r handled/reopen, q close"
+		)
 	end, "Annotation help")
 end
 
@@ -870,6 +1047,10 @@ function M.setup()
 		local action = opts.fargs[1] or "add"
 		if action == "add" then
 			M.add_current()
+		elseif action == "draft" then
+			M.add_current({ draft = true })
+		elseif action == "senddrafts" then
+			M.send_drafts()
 		elseif action == "copy" then
 			M.copy_current()
 		elseif action == "copyall" then
@@ -892,7 +1073,19 @@ function M.setup()
 	end, {
 		nargs = "?",
 		complete = function()
-			return { "add", "copy", "copyall", "ask", "askall", "list", "qflist", "delete", "deleteall" }
+			return {
+				"add",
+				"draft",
+				"senddrafts",
+				"copy",
+				"copyall",
+				"ask",
+				"askall",
+				"list",
+				"qflist",
+				"delete",
+				"deleteall",
+			}
 		end,
 	})
 
@@ -900,6 +1093,13 @@ function M.setup()
 	vim.keymap.set("x", "<leader>ana", M.add_visual, { desc = "Add annotation" })
 	vim.keymap.set("n", "gA", M.add_current, { desc = "Annotate current line" })
 	vim.keymap.set("x", "gA", M.add_visual, { desc = "Annotate selection" })
+	vim.keymap.set("n", "<leader>anb", function()
+		M.add_current({ draft = true })
+	end, { desc = "Draft annotation" })
+	vim.keymap.set("x", "<leader>anb", function()
+		M.add_visual({ draft = true })
+	end, { desc = "Draft selected annotation" })
+	vim.keymap.set("n", "<leader>ans", M.send_drafts, { desc = "Send draft review round" })
 	vim.keymap.set("n", "<leader>anc", M.copy_current, { desc = "Copy annotation" })
 	vim.keymap.set("n", "<leader>anC", M.copy_all, { desc = "Copy all annotations" })
 	vim.keymap.set("n", "<leader>ano", M.ask_current, { desc = "Ask OpenCode about annotation" })

@@ -152,7 +152,9 @@ function M.continue(cancel)
 		{ prompt = "Review feedback ownership" },
 		function(choice)
 			if choice == "Transfer outstanding feedback to the new session" then
-				local items = require("config.annotations").transfer(draft.root, draft.source, target)
+				local items = vim.tbl_filter(function(item)
+					return not item.draft
+				end, require("config.annotations").transfer(draft.root, draft.source, target))
 				if #items > 0 then
 					require("config.opencode_review").submit(items, draft.root)
 				end

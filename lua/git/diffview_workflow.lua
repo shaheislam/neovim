@@ -90,9 +90,72 @@ local function diff_dirs(dirs)
 	vim.cmd("DiffviewDiffDirs " .. vim.fn.fnameescape(dirs[1]) .. " " .. vim.fn.fnameescape(dirs[2]))
 end
 
+function M.scope()
+	local view = current_view()
+	local directory = view and view.adapter.ctx.toplevel or vim.fn.getcwd()
+	local result = vim.system({ "git", "-C", directory, "rev-parse", "--show-toplevel" }, { text = true }):wait()
+	if result.code ~= 0 then
+		vim.notify("Review scopes require a Git repository", vim.log.levels.WARN)
+		return
+	end
+	local root = vim.trim(result.stdout)
+	local context = require("config.review_context")
+	local comparison = view and context.comparison(view)
+	local owner = view and view.opencode_review and view.opencode_review.provenance
+		or require("config.agent_session").capture(root)
+	local header = root
+		.. " · "
+		.. (comparison and (context.revision_label(comparison.a) .. " → " .. context.revision_label(comparison.b)) or "choose comparison")
+		.. " · "
+		.. (owner and owner.sessionID or "no captured agent")
+	local scopes = {
+		"Uncommitted · index → working tree",
+		"Staged · HEAD → index",
+		"Last commit · HEAD^ → HEAD",
+		"Branch · merge-base → HEAD",
+		"Agent review · pinned commit → working tree",
+	}
+	local extra = "-C" .. vim.fn.fnameescape(root)
+	vim.ui.select(scopes, { prompt = header }, function(choice)
+		local diff = require("git.diffview")
+		if choice == scopes[1] then
+			diff.open(extra)
+		elseif choice == scopes[2] then
+			diff.open(extra .. " --staged")
+		elseif choice == scopes[3] then
+			diff.open_commit("HEAD", extra)
+		elseif choice == scopes[4] then
+			vim.ui.input({ prompt = "Branch comparison base: ", default = "@{upstream}" }, function(base)
+				if not base or vim.trim(base) == "" then
+					return
+				end
+				local resolved = vim.system(
+					{ "git", "-C", root, "rev-parse", "--verify", "--end-of-options", vim.trim(base) .. "^{commit}" },
+					{ text = true }
+				):wait()
+				if resolved.code == 0 then
+					resolved = vim.system(
+						{ "git", "-C", root, "merge-base", vim.trim(resolved.stdout), "HEAD" },
+						{ text = true }
+					)
+						:wait()
+				end
+				if resolved.code ~= 0 then
+					vim.notify("No valid merge base for " .. base, vim.log.levels.WARN)
+					return
+				end
+				diff.open_range(vim.trim(resolved.stdout), "HEAD", extra)
+			end)
+		elseif choice == scopes[5] then
+			require("config.opencode_review").start(nil, root)
+		end
+	end)
+end
+
 function M.setup(opts)
 	local api = assert(opts and opts.api, "git.diffview_workflow.setup requires api")
 	local selections = api.selections
+	vim.api.nvim_create_user_command("ReviewScope", M.scope, { desc = "Choose a review comparison without checkout" })
 
 	vim.api.nvim_create_user_command("DiffviewSetRevs", function(command_opts)
 		set_diffview_revs(api, command_opts.args)

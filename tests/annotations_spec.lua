@@ -86,6 +86,30 @@ local old_annotation = { file = "lua/example.lua", line = 30, end_line = 31, sid
 assert(review_context.item_matches(old_annotation, "lua/example.lua", 30, "old"), "old annotation appears on old pane")
 assert(not review_context.item_matches(old_annotation, "lua/example.lua", 30, "new"), "old annotation stays off new pane")
 
+local comparison = { a = { type = 2, commit = "base" }, b = { type = 1 } }
+local anchored = { context = "before", comparison = comparison }
+assert_equal(review_context.freshness(anchored, comparison, "before"), "current", "unchanged anchors remain current")
+assert_equal(
+	review_context.freshness(anchored, comparison, "after"),
+	"outdated",
+	"edited source makes an anchor outdated"
+)
+assert_equal(
+	review_context.freshness(anchored, { a = { commit = "other" } }, "before"),
+	"outdated",
+	"a different comparison is outdated even when source matches"
+)
+assert_equal(
+	review_context.freshness({}, comparison, "before"),
+	"unknown",
+	"legacy records without context are unknown"
+)
+assert_equal(
+	review_context.freshness(anchored, comparison, nil),
+	"unknown",
+	"unavailable source is not guessed current"
+)
+
 local prompt = review_context.prompt_for_items({
 	{
 		file = "lua/example.lua",

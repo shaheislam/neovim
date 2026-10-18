@@ -283,6 +283,34 @@ end, 10))
 eq(#reviews, opened + 1, "an active review still refreshes on a changed plan")
 eq(handoffs[2].open_diff, false, "active review plan handling preserves pinned revisions")
 
+-- A terminal-input idle batch must render without waiting for TermLeave.
+vim.cmd.vsplit()
+local terminal_win = vim.api.nvim_get_current_win()
+local terminal_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_win_set_buf(terminal_win, terminal_buf)
+vim.fn.jobstart({ "cat" }, { term = true })
+local get_mode = vim.api.nvim_get_mode
+vim.api.nvim_get_mode = function()
+	return { mode = "t" }
+end
+package.loaded["config.opencode_review"].start = function(_, _, opts)
+	assert(opts and opts.background, "terminal handoffs disable asynchronous initial diff focus")
+	vim.cmd.wincmd("p")
+	return true
+end
+batch({ "alpha.txt" }, { sessionID = "ses_three", routeRevision = 3 })
+assert(
+	vim.wait(1000, function()
+		return #reloads == 6
+	end, 10),
+	"terminal-input batch was deferred until editor focus"
+)
+eq(vim.api.nvim_get_current_win(), terminal_win, "automatic review preserves terminal focus")
+eq(vim.api.nvim_win_get_buf(terminal_win), terminal_buf, "automatic review preserves the terminal buffer")
+vim.api.nvim_get_mode = get_mode
+vim.fn.jobstop(vim.bo[terminal_buf].channel)
+vim.cmd.stopinsert()
+
 handoff.unregister_terminal(root, generation)
 eq(handoff.resolve_plan_route(handoffs[1].provenance), nil, "native plan provenance fails closed after terminal exit")
 eq(handoff.active_bindings(), {}, "terminal exit removes the active binding")

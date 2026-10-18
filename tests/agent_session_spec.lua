@@ -3,9 +3,17 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root, "p")
 assert(vim.system({ "git", "init", "-q", root }):wait().code == 0)
 root = vim.uv.fs_realpath(root)
-local native = { kind = "native", project = root, sessionID = "ses_native", generation = "native-owner" }
+local native =
+	{ kind = "native", project = root, sessionID = "ses_native", generation = "native-owner", routeRevision = 1 }
 local acp_route
 local sent = {}
+local returned, commands = 0, {}
+package.loaded["config.opencode_terminal"] = {
+	focus_generation = function(dir, generation)
+		assert(dir == root and generation == "native-owner")
+		returned = returned + 1
+	end,
+}
 package.loaded["config.opencode_handoff"] = {
 	capture_route = function()
 		return native
@@ -31,6 +39,11 @@ package.loaded["config.agent_acp"] = {
 	end,
 }
 package.loaded["config.opencode_http"] = {
+	post = function(path, body, cb, opts)
+		assert(path == "/tui/execute-command" and opts.dir == root)
+		commands[#commands + 1] = body.command
+		cb(true)
+	end,
 	prompt_async = function(id, text, opts, cb)
 		sent[#sent + 1] = { id, text, opts.dir }
 		cb(true)
@@ -40,7 +53,28 @@ local agent = require("config.agent_session")
 assert(agent.capture(root) == native, "native route remains compatible")
 assert(agent.submit(native, "native feedback", function(state)
 	assert(state == "submitted")
-end))
+end, { return_to_prompt = true }))
+assert(returned == 1, "accepted native feedback returns to its owned terminal")
+assert(
+	commands[1] == "nvim.annotation.return.native-owner.ses_native.1",
+	"UI return command targets the captured generation and route revision"
+)
+local prompt_async = package.loaded["config.opencode_http"].prompt_async
+package.loaded["config.opencode_http"].prompt_async = function(_, _, _, cb)
+	cb(false, "delivery failed")
+end
+agent.submit(native, "failed", function(state)
+	assert(state == "uncertain")
+end, { return_to_prompt = true })
+assert(returned == 1 and #commands == 1, "failed delivery leaves the user's UI alone")
+package.loaded["config.opencode_http"].prompt_async = function(_, _, _, cb)
+	native = vim.deepcopy(native)
+	cb(true)
+end
+local captured = native
+agent.submit(captured, "stale response", function() end, { return_to_prompt = true })
+assert(returned == 1 and #commands == 1, "a route replaced during delivery cannot reclaim focus")
+package.loaded["config.opencode_http"].prompt_async = prompt_async
 acp_route = { kind = "acp", project = root, harness = "claude", sessionID = "claude-id", generation = "acp-owner" }
 assert(not agent.capture(root), "ambiguous active owners must not be guessed")
 assert(not agent.open("claude", root), "ambiguous ownership cannot launch another writer")

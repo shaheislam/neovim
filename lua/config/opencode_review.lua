@@ -64,7 +64,7 @@ function M.current(root)
 	end
 end
 
-function M.start(base, directory)
+function M.start(base, directory, opts)
 	local result = vim.system(
 		{ "git", "-C", directory or vim.fn.getcwd(), "rev-parse", "--show-toplevel" },
 		{ text = true }
@@ -120,6 +120,12 @@ function M.start(base, directory)
 	context = context or { base = sha, provenance = provenance }
 	reviews[root] = context
 	view.opencode_review = context
+	if opts and opts.background then
+		-- Initial file rendering completes asynchronously after the handoff restores terminal focus.
+		view._should_focus_diff = function()
+			return false
+		end
+	end
 	require("config.review_progress").attach(view, context)
 	require("config.diffview_region").serialize_refresh(view)
 	-- The fork normally hides untracked files in commit-to-worktree diffs.
@@ -177,7 +183,7 @@ function M.submit(items, root)
 				vim.log.levels.WARN
 			)
 		end
-	end)
+	end, { return_to_prompt = true })
 end
 
 function M.refresh()

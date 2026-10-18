@@ -115,7 +115,8 @@ local function focus_path(path)
 end
 
 local function can_interrupt_editor()
-	return vim.api.nvim_get_mode().mode == "n" and not vim.bo[vim.api.nvim_get_current_buf()].modified
+	local mode = vim.api.nvim_get_mode().mode
+	return mode == "t" or (mode == "n" and not vim.bo[vim.api.nvim_get_current_buf()].modified)
 end
 
 local function plan_provenance(project, project_state)
@@ -150,19 +151,32 @@ local function process_project(project)
 	end
 	vim.fn.setqflist({}, " ", { title = "OpenCode changed files", items = items })
 
-	local review = require("config.opencode_review")
-	if not review.current(project) and pending.latest and pending.latest ~= project .. "/.plan.md" then
-		focus_path(pending.latest)
+	local terminal = vim.bo.buftype == "terminal" and vim.api.nvim_get_current_win() or nil
+	local input = vim.api.nvim_get_mode().mode == "t"
+	local ok, err = xpcall(function()
+		local review = require("config.opencode_review")
+		if not review.current(project) and pending.latest and pending.latest ~= project .. "/.plan.md" then
+			focus_path(pending.latest)
+		end
+		if vim.g.opencode_auto_diffview ~= false then
+			review.start(nil, project, { background = terminal ~= nil })
+		end
+		if pending.plan_changed then
+			require("config.diffview_idle").open_handoff({
+				project_dir = project,
+				open_diff = false,
+				provenance = plan_provenance(project, project_state),
+			})
+		end
+	end, debug.traceback)
+	if terminal and vim.api.nvim_win_is_valid(terminal) then
+		vim.api.nvim_set_current_win(terminal)
+		if input then
+			vim.cmd.startinsert()
+		end
 	end
-	if vim.g.opencode_auto_diffview ~= false then
-		review.start(nil, project)
-	end
-	if pending.plan_changed then
-		require("config.diffview_idle").open_handoff({
-			project_dir = project,
-			open_diff = false,
-			provenance = plan_provenance(project, project_state),
-		})
+	if not ok then
+		error(err)
 	end
 end
 

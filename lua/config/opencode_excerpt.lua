@@ -40,7 +40,7 @@ function M.open(provenance, selection)
 					"Annotation " .. tostring(status),
 					status == "submitted" and vim.log.levels.INFO or vim.log.levels.WARN
 				)
-			end)
+			end, { return_to_prompt = true })
 		end
 	)
 	return true

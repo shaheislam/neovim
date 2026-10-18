@@ -677,6 +677,20 @@ function M.toggle(dir)
 	return term
 end
 
+function M.focus_generation(dir, generation)
+	local entry = state.by_project[opts.project_root(dir)]
+	if not entry or entry.generation ~= generation or not terminal_live(entry.term) then
+		return false
+	end
+	if entry.term:is_open() then
+		entry.term:focus()
+	else
+		entry.term:open(resolve_size(entry.term))
+	end
+	vim.cmd.startinsert()
+	return true
+end
+
 function M.close(dir)
 	dir = opts.project_root(dir)
 	local entry = state.by_project[dir]

@@ -52,7 +52,7 @@ function M.resolve(provenance)
 	return require("config.opencode_handoff").resolve_plan_route(provenance)
 end
 
-function M.submit(provenance, text, callback)
+function M.submit(provenance, text, callback, opts)
 	local route = M.resolve(provenance)
 	if not route then
 		return false
@@ -62,6 +62,18 @@ function M.submit(provenance, text, callback)
 	end
 	require("config.opencode_http").prompt_async(route.sessionID, text, { dir = route.directory }, function(ok, err)
 		callback(ok and "submitted" or "uncertain", ok and nil or tostring(err))
+		if ok and opts and opts.return_to_prompt and M.resolve(provenance) then
+			-- Shared TUI events are safe only with a command unique to this exact attach route.
+			local command = table.concat(
+				{ "nvim.annotation.return", provenance.generation, route.sessionID, provenance.routeRevision },
+				"."
+			)
+			require("config.opencode_http").post("/tui/execute-command", { command = command }, function()
+				if M.resolve(provenance) then
+					require("config.opencode_terminal").focus_generation(route.directory, provenance.generation)
+				end
+			end, { dir = route.directory })
+		end
 	end)
 	return true
 end

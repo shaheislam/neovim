@@ -21,7 +21,8 @@ bind("ses_one", 1)
 local sent, pending, notices = {}, nil, {}
 package.loaded["config.agent_session"] = {
 	resolve = handoff.resolve_plan_route,
-	submit = function(provenance, text, callback)
+	submit = function(provenance, text, callback, opts)
+		assert(opts and opts.return_to_prompt, "excerpt annotations return to the conversation prompt")
 		assert(handoff.resolve_plan_route(provenance), "submitted a stale route")
 		sent[#sent + 1] = { provenance = provenance, text = text }
 		callback("submitted")

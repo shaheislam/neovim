@@ -62,7 +62,7 @@ local function bind(session, revision)
 		routeRevision = revision,
 	})
 end
-local calls = {}
+local calls, ui_commands = {}, {}
 local port
 local server = vim.fn.jobstart({
 	"python3",
@@ -75,6 +75,11 @@ class Handler(BaseHTTPRequestHandler):
     failed = False
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        if self.path == '/tui/execute-command':
+            self.send_response(204)
+            self.end_headers()
+            print(json.dumps({'command': body['command']}), flush=True)
+            return
         text = body['parts'][0]['text']
         status = 204
         if 'Simulate delivery failure' in text and not Handler.failed:
@@ -95,7 +100,12 @@ server.serve_forever()
 			if tonumber(line) then
 				port = tonumber(line)
 			elseif line ~= "" then
-				calls[#calls + 1] = vim.json.decode(line)
+				local call = vim.json.decode(line)
+				if call.command then
+					ui_commands[#ui_commands + 1] = call.command
+				else
+					calls[#calls + 1] = call
+				end
 			end
 		end
 	end,
@@ -117,9 +127,36 @@ review.setup()
 eq(review.start(), false, "review cannot guess a session before a native bind")
 bind("ses_review", 1)
 eq(review.start("missing-review-base"), false, "an invalid base cannot open a review")
-assert(review.start(), "review starts for the exact native binding")
 local lib = require("diffview.lib")
-local view = lib.get_current_view()
+vim.cmd.edit(root .. "/src/example.txt")
+vim.cmd.vsplit()
+local terminal_win = vim.api.nvim_get_current_win()
+local terminal_buf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_win_set_buf(terminal_win, terminal_buf)
+local terminal_job = vim.fn.jobstart({ "cat" }, { term = true })
+local get_mode = vim.api.nvim_get_mode
+vim.api.nvim_get_mode = function()
+	return { mode = "t" }
+end
+eq(
+	handoff.receive({
+		version = 1,
+		type = "idle_batch",
+		directory = root,
+		generation = "gen_review",
+		lease = hello.lease,
+		sessionID = "ses_review",
+		routeRevision = 1,
+		paths = { "src/example.txt" },
+	}).status,
+	"queued",
+	"terminal idle batch queues a real review"
+)
+wait_for(function()
+	return review.current(root) ~= nil
+end, "terminal idle batch did not create Diffview")
+local _, view = review.current(root)
+vim.api.nvim_get_mode = get_mode
 eq(view.left.commit, baseline, "review pins the starting commit")
 eq(view.left.track_head, false, "review never follows moving HEAD")
 local async = require("diffview.async")
@@ -157,6 +194,20 @@ end
 wait_for(function()
 	return side("b") and side("a")
 end, "real Diffview buffers did not load")
+vim.wait(300, function()
+	return false
+end, 20)
+eq(vim.api.nvim_get_current_win(), terminal_win, "asynchronous initial rendering preserves terminal focus")
+eq(vim.api.nvim_win_get_buf(terminal_win), terminal_buf, "background Diffview never replaces the terminal")
+vim.fn.jobstop(terminal_job)
+vim.cmd.stopinsert()
+view:close({ force = true })
+vim.api.nvim_win_close(terminal_win, true)
+assert(review.start(), "a foreground review reuses the background review's pinned context")
+view = lib.get_current_view()
+wait_for(function()
+	return side("a") and side("b")
+end, "foreground Diffview buffers did not load")
 local right = side("b")
 vim.api.nvim_set_current_win(right.id)
 vim.api.nvim_win_set_cursor(0, { 2, 0 })
@@ -200,6 +251,10 @@ end, "comment did not reach the exact-session HTTP endpoint")
 eq(#calls, 1, "saving a review comment automatically submits one prompt")
 eq(calls[1].path, "/session/ses_review/prompt_async", "comment targets the captured session")
 eq(calls[1].dir, root, "comment targets the linked worktree, not its main checkout")
+wait_for(function()
+	return #ui_commands == 1
+end, "accepted annotation did not request an exact-route UI return")
+eq(ui_commands[1], "nvim.annotation.return.gen_review.ses_review.1", "UI return is scoped to the captured native route")
 assert(calls[1].text:find("+after", 1, true), "comment hunk is against the pinned base, even after commit")
 assert(calls[1].text:find("new side", 1, true), "comment names the side of the diff")
 assert(calls[1].text:find(baseline, 1, true), "comment names the immutable baseline")

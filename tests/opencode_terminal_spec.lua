@@ -972,6 +972,30 @@ eq(terminal_adapter.start(context_dir, { session_id = "ses_other" }), restored, 
 assert(restored.cmd:match("ses_saved$"), "a repeated start cannot silently retarget a live owner")
 eq(terminal_adapter.session_snapshot()[context_dir].bufnr, restored.bufnr, "snapshot identifies the owned buffer")
 
+local focused = restored.__focus_count or 0
+assert(
+	not terminal_adapter.focus_generation(context_dir, "stale-generation"),
+	"stale feedback cannot focus a replacement terminal"
+)
+eq(restored.__focus_count or 0, focused, "rejected feedback leaves focus alone")
+assert(
+	terminal_adapter.focus_generation(context_dir, terminal_adapter.generation_for(context_dir)),
+	"feedback opens its live owned terminal"
+)
+assert(restored:is_open(), "feedback exposes a hidden owned terminal")
+focused = restored.__focus_count or 0
+assert(terminal_adapter.focus_generation(context_dir, terminal_adapter.generation_for(context_dir)))
+eq(restored.__focus_count, focused + 1, "visible feedback terminal is focused without rebuilding the layout")
+restored.__alive = false
+assert(
+	not terminal_adapter.focus_generation(context_dir, terminal_adapter.generation_for(context_dir)),
+	"feedback cannot spawn a dead terminal"
+)
+assert(
+	not terminal_adapter.focus_generation(context_dir .. "-missing", "missing"),
+	"feedback cannot create a missing owner"
+)
+
 for _, term in pairs(registry) do
 	pcall(function()
 		term:shutdown()

@@ -88,6 +88,9 @@ local function opencode_launch(dir, _, launch_context)
 	if launch_context and launch_context.session_id then
 		command = command .. " --session " .. vim.fn.shellescape(launch_context.session_id)
 	end
+	if launch_context and launch_context.model then
+		command = command .. " --model " .. vim.fn.shellescape(launch_context.model)
+	end
 
 	return {
 		cmd = command,
@@ -476,10 +479,7 @@ local function ask_with_context(prefix)
 end
 
 local function strip_vcs_prefix(bufname)
-	return bufname
-		:gsub("^diffview://", "")
-		:gsub("^[a-f0-9]+:", "")
-		:gsub("^%.git/[a-f0-9]+/", "")
+	return bufname:gsub("^diffview://", ""):gsub("^[a-f0-9]+:", ""):gsub("^%.git/[a-f0-9]+/", "")
 end
 
 local function prompt_filepath(bufnr)
@@ -698,8 +698,12 @@ local function run_named_prompt_locally(name, opts)
 		local ok, config = pcall(function()
 			return require("opencode.config").opts
 		end)
-		local prompt = ok and config
-			and ((config.prompts and config.prompts[name]) or (config.select and config.select.prompts and config.select.prompts[name]))
+		local prompt = ok
+			and config
+			and (
+				(config.prompts and config.prompts[name])
+				or (config.select and config.select.prompts and config.select.prompts[name])
+			)
 		local text = prompt_text(prompt) or name
 		local function send(final_text)
 			submit_prompt_locally(file_ctx .. selection_ctx .. final_text)
@@ -731,7 +735,6 @@ end
 local function select_opencode_session()
 	require("config.opencode_pickers").sessions("all", { session_scope = "local" })
 end
-
 
 local function send_visual_selection()
 	local start_line, end_line = get_visual_range()
@@ -859,103 +862,103 @@ return {
 				desc = "Add line to opencode",
 				expr = true,
 			},
-		-- Named prompts
-		{
-			"<leader>aoe",
-			run_named_prompt_locally("explain"),
-			mode = "n",
-			desc = "Explain (opencode)",
-		},
-		{
-			"<leader>aoe",
-			run_named_prompt_locally("explain", { with_selection = true }),
-			mode = "x",
-			desc = "Explain (opencode)",
-		},
-		{
-			"<leader>aof",
-			run_named_prompt_locally("fix"),
-			mode = "n",
-			desc = "Fix diagnostics (opencode)",
-		},
-		{
-			"<leader>aof",
-			run_named_prompt_locally("fix", { with_selection = true }),
-			mode = "x",
-			desc = "Fix diagnostics (opencode)",
-		},
-		{
-			"<leader>aor",
-			run_named_prompt_locally("review"),
-			mode = "n",
-			desc = "Review (opencode)",
-		},
-		{
-			"<leader>aor",
-			run_named_prompt_locally("review", { with_selection = true }),
-			mode = "x",
-			desc = "Review (opencode)",
-		},
-		{
-			"<leader>aot",
-			run_named_prompt_locally("test"),
-			mode = "n",
-			desc = "Add tests (opencode)",
-		},
-		{
-			"<leader>aot",
-			run_named_prompt_locally("test", { with_selection = true }),
-			mode = "x",
-			desc = "Add tests (opencode)",
-		},
-		{
-			"<leader>aod",
-			run_named_prompt_locally("document"),
-			mode = "n",
-			desc = "Document (opencode)",
-		},
-		{
-			"<leader>aod",
-			run_named_prompt_locally("document", { with_selection = true }),
-			mode = "x",
-			desc = "Document (opencode)",
-		},
-		{
-			"<leader>aoo",
-			run_named_prompt_locally("optimize"),
-			mode = "n",
-			desc = "Optimize (opencode)",
-		},
-		{
-			"<leader>aoo",
-			run_named_prompt_locally("optimize", { with_selection = true }),
-			mode = "x",
-			desc = "Optimize (opencode)",
-		},
-		{
-			"<leader>ai",
-			run_named_prompt_locally("implement"),
-			mode = "n",
-			desc = "Implement (opencode)",
-		},
-		{
-			"<leader>ai",
-			run_named_prompt_locally("implement", { with_selection = true }),
-			mode = "x",
-			desc = "Implement (opencode)",
-		},
-		{
-			"<leader>aoE",
-			run_named_prompt_locally("diagnostics"),
-			mode = "n",
-			desc = "Explain diagnostics (opencode)",
-		},
-		{
-			"<leader>aoE",
-			run_named_prompt_locally("diagnostics", { with_selection = true }),
-			mode = "x",
-			desc = "Explain diagnostics (opencode)",
-		},
+			-- Named prompts
+			{
+				"<leader>aoe",
+				run_named_prompt_locally("explain"),
+				mode = "n",
+				desc = "Explain (opencode)",
+			},
+			{
+				"<leader>aoe",
+				run_named_prompt_locally("explain", { with_selection = true }),
+				mode = "x",
+				desc = "Explain (opencode)",
+			},
+			{
+				"<leader>aof",
+				run_named_prompt_locally("fix"),
+				mode = "n",
+				desc = "Fix diagnostics (opencode)",
+			},
+			{
+				"<leader>aof",
+				run_named_prompt_locally("fix", { with_selection = true }),
+				mode = "x",
+				desc = "Fix diagnostics (opencode)",
+			},
+			{
+				"<leader>aor",
+				run_named_prompt_locally("review"),
+				mode = "n",
+				desc = "Review (opencode)",
+			},
+			{
+				"<leader>aor",
+				run_named_prompt_locally("review", { with_selection = true }),
+				mode = "x",
+				desc = "Review (opencode)",
+			},
+			{
+				"<leader>aot",
+				run_named_prompt_locally("test"),
+				mode = "n",
+				desc = "Add tests (opencode)",
+			},
+			{
+				"<leader>aot",
+				run_named_prompt_locally("test", { with_selection = true }),
+				mode = "x",
+				desc = "Add tests (opencode)",
+			},
+			{
+				"<leader>aod",
+				run_named_prompt_locally("document"),
+				mode = "n",
+				desc = "Document (opencode)",
+			},
+			{
+				"<leader>aod",
+				run_named_prompt_locally("document", { with_selection = true }),
+				mode = "x",
+				desc = "Document (opencode)",
+			},
+			{
+				"<leader>aoo",
+				run_named_prompt_locally("optimize"),
+				mode = "n",
+				desc = "Optimize (opencode)",
+			},
+			{
+				"<leader>aoo",
+				run_named_prompt_locally("optimize", { with_selection = true }),
+				mode = "x",
+				desc = "Optimize (opencode)",
+			},
+			{
+				"<leader>ai",
+				run_named_prompt_locally("implement"),
+				mode = "n",
+				desc = "Implement (opencode)",
+			},
+			{
+				"<leader>ai",
+				run_named_prompt_locally("implement", { with_selection = true }),
+				mode = "x",
+				desc = "Implement (opencode)",
+			},
+			{
+				"<leader>aoE",
+				run_named_prompt_locally("diagnostics"),
+				mode = "n",
+				desc = "Explain diagnostics (opencode)",
+			},
+			{
+				"<leader>aoE",
+				run_named_prompt_locally("diagnostics", { with_selection = true }),
+				mode = "x",
+				desc = "Explain diagnostics (opencode)",
+			},
 			-- Session and agent controls
 			{
 				"<leader>aon",
@@ -1050,22 +1053,22 @@ return {
 				mode = "n",
 				desc = "Search local opencode messages across sessions",
 			},
-		{
-			"<leader>aoF",
-			function()
-				require("config.opencode_pickers").forkpane()
-			end,
-			mode = "n",
-			desc = "Fork opencode session into new pane",
-		},
-		{
-			"<leader>aoW",
-			function()
-				require("config.opencode_pickers").gwtfork()
-			end,
-			mode = "n",
-			desc = "Fork opencode session into new worktree",
-		},
+			{
+				"<leader>aoF",
+				function()
+					require("config.opencode_pickers").forkpane()
+				end,
+				mode = "n",
+				desc = "Fork opencode session into new pane",
+			},
+			{
+				"<leader>aoW",
+				function()
+					require("config.opencode_pickers").gwtfork()
+				end,
+				mode = "n",
+				desc = "Fork opencode session into new worktree",
+			},
 			{
 				"<leader>aog",
 				function()

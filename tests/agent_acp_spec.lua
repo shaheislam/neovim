@@ -20,14 +20,25 @@ package.loaded["codecompanion.acp"] = {
 	new = function(opts)
 		local conn = { adapter = opts.adapter, _state = { handle = {} }, model = "claude-opus-test" }
 		function conn:get_models()
-			return { currentModelId = self.model, availableModels = { { modelId = "claude-opus-test", name = "Opus" }, { modelId = "gpt-6-sol", name = "Codex" } } }
+			return {
+				currentModelId = self.model,
+				availableModels = {
+					{ modelId = "claude-opus-test", name = "Opus" },
+					{ modelId = "gpt-6-sol", name = "Codex" },
+				},
+			}
 		end
 		function conn:set_model(value)
-			if value == "opus" then value = "claude-opus-test" end
-			if value ~= "claude-opus-test" and value ~= "gpt-6-sol" then return false end
+			if value == "opus" then
+				value = "claude-opus-test"
+			end
+			if value ~= "claude-opus-test" and value ~= "gpt-6-sol" then
+				return false
+			end
 			self.model = value
 			return true
 		end
+		function conn:handle_available_commands_update() end
 		function conn:start_agent_process()
 			return true
 		end
@@ -45,7 +56,9 @@ package.loaded["codecompanion.acp"] = {
 			if method == "session/load" and fail_load then
 				return nil
 			end
-			return method == "session/new" and { sessionId = "exact-session-" .. #connections } or {}
+			local id = method == "session/new" and "exact-session-" .. #connections or params.sessionId
+			self:handle_available_commands_update(id, { { name = "goal" } })
+			return method == "session/new" and { sessionId = id } or {}
 		end
 		function conn:disconnect()
 			self.closed = true
@@ -77,8 +90,14 @@ package.loaded["codecompanion.interactions.chat"] = {
 local acp = require("config.agent_acp")
 local owner = assert(acp.open("claude", root, { hidden = true, model = "opus" }))
 assert(owner.connection.model == "claude-opus-test", "native Claude aliases resolve to verified advertised models")
-assert(not acp.open("claude", root, { hidden = true, model = "missing" }), "an existing owner cannot silently ignore a rejected model")
+assert(
+	not acp.open("claude", root, { hidden = true, model = "missing" }),
+	"an existing owner cannot silently ignore a rejected model"
+)
 local route = assert(acp.capture(root))
+assert(acp.commands(route, 0)[1].name == "goal", "command publication during session opening is retained")
+owner.connection:handle_available_commands_update(owner.sessionID, {})
+assert(#acp.commands(route, 0) == 0, "an observed empty command list replaces the old list")
 assert(route.sessionID == owner.connection.session_id and route.harness == "claude")
 assert(calls[1].params.cwd == vim.uv.fs_realpath(root), "session creation pins the canonical worktree")
 local receipts = {}

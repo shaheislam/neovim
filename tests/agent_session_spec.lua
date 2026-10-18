@@ -73,11 +73,12 @@ package.loaded["config.opencode_terminal"] = {
 	end,
 	start = function(_, context)
 		assert(context.session_id == "ses_created", "a fresh native launch must use an explicitly created session")
+		assert(context.model == "provider/chosen", "the startup model reaches the exact attach command")
 		launched[#launched + 1] = context.session_id
 		native = { kind = "native", project = root, sessionID = context.session_id, generation = "native-owner" }
 	end,
 }
-assert(agent.open("opencode", root, { hidden = true }))
+assert(agent.open("opencode", root, { hidden = true, model = "provider/chosen" }))
 assert(created == 1 and #launched == 1, "create the exact native session before launching its terminal")
 local original_open, cwd = agent.open, vim.fn.getcwd()
 local startup = {}
@@ -95,9 +96,19 @@ agent.open = function(harness, dir)
 	startup[#startup + 1] = "agent"
 end
 vim.fn.chdir(root)
+package.loaded["config.agent_startup"] = {
+	run = function(path, dir, harness)
+		assert(path == "/tmp/agent-startup-spec-request" and not vim.env.NVIM_AGENT_STARTUP_FILE)
+		agent.open(harness, dir)
+	end,
+}
 vim.env.NVIM_AGENT_HARNESS, vim.env.NVIM_AGENT_LAYOUT = "codex", "1"
+vim.env.NVIM_AGENT_STARTUP_FILE = "/tmp/agent-startup-spec-request"
 agent.setup()
-assert(not vim.env.NVIM_AGENT_HARNESS and not vim.env.NVIM_AGENT_LAYOUT, "startup flags do not leak to child shells")
+assert(
+	not vim.env.NVIM_AGENT_HARNESS and not vim.env.NVIM_AGENT_LAYOUT and not vim.env.NVIM_AGENT_STARTUP_FILE,
+	"startup flags do not leak to child shells"
+)
 vim.api.nvim_exec_autocmds("VimEnter", {})
 assert(
 	vim.wait(1000, function()
@@ -106,6 +117,8 @@ assert(
 	"selected worktree agent opens after VimEnter"
 )
 assert(vim.deep_equal(startup, { "shell", "agent" }), "worktree startup builds the shell before its selected agent")
+vim.api.nvim_exec_autocmds("VimEnter", {})
+assert(#startup == 2, "repeated readiness events do not replay the startup request")
 agent.open = original_open
 vim.fn.chdir(cwd)
 vim.fn.delete(root, "rf")

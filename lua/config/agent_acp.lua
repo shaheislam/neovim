@@ -137,6 +137,45 @@ function M.focus(owner)
 	require("codecompanion.interactions.chat").open({ ui = owner.chat.ui })
 end
 
+local function select_model(connection, harness, requested)
+	if not requested or requested == "" then
+		return
+	end
+	local models = connection.get_models and connection:get_models()
+	assert(models, "The adapter did not advertise model selection")
+	local aliases = harness == "claude" and vim.tbl_contains({ "opus", "sonnet", "haiku" }, requested)
+	local function advertised(id)
+		for _, model in ipairs(models.availableModels or {}) do
+			if model.modelId == id then
+				return true
+			end
+		end
+		return false
+	end
+	assert(aliases or advertised(requested), "Requested model is unavailable: " .. requested)
+	assert(connection:set_model(requested), "The adapter rejected model: " .. requested)
+	local selected = connection:get_models()
+	assert(selected and advertised(selected.currentModelId), "The adapter did not confirm its selected model")
+	assert(
+		selected.currentModelId == requested or (aliases and selected.currentModelId:lower():find(requested, 1, true)),
+		"The adapter selected a different model"
+	)
+end
+
+function M.commands(provenance, timeout)
+	local owner = M.resolve(provenance)
+	if not owner then
+		return nil, "The ACP owner is no longer live"
+	end
+	local observed = vim.wait(timeout or 5000, function()
+		return not alive(owner) or owner.command_updates[owner.sessionID] ~= nil
+	end, 20)
+	if not observed or not alive(owner) then
+		return nil, "The adapter has not published its commands"
+	end
+	return owner.command_updates[owner.sessionID]
+end
+
 function M.open(harness, root, opts)
 	opts = opts or {}
 	assert(packages[harness], "unsupported ACP harness")
@@ -151,6 +190,10 @@ function M.open(harness, root, opts)
 				return nil, "Finish the current turn before creating a new session"
 			end
 		else
+			local selected, err = pcall(select_model, existing.connection, harness, opts.model)
+			if not selected then
+				return nil, err
+			end
 			if not opts.hidden then
 				M.focus(existing)
 			end
@@ -194,6 +237,14 @@ function M.open(harness, root, opts)
 		})
 		assert(connection:start_agent_process() and connection:_initialize(), "ACP adapter initialization failed")
 		connection._authenticated = true
+		local command_updates = {}
+		local register_commands = connection.handle_available_commands_update
+		if register_commands then
+			connection.handle_available_commands_update = function(self, id, commands)
+				command_updates[id] = commands
+				return register_commands(self, id, commands)
+			end
+		end
 		local file = session_file(root, harness)
 		local saved
 		if not opts.new and vim.fn.filereadable(file) == 1 then
@@ -227,6 +278,7 @@ function M.open(harness, root, opts)
 		if session.configOptions then
 			connection:_apply_config_options(session.configOptions)
 		end
+		select_model(connection, harness, opts.model)
 		local owner = {
 			root = root,
 			harness = harness,
@@ -234,6 +286,7 @@ function M.open(harness, root, opts)
 			sessionID = connection.session_id,
 			generation = tostring(vim.uv.hrtime()),
 			queue = {},
+			command_updates = command_updates,
 		}
 		local function retire()
 			owner.closed = true

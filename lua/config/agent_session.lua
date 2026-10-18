@@ -101,13 +101,17 @@ function M.open(harness, root, opts)
 	require("lazy").load({ plugins = { "opencode.nvim" } })
 	local terminal = require("config.opencode_terminal")
 	if current and current.kind == "native" and not opts.new then
+		if opts.model then
+			vim.notify("A startup model cannot replace an already-open OpenCode client", vim.log.levels.ERROR)
+			return nil
+		end
 		if not opts.hidden then
 			terminal.open(root)
 		end
 		return current
 	end
 	local file = M.file(root, "agent-opencode.json")
-	local context = {}
+	local context = { model = opts.model }
 	if not opts.new and vim.fn.filereadable(file) == 1 then
 		local saved = vim.json.decode(table.concat(vim.fn.readfile(file), "\n"))
 		assert(
@@ -161,7 +165,9 @@ end
 
 function M.setup()
 	local startup, layout = vim.env.NVIM_AGENT_HARNESS, vim.env.NVIM_AGENT_LAYOUT == "1"
+	local startup_file = vim.env.NVIM_AGENT_STARTUP_FILE
 	vim.env.NVIM_AGENT_HARNESS, vim.env.NVIM_AGENT_LAYOUT = nil, nil
+	vim.env.NVIM_AGENT_STARTUP_FILE = nil
 	local group = vim.api.nvim_create_augroup("agent_sessions", { clear = true })
 	vim.api.nvim_create_autocmd("User", {
 		group = group,
@@ -212,7 +218,11 @@ function M.setup()
 							vim.api.nvim_set_current_win(editor)
 						end
 					end
-					M.open(startup, root)
+					if startup_file then
+						require("config.agent_startup").run(startup_file, root, startup)
+					else
+						M.open(startup, root)
+					end
 				end)
 			end,
 		})

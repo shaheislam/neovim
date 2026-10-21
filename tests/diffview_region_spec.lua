@@ -1,12 +1,16 @@
 -- Integration: native Diffview controls inside a live editor/shell/chat layout.
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
-for _, plugin in ipairs({ "plenary.nvim", "diffview.nvim", "mini.nvim" }) do
+for _, plugin in ipairs({ "plenary.nvim", "diffview.nvim", "mini.nvim", "viewport.nvim" }) do
 	vim.opt.rtp:prepend(vim.fn.stdpath("data") .. "/lazy/" .. plugin)
 end
 vim.cmd("runtime plugin/diffview.lua")
 vim.o.hidden, vim.o.swapfile = true, false
+vim.o.columns, vim.o.lines = 133, 40
+vim.cmd("redraw")
 local api = vim.api
 local cwd, root = vim.fn.getcwd(), vim.fn.tempname()
+dofile(cwd .. "/lua/config/keymaps.lua")
+dofile(cwd .. "/lua/plugins/viewport.lua")[1].config()
 vim.fn.mkdir(root, "p")
 root = assert(vim.uv.fs_realpath(root))
 local function git(...)
@@ -82,7 +86,16 @@ package.loaded["config.agent_session"] = {
 dofile(cwd .. "/lua/plugins/git/diffview.lua").config()
 local review = require("config.opencode_review")
 local tab = api.nvim_get_current_tabpage()
+print("CHECK opening")
 assert(review.start("HEAD", root))
+print("CHECK opened")
+local deadline = vim.uv.hrtime() + 5e9
+debug.sethook(function()
+	if vim.uv.hrtime() > deadline then
+		print(debug.traceback("TEST WATCHDOG"))
+		os.exit(1)
+	end
+end, "", 100000)
 assert(api.nvim_get_current_tabpage() == tab, "agent review escaped the editor region into a new tab")
 local lib = require("diffview.lib")
 local view = lib.get_current_view()
@@ -91,8 +104,30 @@ local function settled()
 	return view.ready and view.cur_entry and not view.panel.updating and (not pending or pending:is_done())
 end
 assert(vim.wait(5000, settled, 20), "embedded review did not load")
+print("CHECK settled")
 preserved()
 assert(view.panel:is_open(), "native file sidebar is missing")
+local initial_panel_width = api.nvim_win_get_width(view.panel.winid)
+print("CHECK initial", initial_panel_width)
+view.panel:focus()
+vim.cmd("normal! \23>")
+assert(api.nvim_win_get_width(view.panel.winid) == initial_panel_width + 1, "native panel resize failed")
+print("CHECK native")
+vim.cmd(vim.fn.maparg("<C-Right>", "n"):gsub("^:", ""):gsub("<CR>$", ""))
+assert(api.nvim_win_get_width(view.panel.winid) == initial_panel_width + 3, "Ctrl-Right panel resize failed")
+print("CHECK arrow")
+require("viewport").start_resize_mode()
+print("CHECK viewport start")
+vim.fn.maparg("l", "n", false, true).callback()
+print("CHECK viewport l")
+vim.fn.maparg("<Esc>", "n", false, true).callback()
+print("CHECK viewport stop")
+assert(api.nvim_win_get_width(view.panel.winid) == initial_panel_width + 5, "Viewport panel resize failed")
+api.nvim_win_set_width(view.panel.winid, 30)
+assert(api.nvim_win_get_width(view.panel.winid) == 30, "initial width cap blocked manual resizing")
+preserved()
+assert(initial_panel_width == 22, "66-column review must size its file panel from the whole editor region")
+print("CHECK panel width")
 local region = require("config.diffview_region")
 local pane = require("config.window_zoom")
 for _, source in ipairs({ view.panel.winid, view.cur_layout.windows[1].id, view.cur_layout.windows[2].id }) do
@@ -107,6 +142,7 @@ for _, source in ipairs({ view.panel.winid, view.cur_layout.windows[1].id, view.
 	preserved()
 end
 view.panel.updating = true
+print("CHECK pane zoom")
 vim.schedule(function()
 	view.panel.updating = false
 end)
@@ -140,9 +176,11 @@ for _, source in ipairs({ view.panel.winid, view.cur_layout.windows[1].id, view.
 	assert(not api.nvim_win_is_valid(floating), "workspace restore left an individual pane zoomed")
 	assert(view.tabpage == tab and #api.nvim_list_tabpages() == 1, "unzoom leaked a tab")
 	assert(api.nvim_get_current_win() == source, "unzoom lost focus")
+	assert(api.nvim_win_get_width(view.panel.winid) == 30, "unzoom lost the custom panel width")
 	preserved()
 end
 api.nvim_set_current_win(chat)
+print("CHECK group zoom")
 assert(not region.toggle_zoom(), "agent panel inherited collective zoom")
 assert(lib.get_current_view() == nil, "agent panel inherited Diffview controls")
 assert(review.current(root), "background review lost its pinned context in the agent panel")
@@ -157,10 +195,12 @@ assert(
 	"background refresh stalled"
 )
 assert(api.nvim_get_current_win() == chat, "background refresh stole agent focus")
+assert(api.nvim_win_get_width(view.panel.winid) == 30, "refresh lost the custom panel width")
 preserved()
 api.nvim_set_current_win(view.cur_layout:get_main_win().id)
 view:next_file(true)
 assert(vim.wait(5000, settled, 20), "file navigation did not settle")
+assert(api.nvim_win_get_width(view.panel.winid) == 30, "navigation lost the custom panel width")
 preserved()
 for _ = 1, 3 do
 	local previous = view.cur_layout
@@ -171,10 +211,13 @@ for _ = 1, 3 do
 		end, 20),
 		"layout cycling stalled"
 	)
+	assert(api.nvim_win_get_width(view.panel.winid) == 30, "layout cycling lost the custom panel width")
 	preserved()
 end
 view.panel:close()
+print("CHECK cycle layouts")
 view.panel:open()
+assert(api.nvim_win_get_width(view.panel.winid) == initial_panel_width, "panel reopen must use its initial region width")
 preserved()
 local refreshed = false
 view:update_files(nil, function()

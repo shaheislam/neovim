@@ -281,6 +281,7 @@ function M.open(view)
 	install()
 	M.serialize_refresh(view)
 	api.nvim_set_current_win(origin)
+	local panel_width = math.max(12, math.min(28, math.floor(api.nvim_win_get_width(origin) / 3)))
 	local region = {
 		windows = { [origin] = true },
 		companions = {},
@@ -363,7 +364,7 @@ function M.open(view)
 	view.panel.get_config = function(panel)
 		local options = vim.deepcopy(config(panel))
 		options.relative, options.win = "win", region_window(view)
-		options.width = math.max(12, math.min(28, math.floor(api.nvim_win_get_width(options.win) / 3)))
+		options.width = panel_width
 		return options
 	end
 	view.init_layout = function(self)

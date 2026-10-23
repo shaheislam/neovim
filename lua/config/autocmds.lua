@@ -3,6 +3,7 @@
 
 -- Load styling system
 require("config.autocmds.styling").setup()
+require("config.cursorline").setup()
 
 -- Load LSP autocmds
 require("config.autocmds.lsp").setup()

@@ -2,6 +2,7 @@
 
 local workflow = require("git.workflow")
 local return_target = require("config.return_target")
+local cursorline = require("config.cursorline")
 local git_command = require("git.command")
 local commit_cycle_state = workflow.commit_cycle_state
 local cross_worktree_state = workflow.cross_worktree_state
@@ -1067,7 +1068,11 @@ return {
 								-- Restore window options in any window showing this buffer
 								for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
 									pcall(function()
-										vim.wo[win].cursorline = vim.o.cursorline
+										local enabled = prior.cursorline[win]
+										if enabled == nil then
+											enabled = cursorline.get(win)
+										end
+										cursorline.set(win, enabled)
 										vim.wo[win].signcolumn = vim.o.signcolumn
 										vim.wo[win].foldcolumn = vim.o.foldcolumn
 										vim.wo[win].statuscolumn = vim.o.statuscolumn
@@ -1091,6 +1096,13 @@ return {
 				diff_buf_read = function(bufnr)
 					-- Track this buffer with prior state for exact restoration
 					local prior = {}
+					local previous = diffview_modified_bufs[bufnr]
+					prior.cursorline = previous and previous.cursorline or {}
+					for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+						if prior.cursorline[win] == nil then
+							prior.cursorline[win] = cursorline.get(win)
+						end
+					end
 					-- Capture buffer-local toggle state (nil = "use global default")
 					prior.blink_pairs = vim.b[bufnr].blink_pairs
 					prior.indent_guide = vim.b[bufnr].indent_guide
@@ -1111,7 +1123,7 @@ return {
 					vim.opt_local.colorcolumn = ""
 
 					-- Reduce redraw cost: disable expensive per-line rendering
-					vim.wo.cursorline = false
+					cursorline.set(vim.api.nvim_get_current_win(), false)
 					vim.wo.relativenumber = false
 					vim.wo.signcolumn = "yes:1"
 					vim.wo.foldcolumn = "0"

@@ -58,6 +58,13 @@ jobs:
       - name: Noice tests
         run: nvim --headless -l tests/noice_spec.lua
 
+      - name: Cursorline focus tests
+        env:
+          NVIM_APPNAME: nvim-mini
+        run: |
+          nvim --headless -l tests/cursorline_spec.lua
+          nvim --headless -l tests/cursorline_diffview_spec.lua
+
       - name: OpenCode handoff tests
         run: |
           nvim --headless -l tests/opencode_handoff_spec.lua

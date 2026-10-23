@@ -9,7 +9,8 @@ function M.get(win)
 end
 
 function M.set(win, enabled)
-  if win == vim.api.nvim_get_current_win() then
+  local terminal = vim.bo[vim.api.nvim_win_get_buf(win)].buftype == "terminal"
+  if win == vim.api.nvim_get_current_win() and not terminal then
     vim.w[win].nvim_mini_cursorline = nil
     vim.wo[win].cursorline = enabled
   else
@@ -23,11 +24,11 @@ function M.setup()
   vim.api.nvim_create_autocmd("WinLeave", {
     group = group,
     callback = function()
-      vim.w.nvim_mini_cursorline = vim.wo.cursorline
+      vim.w.nvim_mini_cursorline = M.get(vim.api.nvim_get_current_win())
       vim.wo.cursorline = false
     end,
   })
-  vim.api.nvim_create_autocmd("WinEnter", {
+  vim.api.nvim_create_autocmd({ "WinEnter", "BufWinEnter", "TermOpen", "TermEnter", "TermLeave" }, {
     group = group,
     callback = function()
       local win = vim.api.nvim_get_current_win()

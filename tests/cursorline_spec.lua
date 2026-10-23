@@ -29,13 +29,18 @@ assert(not vim.wo.cursorline, "deliberately disabled cursorline must stay disabl
 vim.wo.cursorline = true
 
 api.nvim_set_current_win(other)
+vim.wo.cursorline = true
 local job = vim.fn.jobstart({ "cat" }, { term = true })
 assert(job > 0, "terminal fixture must start")
-vim.wo.cursorline = true
+assert(not vim.wo.cursorline, "new terminal must not inherit the editor's cursorline")
 api.nvim_set_current_win(editor)
 assert(not vim.wo[other].cursorline, "inactive terminal must hide its cursorline")
 api.nvim_set_current_win(other)
-assert(vim.wo.cursorline, "terminal roundtrip must restore its cursorline preference")
+assert(not vim.wo.cursorline, "focused terminal must keep its cursorline disabled")
+require("config.cursorline").set(other, true)
+assert(not vim.wo.cursorline, "restoring a preference must not highlight a terminal")
+vim.cmd("enew")
+assert(vim.wo.cursorline, "replacing a terminal with an editor must restore its cursorline preference")
 api.nvim_set_current_win(editor)
 assert(vim.wo.cursorline, "editor roundtrip from terminal must restore its cursorline")
 vim.fn.jobstop(job)
@@ -62,3 +67,57 @@ assert(not vim.wo.cursorline, "new focused tab must inherit a disabled cursorlin
 vim.cmd("tabclose")
 
 print("PASS cursorline: per-window focus, disabled preferences, terminal, tabs and background restoration")
+
+local child = vim.fn.jobstart({ vim.v.progpath, "--embed", "--headless", "-u", "NONE", "-i", "NONE", "-n" }, { rpc = true })
+assert(child > 0, "isolated Neovim must start")
+local function lua(code, ...)
+  return vim.rpcrequest(child, "nvim_exec_lua", code, { ... })
+end
+local function wait_for_mode(mode)
+  assert(vim.wait(1500, function()
+    return lua("return vim.fn.mode()") == mode
+  end, 10), "terminal must enter mode " .. mode)
+end
+local function check_terminal(label)
+  assert(not lua("return vim.wo.cursorline"), label .. " must not enable cursorline")
+  assert(lua([[
+    vim.cmd.redraw()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local pos = vim.fn.screenpos(0, cursor[1], 1)
+    local cell = vim.api.nvim__inspect_cell(1, pos.row - 1, pos.col + 15)
+    return cell[2].background ~= 0xff00ff
+  ]]), label .. " must not render a full-width cursor band")
+end
+
+local ok, err = xpcall(function()
+  vim.rpcrequest(child, "nvim_ui_attach", 80, 24, { rgb = true })
+  lua([[
+    vim.opt.rtp:prepend(...)
+    vim.opt.cursorline = true
+    require("config.cursorline").setup()
+    vim.api.nvim_set_hl(0, "CursorLine", { bg = "#ff00ff" })
+    vim.g.editor = vim.api.nvim_get_current_win()
+    vim.cmd.vnew()
+    vim.g.terminal = vim.api.nvim_get_current_win()
+    assert(vim.fn.jobstart({ "cat" }, { term = true }) > 0)
+  ]], vim.fn.getcwd())
+  check_terminal("Terminal creation")
+  lua("vim.cmd.startinsert()")
+  wait_for_mode("t")
+  check_terminal("Terminal-input mode")
+  vim.rpcrequest(child, "nvim_input", "<C-\\><C-n>")
+  wait_for_mode("n")
+  check_terminal("Terminal Normal mode")
+  lua("vim.api.nvim_set_current_win(vim.g.editor)")
+  assert(lua("return vim.wo.cursorline"), "focused editor must retain its cursorline")
+  assert(not lua("return vim.wo[vim.g.terminal].cursorline"), "inactive terminal must remain unhighlighted")
+  lua("vim.api.nvim_set_current_win(vim.g.terminal)")
+  check_terminal("Terminal refocus")
+  lua("vim.cmd.startinsert()")
+  wait_for_mode("t")
+  check_terminal("Terminal-input re-entry")
+end, debug.traceback)
+vim.fn.jobstop(child)
+vim.fn.jobwait({ child }, 1000)
+assert(ok, err)
+print("PASS cursorline: real terminal mode transitions and rendered cursor rows")

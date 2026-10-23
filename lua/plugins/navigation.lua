@@ -32,17 +32,16 @@ return {
       desc = "Resume terminal-job mode after window navigation",
       callback = function(event)
         local resume_buf = vim.w.nvim_mini_terminal_navigation_buf
-        if resume_buf == nil then
-          return
-        end
-
         vim.w.nvim_mini_terminal_navigation_buf = nil
         if
-          resume_buf == event.buf
-          and vim.api.nvim_get_current_buf() == event.buf
+          vim.api.nvim_get_current_buf() == event.buf
           and vim.bo[event.buf].buftype == "terminal"
         then
-          vim.cmd("startinsert")
+          local ok, opencode = pcall(require, "config.opencode_terminal")
+          -- OpenCode is a composer: entering it must accept typing even after Normal mode.
+          if resume_buf == event.buf or (ok and opencode.is_buffer(event.buf)) then
+            vim.cmd("startinsert")
+          end
         end
       end,
     })

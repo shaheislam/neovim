@@ -209,6 +209,18 @@ eq(
 )
 eq(recorded_terminal_calls[4], { action = "spawn" }, "fresh reopen starts a new terminal process")
 
+toggle_terminal()
+vim.o.columns = 81
+toggle_terminal()
+eq(
+	recorded_terminal_calls[#recorded_terminal_calls],
+	{ action = "open_via_toggle", size = 48 },
+	"a narrow editor keeps OCV above its crashing text width, including terminal gutters"
+)
+toggle_terminal()
+vim.o.columns = 140
+toggle_terminal()
+
 plugin_specs[1].init()
 assert(type(vim.g.opencode_opts.server.start) == "function", "server.start is wired to start_opencode_terminal")
 assert(type(vim.g.opencode_opts.server.url) == "function", "server.url resolves the launchd-managed OpenCode endpoint")
@@ -535,6 +547,8 @@ print("PASS worktree startup eagerly loads opencode.nvim and opens its split exa
 -- must therefore: open OCV, explicitly restore focus to the editor window,
 -- open the shell (so it splits relative to the editor), then re-focus OCV.
 
+local original_layout_columns = vim.o.columns
+vim.o.columns = 81
 vim.env.NVIM_OPEN_OPENCODE = "1"
 vim.env.NVIM_OPEN_TOGGLETERM = "1"
 local layout_plugin_specs = dofile("lua/plugins/opencode.lua")
@@ -577,8 +591,9 @@ end
 
 layout_plugin_specs[1].config()
 vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
-eq(vim.api.nvim_win_get_width(layout_ocv_win), math.floor(vim.o.columns * 0.5), "OCV stays half-width after the shell split")
+eq(vim.api.nvim_win_get_width(layout_ocv_win), 48, "worktree startup keeps OCV above its crashing width after the shell split")
 vim.cmd("only")
+vim.o.columns = original_layout_columns
 
 terminal_adapter.open = original_layout_terminal_open
 vim.defer_fn = original_layout_defer_fn

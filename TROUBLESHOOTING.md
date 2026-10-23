@@ -11,8 +11,28 @@ Quick reference for common issues and their solutions.
 3. [Nix Integration Issues](#nix-integration-issues)
 4. [Quick Diagnostic Commands](#quick-diagnostic-commands)
 5. [Important File Locations](#important-file-locations)
+6. [OpenCode Terminal Exits with Code 133](#opencode-terminal-exits-with-code-133)
 
 ---
+
+## OpenCode Terminal Exits with Code 133
+
+OCV `1.18.35-ocv.4.13` can crash in its native text renderer when the
+embedded terminal is very narrow. On macOS this reports SIGTRAP and exit
+code `133`. It was reproduced at 37 text columns, including in a minimal
+Neovim terminal; the same client stayed running at wider sizes.
+
+`<leader>aoc` and coordinated worktree startup now request at least 48 window
+columns, leaving room for the terminal gutter. Wider editors keep the usual
+50% split. This is a launch-size workaround for the upstream renderer bug;
+manually shrinking the pane can still expose it. Keep the OpenCode pane wide
+enough to render its UI.
+
+For an already-running editor, reload the spec before opening OpenCode again:
+
+```vim
+:lua local spec = dofile(vim.fn.stdpath("config") .. "/lua/plugins/opencode.lua"); spec[1].config()
+```
 
 ## LSP Issues
 

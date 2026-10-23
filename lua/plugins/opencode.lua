@@ -147,13 +147,16 @@ local function bind_opencode_terminal_picker(term, dir)
 	})
 end
 
+local function opencode_terminal_width()
+	-- shortcut: OCV 4.13 can trap in narrow panes; remove this floor after its renderer is fixed.
+	return math.max(48, math.floor(vim.o.columns * 0.5))
+end
+
 terminal_adapter.setup({
 	display_name = "OpenCode",
 	launch = opencode_launch,
 	project_root = project_root,
-	size = function()
-		return math.floor(vim.o.columns * 0.5)
-	end,
+	size = opencode_terminal_width,
 	notify_title = "opencode",
 	on_create = function(term, dir, generation)
 		bind_opencode_terminal_picker(term, dir)
@@ -230,7 +233,7 @@ local function open_worktree_layout(dir)
 
 	terminal_adapter.open(dir)
 	if ocv_term and ocv_term.window and vim.api.nvim_win_is_valid(ocv_term.window) then
-		vim.api.nvim_win_set_width(ocv_term.window, math.floor(vim.o.columns * 0.5))
+		vim.api.nvim_win_set_width(ocv_term.window, opencode_terminal_width())
 	end
 	if vim.bo.buftype == "terminal" then
 		vim.cmd("startinsert")

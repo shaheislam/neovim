@@ -1991,18 +1991,25 @@ return {
 				if type(fn) == "function" and not name:match("^_") then
 					original_fns[name] = fn
 					fzf[name] = function(picker_opts, ...)
+						local args = { n = select("#", ...), ... }
 						-- Internal probe calls (_start=false) resolve the picker's command/opts
 						-- without starting fzf; forward them untouched so callers relying on
 						-- fzf-lua's multi-return contract (e.g. config.fzf_prompt) aren't broken.
 						if type(picker_opts) == "table" and picker_opts._start == false then
 							return original_fns[name](picker_opts, ...)
 						end
+						if name == "fzf_exec" or name == "fzf_live" then
+							args[1] = require("config.terminal_picker").options(args[1])
+							if args[1] ~= nil then args.n = math.max(args.n, 1) end
+						elseif not fzf._excluded_metamap[name] and (picker_opts == nil or type(picker_opts) == "table") then
+							picker_opts = require("config.terminal_picker").options(picker_opts)
+						end
 						original_bufnr = vim.api.nvim_get_current_buf()
 						-- Capture CWD at picker open time (before any directory changes)
 						local picker_cwd = (type(picker_opts) == "table" and picker_opts.cwd) or vim.fn.getcwd()
 
 						-- Call the original function
-						local result = original_fns[name](picker_opts, ...)
+						local result = original_fns[name](picker_opts, unpack(args, 1, args.n))
 
 						-- Post-process history file after picker closes
 						vim.defer_fn(function()

@@ -545,7 +545,9 @@ print("PASS worktree startup eagerly loads opencode.nvim and opens its split exa
 -- open the shell (so it splits relative to the editor), then re-focus OCV.
 
 local original_layout_columns = vim.o.columns
+local original_layout_lines = vim.o.lines
 vim.o.columns = 81
+vim.o.lines = 24
 vim.env.NVIM_OPEN_OPENCODE = "1"
 vim.env.NVIM_OPEN_TOGGLETERM = "1"
 local layout_plugin_specs = dofile("lua/plugins/opencode.lua")
@@ -558,6 +560,16 @@ local original_layout_defer_fn = vim.defer_fn
 local original_layout_set_current_win = vim.api.nvim_set_current_win
 local layout_defer_delays = {}
 local layout_ocv_win
+local layout_shell_win
+local original_layout_ui = package.loaded["toggleterm.ui"]
+local saved_shell_height
+package.loaded["toggleterm.ui"] = {
+	resize_split = function(term, size)
+		eq(vim.api.nvim_get_current_win(), term.window, "resize targets the shell, not the focused agent")
+		vim.api.nvim_win_set_height(term.window, size)
+		saved_shell_height = size
+	end,
+}
 
 terminal_adapter.open = function(dir)
 	table.insert(layout_actions, { action = "ocv_open", dir = dir })
@@ -565,6 +577,7 @@ terminal_adapter.open = function(dir)
 		vim.cmd("vsplit")
 		layout_ocv_win = vim.api.nvim_get_current_win()
 		vim.api.nvim_win_set_width(layout_ocv_win, math.floor(vim.o.columns * 0.5))
+		vim.wo[layout_ocv_win].winfixwidth = true
 	else
 		original_layout_set_current_win(layout_ocv_win)
 	end
@@ -574,7 +587,11 @@ package.loaded["config.project_terminal"] = {
 	open = function(dir)
 		table.insert(layout_actions, { action = "shell_open", dir = dir })
 		vim.cmd("split")
+		layout_shell_win = vim.api.nvim_get_current_win()
+		vim.api.nvim_win_set_height(layout_shell_win, 9)
+		vim.wo[layout_shell_win].winfixheight = true
 		vim.api.nvim_win_set_width(layout_ocv_win, math.floor(vim.o.columns * 0.25))
+		return { window = layout_shell_win }
 	end,
 }
 vim.api.nvim_set_current_win = function(win)
@@ -589,8 +606,22 @@ end
 layout_plugin_specs[1].config()
 vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
 eq(vim.api.nvim_win_get_width(layout_ocv_win), 48, "worktree startup keeps OCV above its crashing width after the shell split")
+vim.o.columns, vim.o.lines = 189, 66
+vim.cmd.redraw()
+vim.api.nvim_exec_autocmds("VimResized", {})
+eq(vim.api.nvim_win_get_width(layout_ocv_win), 94, "the first real terminal size corrects the pinned startup OCV width")
+eq(vim.api.nvim_win_get_height(layout_shell_win), 26, "the first real terminal size corrects the pinned startup shell height")
+eq(saved_shell_height, 26, "startup correction updates ToggleTerm's remembered shell height")
+eq(vim.api.nvim_get_current_win(), layout_ocv_win, "startup correction preserves agent focus")
+vim.api.nvim_win_set_width(layout_ocv_win, 70)
+vim.api.nvim_win_set_height(layout_shell_win, 15)
+vim.api.nvim_exec_autocmds("VimResized", {})
+eq(vim.api.nvim_win_get_width(layout_ocv_win), 70, "later resizes preserve the user's OCV width")
+eq(vim.api.nvim_win_get_height(layout_shell_win), 15, "later resizes preserve the user's shell height")
 vim.cmd("only")
 vim.o.columns = original_layout_columns
+vim.o.lines = original_layout_lines
+package.loaded["toggleterm.ui"] = original_layout_ui
 
 terminal_adapter.open = original_layout_terminal_open
 vim.defer_fn = original_layout_defer_fn

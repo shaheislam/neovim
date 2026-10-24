@@ -222,12 +222,27 @@ local function open_worktree_layout(dir)
 		vim.api.nvim_set_current_win(editor_win)
 	end
 
-	require("config.project_terminal").open(dir)
+	local shell_term = require("config.project_terminal").open(dir)
 
 	terminal_adapter.open(dir)
 	if ocv_term and ocv_term.window and vim.api.nvim_win_is_valid(ocv_term.window) then
 		vim.api.nvim_win_set_width(ocv_term.window, opencode_terminal_width())
 	end
+	-- Rex can deliver the real PTY size after VimEnter; correct pinned splits once.
+	vim.api.nvim_create_autocmd("VimResized", {
+		group = vim.api.nvim_create_augroup("nvim_mini_opencode_startup_size", { clear = true }),
+		once = true,
+		callback = function()
+			if ocv_term and ocv_term.window and vim.api.nvim_win_is_valid(ocv_term.window) then
+				vim.api.nvim_win_set_width(ocv_term.window, opencode_terminal_width())
+			end
+			if shell_term and shell_term.window and vim.api.nvim_win_is_valid(shell_term.window) then
+				vim.api.nvim_win_call(shell_term.window, function()
+					require("toggleterm.ui").resize_split(shell_term, math.floor(vim.o.lines * 0.4))
+				end)
+			end
+		end,
+	})
 	if vim.bo.buftype == "terminal" then
 		vim.cmd("startinsert")
 	end

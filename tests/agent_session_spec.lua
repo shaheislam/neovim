@@ -118,11 +118,24 @@ assert(created == 1 and #launched == 1, "create the exact native session before 
 local original_open, cwd = agent.open, vim.fn.getcwd()
 local startup = {}
 local editor = vim.api.nvim_get_current_win()
+local shell_win
+local shell_height
+package.loaded["toggleterm.ui"] = {
+	resize_split = function(term, size)
+		assert(vim.api.nvim_get_current_win() == term.window, "resize targets the startup shell")
+		vim.api.nvim_win_set_height(term.window, size)
+		shell_height = size
+	end,
+}
 package.loaded["config.project_terminal"] = {
 	open = function(dir)
 		assert(dir == root)
 		startup[#startup + 1] = "shell"
 		vim.cmd.split()
+		shell_win = vim.api.nvim_get_current_win()
+		vim.api.nvim_win_set_height(shell_win, 9)
+		vim.wo[shell_win].winfixheight = true
+		return { window = shell_win }
 	end,
 }
 agent.open = function(harness, dir)
@@ -154,6 +167,15 @@ assert(
 assert(vim.deep_equal(startup, { "shell", "agent" }), "worktree startup builds the shell before its selected agent")
 vim.api.nvim_exec_autocmds("VimEnter", {})
 assert(#startup == 2, "repeated readiness events do not replay the startup request")
+vim.o.lines = 66
+vim.cmd.redraw()
+vim.api.nvim_exec_autocmds("VimResized", {})
+assert(vim.api.nvim_win_get_height(shell_win) == 26, "ACP startup shell follows the first real terminal height")
+assert(shell_height == 26, "ACP correction remembers the corrected shell height")
+assert(vim.api.nvim_get_current_win() == editor, "ACP correction preserves focus")
+vim.api.nvim_win_set_height(shell_win, 15)
+vim.api.nvim_exec_autocmds("VimResized", {})
+assert(vim.api.nvim_win_get_height(shell_win) == 15, "ACP correction leaves later user resizes alone")
 agent.open = original_open
 vim.fn.chdir(cwd)
 vim.fn.delete(root, "rf")

@@ -225,7 +225,19 @@ function M.setup()
 				vim.schedule(function()
 					local root, editor = M.root(), vim.api.nvim_get_current_win()
 					if layout then
-						require("config.project_terminal").open(root)
+						local term = require("config.project_terminal").open(root)
+						-- The client may size the PTY only after the startup shell opens.
+						vim.api.nvim_create_autocmd("VimResized", {
+							group = group,
+							once = true,
+							callback = function()
+								if term and term.window and vim.api.nvim_win_is_valid(term.window) then
+									vim.api.nvim_win_call(term.window, function()
+										require("toggleterm.ui").resize_split(term, math.floor(vim.o.lines * 0.4))
+									end)
+								end
+							end,
+						})
 						if vim.api.nvim_win_is_valid(editor) then
 							vim.api.nvim_set_current_win(editor)
 						end

@@ -124,6 +124,7 @@ local commit_cycle_state = {
 -- Buffer/window for commit info display
 local commit_info_bufnr = nil
 local commit_info_win = nil
+local commit_info_view = nil
 
 local function calc_commit_info_height(buf_lines, win_width)
 	local height = 0
@@ -135,14 +136,29 @@ local function calc_commit_info_height(buf_lines, win_width)
 end
 
 local function get_commit_info_float_config(buf_lines)
-	local width = math.max(1, vim.o.columns - 2)
-	local height = math.min(calc_commit_info_height(buf_lines, width), math.max(1, vim.o.lines - vim.o.cmdheight - 2))
+	local top, left, bottom, right = 0, 1, vim.o.lines - vim.o.cmdheight - 1, vim.o.columns + 1
+	if commit_info_view and commit_info_view.region then
+		top, left, bottom, right = math.huge, math.huge, 0, 0
+		for win in pairs(commit_info_view.region.windows) do
+			if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_tabpage(win) == commit_info_view.tabpage then
+				local pos = vim.api.nvim_win_get_position(win)
+				top, left = math.min(top, pos[1]), math.min(left, pos[2])
+				bottom = math.max(bottom, pos[1] + vim.api.nvim_win_get_height(win))
+				right = math.max(right, pos[2] + vim.api.nvim_win_get_width(win))
+			end
+		end
+		if top == math.huge then
+			return nil
+		end
+	end
+	local width = math.max(1, right - left - 2)
+	local height = math.min(calc_commit_info_height(buf_lines, width), math.max(1, bottom - top - 2))
 
 	return {
 		relative = "editor",
-		anchor = "SW",
-		row = vim.o.lines - vim.o.cmdheight - 1,
-		col = 1,
+		anchor = "NW",
+		row = bottom - height - 2,
+		col = left,
 		width = width,
 		height = height,
 		style = "minimal",
@@ -163,8 +179,19 @@ local function reposition_commit_info_window()
 	end
 
 	local lines = vim.api.nvim_buf_get_lines(commit_info_bufnr, 0, -1, false)
-	vim.api.nvim_win_set_config(commit_info_win, get_commit_info_float_config(lines))
+	local config = get_commit_info_float_config(lines)
+	if config then
+		vim.api.nvim_win_set_config(commit_info_win, config)
+	else
+		vim.api.nvim_win_close(commit_info_win, true)
+		commit_info_win = nil
+	end
 end
+
+vim.api.nvim_create_autocmd("WinResized", {
+	group = vim.api.nvim_create_augroup("GitCommitInfoLayout", { clear = true }),
+	callback = reposition_commit_info_window,
+})
 
 -- Cross-worktree merge detection state
 local cross_worktree_state = {
@@ -567,6 +594,8 @@ end
 
 -- Show commit info in a bottom-anchored float so Neovim split resizing cannot steal rows.
 local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to_msg, to_date)
+	local ok, lib = pcall(require, "diffview.lib")
+	commit_info_view = ok and lib.get_current_view() or nil
 	-- Create buffer if it doesn't exist or was deleted
 	if not commit_info_bufnr or not vim.api.nvim_buf_is_valid(commit_info_bufnr) then
 		commit_info_bufnr = vim.api.nvim_create_buf(false, true) -- nofile, scratch
@@ -699,11 +728,15 @@ local function show_commit_info_buffer(from_sha, from_msg, from_date, to_sha, to
 	end
 
 	local previous_win = vim.api.nvim_get_current_win()
+	local config = get_commit_info_float_config(lines)
+	if not config then
+		return
+	end
 	if commit_info_win and vim.api.nvim_win_is_valid(commit_info_win) then
-		vim.api.nvim_win_set_config(commit_info_win, get_commit_info_float_config(lines))
+		vim.api.nvim_win_set_config(commit_info_win, config)
 		configure_commit_info_window(commit_info_win)
 	else
-		commit_info_win = vim.api.nvim_open_win(commit_info_bufnr, false, get_commit_info_float_config(lines))
+		commit_info_win = vim.api.nvim_open_win(commit_info_bufnr, false, config)
 		configure_commit_info_window(commit_info_win)
 	end
 

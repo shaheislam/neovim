@@ -89,6 +89,8 @@ function M.options(opts)
 	opts = vim.deepcopy(opts)
 	opts._terminal_picker = true
 	if not request.opened and request.key ~= "fF" then opts.cwd = request.cwd end
+	-- Hidden pickers bypass fn_selected, so native actions cannot settle this request.
+	opts.no_hide = true
 	request.opened = true
 	request.revision = request.revision + 1
 	local revision = request.revision
@@ -130,7 +132,7 @@ function M.request(args)
 		local ok, err = xpcall(function()
 			local lazy = package.loaded.lazy
 			if lazy then lazy.load({ plugins = { "fzf-lua", "diffview.nvim" } }) end
-			vim.cmd.stopinsert()
+			-- stopinsert here would override fzf's startinsert after the window switch.
 			vim.api.nvim_set_current_win(target)
 			request.previous_cwd, request.scope = vim.fn.getcwd(), vim.fn.haslocaldir()
 			vim.cmd("noautocmd lcd " .. vim.fn.fnameescape(args.cwd))

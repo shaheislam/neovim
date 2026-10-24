@@ -46,5 +46,13 @@ Global rules for `~/neovim`. Read any deeper `AGENTS.md` in the directory you ar
 ## Session Completion
 
 - If code changed, run relevant validation before finishing.
-- Push bead state with `bd dolt push` when issue state changed.
-- Work is not complete until commits and `git push` succeed when the task reaches session-completion scope.
+- Commit validated changes before finishing, following the commit policy below.
+- Push Git commits or bead state only when the user asks.
+
+## Commits
+
+- Commit mode is on by the user's standing request for this repository and every worktree spawned from it, regardless of checkout path. After a logical change passes its checks, commit it locally without asking again. `/commit-mode off` disables this for the session.
+- Commit on the branch in the checkout where the work was done; never switch to the main checkout just to commit a worktree's changes.
+- Stage only your task's changes, by explicit path. Never use `git add -A`, `git add .` or `git add -u`; leave unrelated edits out of the commit.
+- Use a conventional `type: summary` subject under 72 characters, followed by a reasoning body explaining why the change was needed and how it was validated.
+- Let configured Git hooks run. Never use `--no-verify`; fix failures, restage and retry the commit.

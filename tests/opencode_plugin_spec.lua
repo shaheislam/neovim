@@ -607,20 +607,31 @@ layout_plugin_specs[1].config()
 vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
 eq(vim.api.nvim_win_get_width(layout_ocv_win), 48, "worktree startup keeps OCV above its crashing width after the shell split")
 vim.o.columns, vim.o.lines = 189, 66
-vim.cmd.redraw()
+-- Headless -l has no UI grid resize; observe the requested width at the API boundary.
+local original_set_width = vim.api.nvim_win_set_width
+local corrected_width
+vim.api.nvim_win_set_width = function(win, width)
+	if win == layout_ocv_win then
+		corrected_width = width
+	end
+	return original_set_width(win, width)
+end
 vim.api.nvim_exec_autocmds("VimResized", {})
-eq(vim.api.nvim_win_get_width(layout_ocv_win), 94, "the first real terminal size corrects the pinned startup OCV width")
+eq(corrected_width, 94, "the first real terminal size corrects the pinned startup OCV width")
 eq(vim.api.nvim_win_get_height(layout_shell_win), 26, "the first real terminal size corrects the pinned startup shell height")
 eq(saved_shell_height, 26, "startup correction updates ToggleTerm's remembered shell height")
 eq(vim.api.nvim_get_current_win(), layout_ocv_win, "startup correction preserves agent focus")
 vim.api.nvim_win_set_width(layout_ocv_win, 70)
 vim.api.nvim_win_set_height(layout_shell_win, 15)
+corrected_width = nil
 vim.api.nvim_exec_autocmds("VimResized", {})
+eq(corrected_width, nil, "startup correction runs only once")
 eq(vim.api.nvim_win_get_width(layout_ocv_win), 70, "later resizes preserve the user's OCV width")
 eq(vim.api.nvim_win_get_height(layout_shell_win), 15, "later resizes preserve the user's shell height")
 vim.cmd("only")
 vim.o.columns = original_layout_columns
 vim.o.lines = original_layout_lines
+vim.api.nvim_win_set_width = original_set_width
 package.loaded["toggleterm.ui"] = original_layout_ui
 
 terminal_adapter.open = original_layout_terminal_open

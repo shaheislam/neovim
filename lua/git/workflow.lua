@@ -257,147 +257,38 @@ local function get_terminal_cwd()
 	return nil
 end
 
--- Resolve the tmux window ID containing Neovim's pane ($TMUX_PANE).
--- All pane queries are scoped to this window to avoid cross-window/client
--- bleed when multiple clients or windows are attached to the same session.
--- PERF: Cached for session lifetime — window ID never changes for a Neovim instance.
-local _cached_window_id = nil
-local function get_neovim_window_id()
-	if _cached_window_id then
-		return _cached_window_id
-	end
-	if not vim.env.TMUX or not vim.env.TMUX_PANE then
+-- Resolve only a focused sibling in this editor's exact Rex window.
+local function sibling_cwd_command()
+	if not vim.env.REX_SESSION or not vim.env.REX_BLOCK then
 		return nil
 	end
-	local out = vim.fn.system(
-		"tmux display-message -p -t " .. vim.fn.shellescape(vim.env.TMUX_PANE) .. " '#{window_id}' 2>/dev/null"
-	)
-	if vim.v.shell_error ~= 0 then
-		return nil
-	end
-	local wid = out:gsub("\n$", "")
-	if wid == "" then
-		return nil
-	end
-	_cached_window_id = wid
-	return wid
+	local root = vim.env.DOTFILES_HOME or ((vim.env.HOME or "") .. "/dotfiles")
+	return { "python3", root .. "/scripts/rex/workflow.py", "sibling-cwd" }
 end
 
--- Get the cwd of the last-selected pane in Neovim's window.
--- Scoped via window ID derived from $TMUX_PANE (not global {last}).
--- Best for FocusGained: when Neovim just gained focus, {last} within its
--- window = the shell pane the user was just in.
-local function get_tmux_last_pane_cwd()
-	local wid = get_neovim_window_id()
-	if not wid then
+local function get_rex_sibling_cwd()
+	local command = sibling_cwd_command()
+	if not command then
 		return nil
 	end
-	-- Target: <window_id>.{last} — the previously selected pane in this window.
-	local target = wid .. ".{last}"
-	local out = vim.fn.system(
-		"tmux display-message -p -t " .. vim.fn.shellescape(target) .. " '#{pane_current_path}' 2>/dev/null"
-	)
-	if vim.v.shell_error ~= 0 then
-		return nil
-	end
-	local path = out:gsub("\n$", "")
-	if path == "" then
-		return nil
-	end
-	return path
+	local result = vim.system(command, { text = true }):wait(5000)
+	local path = result.code == 0 and vim.trim(result.stdout or "") or ""
+	return path ~= "" and path or nil
 end
 
--- Async version of get_tmux_last_pane_cwd: non-blocking tmux IPC.
--- Calls callback(cwd_or_nil) when complete.
-local function get_tmux_last_pane_cwd_async(callback)
-	local wid = get_neovim_window_id()
-	if not wid then
+local function get_rex_sibling_cwd_async(callback)
+	local command = sibling_cwd_command()
+	if not command then
 		callback(nil)
 		return
 	end
-	local target = wid .. ".{last}"
 	vim.system(
-		{ "tmux", "display-message", "-p", "-t", target, "#{pane_current_path}" },
-		{ text = true },
+		command,
+		{ text = true, timeout = 5000 },
 		function(result)
 			vim.schedule(function()
-				if result.code ~= 0 or not result.stdout then
-					callback(nil)
-					return
-				end
-				local path = result.stdout:gsub("\n$", "")
+				local path = result.code == 0 and vim.trim(result.stdout or "") or ""
 				callback(path ~= "" and path or nil)
-			end)
-		end
-	)
-end
-
--- Get the cwd of the currently active (focused) pane in Neovim's window,
--- skipping if it's Neovim's own pane. Scoped to Neovim's window via -t.
--- Best for timer polling: when the user is in a shell pane, the active pane
--- in Neovim's window is the shell (correct). {last} would return Neovim's
--- own pane (wrong), causing the timer to override Fish hook results.
-local function get_tmux_active_pane_cwd()
-	local wid = get_neovim_window_id()
-	if not wid then
-		return nil
-	end
-	local out = vim.fn.system(
-		"tmux list-panes -t "
-			.. vim.fn.shellescape(wid)
-			.. " -F '#{pane_active} #{pane_id} #{pane_current_path}' 2>/dev/null"
-	)
-	if vim.v.shell_error ~= 0 then
-		return nil
-	end
-	for line in out:gmatch("[^\n]+") do
-		local active, pane_id, path = line:match("^(%d) (%%%d+) (.+)$")
-		if active == "1" then
-			-- Skip if the active pane is Neovim's own pane
-			if pane_id == vim.env.TMUX_PANE then
-				return nil
-			end
-			if path == "" then
-				return nil
-			end
-			return path
-		end
-	end
-	return nil
-end
-
--- Async version of get_tmux_active_pane_cwd: non-blocking tmux IPC.
--- PERF: This is the hot path — called every timer tick. Using vim.system()
--- prevents blocking Neovim's UI thread, which is critical when multiple
--- Neovim instances all poll tmux's single-threaded server simultaneously.
--- Calls callback(cwd_or_nil) when complete.
-local function get_tmux_active_pane_cwd_async(callback)
-	local wid = get_neovim_window_id()
-	if not wid then
-		callback(nil)
-		return
-	end
-	vim.system(
-		{ "tmux", "list-panes", "-t", wid, "-F", "#{pane_active} #{pane_id} #{pane_current_path}" },
-		{ text = true },
-		function(result)
-			vim.schedule(function()
-				if result.code ~= 0 or not result.stdout then
-					callback(nil)
-					return
-				end
-				for line in result.stdout:gmatch("[^\n]+") do
-					local active, pane_id, path = line:match("^(%d) (%%%d+) (.+)$")
-					if active == "1" then
-						if pane_id == vim.env.TMUX_PANE or path == "" then
-							callback(nil)
-							return
-						end
-						callback(path)
-						return
-					end
-				end
-				callback(nil)
 			end)
 		end
 	)
@@ -1013,10 +904,8 @@ local M = {
 	find_repo_root = find_repo_root,
 	path_is_under = path_is_under,
 	get_terminal_cwd = get_terminal_cwd,
-	get_tmux_last_pane_cwd = get_tmux_last_pane_cwd,
-	get_tmux_last_pane_cwd_async = get_tmux_last_pane_cwd_async,
-	get_tmux_active_pane_cwd = get_tmux_active_pane_cwd,
-	get_tmux_active_pane_cwd_async = get_tmux_active_pane_cwd_async,
+	get_rex_sibling_cwd = get_rex_sibling_cwd,
+	get_rex_sibling_cwd_async = get_rex_sibling_cwd_async,
 	check_conflict_state = check_conflict_state,
 	get_git_dir = get_git_dir,
 	get_main_repo_info = get_main_repo_info,

@@ -4,7 +4,9 @@ for _, plugin in ipairs({ "fzf-lua", "nvim-web-devicons", "canola.nvim" }) do
 	vim.opt.rtp:prepend(vim.fn.stdpath("data") .. "/lazy/" .. plugin)
 end
 vim.o.shell, vim.env.SHELL = "/bin/sh", "/bin/sh"
-for _, key in ipairs({ "TMUX", "TMUX_PANE", "NVIM", "REX_SESSION", "REX_BLOCK" }) do vim.env[key] = nil end
+for _, key in ipairs({ "TMUX", "TMUX_PANE", "NVIM", "REX_SESSION", "REX_BLOCK" }) do
+	vim.env[key] = nil
+end
 vim.o.hidden, vim.o.swapfile = true, false
 vim.g.mapleader = " "
 local root = vim.fn.tempname()
@@ -12,8 +14,19 @@ vim.fn.mkdir(root, "p")
 root = assert(vim.uv.fs_realpath(root))
 vim.fn.writefile({ "chosen" }, root .. "/picked.txt")
 local function git(...)
-	local args = { "git", "-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.test",
-		"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null" }
+	local args = {
+		"git",
+		"-C",
+		root,
+		"-c",
+		"user.name=Test",
+		"-c",
+		"user.email=test@example.test",
+		"-c",
+		"commit.gpgsign=false",
+		"-c",
+		"core.hooksPath=/dev/null",
+	}
 	vim.list_extend(args, { ... })
 	local result = vim.system(args, { text = true }):wait()
 	assert(result.code == 0, result.stderr)
@@ -59,7 +72,9 @@ local function opened()
 end
 local function cancel()
 	api.nvim_chan_send(vim.b[api.nvim_win_get_buf(window().fzf_winid)].terminal_job_id, "\27")
-	assert(vim.wait(5000, function() return not window() end, 20))
+	assert(vim.wait(5000, function()
+		return not window()
+	end, 20))
 	vim.wait(30)
 end
 fzf.files({ cwd = root })
@@ -67,7 +82,9 @@ local _, normal_geometry = opened()
 cancel()
 require("oil").setup({ default_file_explorer = false })
 require("oil").open(root)
-assert(vim.wait(1000, function() return vim.bo.filetype == "oil" end))
+assert(vim.wait(1000, function()
+	return vim.bo.filetype == "oil"
+end))
 fzf.files({ cwd = root })
 local _, oil_geometry = opened()
 assert(vim.deep_equal(normal_geometry, oil_geometry), "Oil geometry differs from normal editor")
@@ -85,39 +102,68 @@ assert(picker.request({ key = "ff", pid = vim.fn.jobpid(shell_job), cwd = root }
 local scoped = opened()
 local scoped_win = scoped.fzf_winid
 api.nvim_chan_send(vim.b[api.nvim_win_get_buf(scoped_win)].terminal_job_id, "\27l")
-assert(vim.wait(5000, function() return window() and window().fzf_winid ~= scoped_win end, 20), "scope switch did not reopen the picker")
+assert(
+	vim.wait(5000, function()
+		return window() and window().fzf_winid ~= scoped_win
+	end, 20),
+	"scope switch did not reopen the picker"
+)
 cancel()
 assert(api.nvim_get_current_win() == shell, "cancelling a scope switch must return to the shell")
 
 assert(picker.request({ key = "ff", pid = vim.fn.jobpid(shell_job), cwd = root }) == "queued")
 local instance = opened()
 local job = vim.b[api.nvim_win_get_buf(instance.fzf_winid)].terminal_job_id
-assert(vim.wait(5000, function()
-	return table.concat(api.nvim_buf_get_lines(api.nvim_win_get_buf(instance.fzf_winid), 0, -1, false), "\n"):find("picked.txt", 1, true)
-end, 20), "file candidates did not load")
+assert(
+	vim.wait(5000, function()
+		return table
+			.concat(api.nvim_buf_get_lines(api.nvim_win_get_buf(instance.fzf_winid), 0, -1, false), "\n")
+			:find("picked.txt", 1, true)
+	end, 20),
+	"file candidates did not load"
+)
 api.nvim_chan_send(job, "\r")
-assert(vim.wait(5000, function() return not window() and api.nvim_buf_get_name(api.nvim_win_get_buf(editor)) == root .. "/picked.txt" end, 20), "native selection did not open the requested file")
+assert(
+	vim.wait(5000, function()
+		return not window() and api.nvim_buf_get_name(api.nvim_win_get_buf(editor)) == root .. "/picked.txt"
+	end, 20),
+	"native selection did not open the requested file"
+)
 assert(api.nvim_win_get_buf(shell) ~= api.nvim_win_get_buf(editor))
 assert(vim.deep_equal(geometry(shell), shell_geometry) and vim.deep_equal(geometry(chat), chat_geometry))
 assert(vim.fn.jobwait({ shell_job, chat_job }, 0)[2] == -1)
 
 -- Only the confirmation is automated; checkout is the installed native action.
 local confirm = require("fzf-lua.utils").confirm
-require("fzf-lua.utils").confirm = function() return 1 end
+require("fzf-lua.utils").confirm = function()
+	return 1
+end
 api.nvim_set_current_win(shell)
 assert(picker.request({ key = "gl", pid = vim.fn.jobpid(shell_job), cwd = root }) == "queued")
 instance = opened()
 job = vim.b[api.nvim_win_get_buf(instance.fzf_winid)].terminal_job_id
-assert(vim.wait(5000, function()
-	return table.concat(api.nvim_buf_get_lines(api.nvim_win_get_buf(instance.fzf_winid), 0, -1, false), "\n"):find("older revision", 1, true)
-end, 20), "Git log did not use the shell repository")
+assert(
+	vim.wait(5000, function()
+		return table
+			.concat(api.nvim_buf_get_lines(api.nvim_win_get_buf(instance.fzf_winid), 0, -1, false), "\n")
+			:find("older revision", 1, true)
+	end, 20),
+	"Git log did not use the shell repository"
+)
 api.nvim_chan_send(job, "older")
 assert(vim.wait(5000, function()
-	return table.concat(api.nvim_buf_get_lines(api.nvim_win_get_buf(instance.fzf_winid), 0, 1, false), ""):find("older", 1, true)
+	return table
+		.concat(api.nvim_buf_get_lines(api.nvim_win_get_buf(instance.fzf_winid), 0, 1, false), "")
+		:find("older", 1, true)
 end, 20))
 vim.wait(100)
 api.nvim_chan_send(job, "\r")
-assert(vim.wait(5000, function() return not window() and git("rev-parse", "HEAD") == older end, 20), "native Git checkout action was lost")
+assert(
+	vim.wait(5000, function()
+		return not window() and git("rev-parse", "HEAD") == older
+	end, 20),
+	"native Git checkout action was lost"
+)
 require("fzf-lua.utils").confirm = confirm
 vim.fn.jobstop(shell_job)
 vim.fn.jobstop(chat_job)

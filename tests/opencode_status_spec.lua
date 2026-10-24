@@ -8,14 +8,16 @@ local function eq(actual, expected, message)
 end
 
 local original_env = {
-	pane = vim.env.TMUX_PANE,
-	helper = vim.env.OPENCODE_TMUX_STATE_HELPER,
-	disabled = vim.env.OPENCODE_TMUX_STATE_DISABLE,
+	pane = vim.env.REX_BLOCK,
+	session = vim.env.REX_SESSION,
+	helper = vim.env.OPENCODE_REX_STATE_HELPER,
+	disabled = vim.env.OPENCODE_REX_STATE_DISABLE,
 }
 
-vim.env.TMUX_PANE = "%77"
-vim.env.OPENCODE_TMUX_STATE_HELPER = "/tmp/tmux-agent-state-spec"
-vim.env.OPENCODE_TMUX_STATE_DISABLE = nil
+vim.env.REX_BLOCK = "block:77"
+vim.env.REX_SESSION = "session:spec"
+vim.env.OPENCODE_REX_STATE_HELPER = "/tmp/rex-agent-state-spec"
+vim.env.OPENCODE_REX_STATE_DISABLE = nil
 
 local bindings = {}
 local job_pids = {}
@@ -44,7 +46,7 @@ local helper_available = true
 
 status.__set_test_hooks({
 	helper_path = function()
-		return helper_available and "/tmp/tmux-agent-state-spec" or nil
+		return helper_available and "/tmp/rex-agent-state-spec" or nil
 	end,
 	getpid = function()
 		return 4242
@@ -83,7 +85,7 @@ end
 
 local function finish_one()
 	local item = table.remove(running, 1)
-	assert(item, "expected one in-flight tmux-agent-state job")
+	assert(item, "expected one in-flight rex-agent-state job")
 	item.opts.on_exit(item.id, 0)
 	return item
 end
@@ -125,7 +127,7 @@ bind("/tmp/a", "gen-a", "ses-bound", 500)
 emit("OpencodeHandoffEvent:binding_changed")
 local first_publish = last_async_argv()
 eq(first_publish[2], "publish", "a cached pre-bind status publishes once its exact binding arrives")
-eq(first_publish[3], "%77", "the helper targets the containing tmux pane")
+eq(first_publish[3], "block:77", "the helper targets the containing Rex block")
 eq(first_publish[4], "nvim", "the helper records the Neovim source")
 eq(first_publish[6], "busy", "a non-idle exact status maps to busy")
 eq(first_publish[9], "4242", "the Neovim pid is the pane ownership proof")
@@ -229,9 +231,9 @@ vim.api.nvim_exec_autocmds("VimLeavePre", { modeline = false })
 eq(stopped, { running[1].id }, "shutdown stops the in-flight helper before clearing")
 eq(waited[1].jobs, { running[1].id }, "shutdown waits only for the tracked helper")
 eq(sync_calls[#sync_calls], {
-	"/tmp/tmux-agent-state-spec",
+	"/tmp/rex-agent-state-spec",
 	"clear",
-	"%77",
+	"block:77",
 	owner,
 }, "shutdown synchronously owner-clears through the validated helper")
 
@@ -265,10 +267,10 @@ eq(#async_calls, 0, "a missing dotfiles helper degrades without writing partial 
 
 status.__reset()
 helper_available = true
-vim.env.OPENCODE_TMUX_STATE_DISABLE = "1"
+vim.env.OPENCODE_REX_STATE_DISABLE = "1"
 status.__set_test_hooks({
 	helper_path = function()
-		return "/tmp/tmux-agent-state-spec"
+		return "/tmp/rex-agent-state-spec"
 	end,
 	getpid = function()
 		return 4242
@@ -285,11 +287,12 @@ status.setup()
 eq(sync_calls[#sync_calls][2], "clear", "the rollback kill switch synchronously clears any owned pane fact")
 
 status.__reset()
-vim.env.TMUX_PANE = original_env.pane
-vim.env.OPENCODE_TMUX_STATE_HELPER = original_env.helper
-vim.env.OPENCODE_TMUX_STATE_DISABLE = original_env.disabled
+vim.env.REX_BLOCK = original_env.pane
+vim.env.REX_SESSION = original_env.session
+vim.env.OPENCODE_REX_STATE_HELPER = original_env.helper
+vim.env.OPENCODE_REX_STATE_DISABLE = original_env.disabled
 package.loaded["config.opencode_handoff"] = nil
 package.loaded["config.opencode_terminal"] = nil
 package.loaded["config.opencode_status"] = nil
 
-print("PASS exact-session OpenCode status aggregation and owner-safe tmux publication")
+print("PASS exact-session OpenCode status aggregation and owner-safe Rex publication")

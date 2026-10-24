@@ -1,19 +1,13 @@
 -- image.nvim - Display images inline in terminal
--- WezTerm supports the kitty graphics protocol (though not fully compliant)
 
 return {
   "3rd/image.nvim",
   ft = { "markdown" },
-  -- Kitty graphics replies can leak through tmux/WezTerm as shell input
-  -- (for example: Gi=31337;OKl), so keep inline images outside tmux only.
-  enabled = function()
-    return vim.env.TMUX == nil
-  end,
   dependencies = {
     "nvim-treesitter/nvim-treesitter",
   },
   opts = {
-    backend = "kitty", -- WezTerm supports kitty protocol
+    backend = "kitty",
     processor = "magick_cli", -- Uses ImageMagick CLI (convert command)
 
     integrations = {
@@ -38,7 +32,6 @@ return {
 
     -- Editor options
     editor_only_render_when_focused = false,
-    tmux_show_only_in_active_window = true,
 
     -- Hijack file associations
     hijack_file_patterns = { "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.avif" },

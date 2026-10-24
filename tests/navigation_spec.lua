@@ -5,7 +5,7 @@ local function eq(actual, expected, message)
   )
 end
 
-local spec = dofile("lua/plugins/navigation.lua")
+local spec = dofile("lua/config/navigation.lua")
 
 local terminal_mappings = {}
 for _, mapping in ipairs(spec.keys) do
@@ -15,11 +15,11 @@ for _, mapping in ipairs(spec.keys) do
 end
 
 eq(terminal_mappings, {
-  { "<c-h>", "<cmd>TmuxNavigateLeft<cr>" },
-  { "<c-j>", "<cmd>TmuxNavigateDown<cr>" },
-  { "<c-k>", "<cmd>TmuxNavigateUp<cr>" },
-  { "<c-l>", "<cmd>TmuxNavigateRight<cr>" },
-  { "<c-\\>", "<cmd>TmuxNavigatePrevious<cr>" },
+  { "<c-h>", "<cmd>wincmd h<cr>" },
+  { "<c-j>", "<cmd>wincmd j<cr>" },
+  { "<c-k>", "<cmd>wincmd k<cr>" },
+  { "<c-l>", "<cmd>wincmd l<cr>" },
+  { "<c-\\>", "<cmd>wincmd p<cr>" },
 }, "terminal navigation executes commands without leaving terminal-job mode")
 
 pcall(vim.api.nvim_del_augroup_by_name, "nvim_mini_terminal_navigation")
@@ -39,7 +39,7 @@ vim.api.nvim_create_autocmd = function(event, opts)
   return 1
 end
 
-local init_ok, init_err = pcall(spec.init)
+local init_ok, init_err = pcall(spec.setup)
 vim.api.nvim_create_augroup = original_create_augroup
 vim.api.nvim_create_autocmd = original_create_autocmd
 assert(init_ok, init_err)

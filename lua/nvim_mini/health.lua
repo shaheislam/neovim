@@ -56,10 +56,10 @@ local function check_git_workflow(health)
     health.error("git executable not found")
   end
 
-  if vim.fn.executable("tmux") == 1 then
-    health.ok("tmux executable found")
+  if vim.fn.executable("rex") == 1 then
+    health.ok("Rex executable found")
   else
-    health.warn("tmux executable not found; Diffview repo-follow tmux integration is unavailable")
+    health.warn("Rex executable not found; sibling-terminal repo following is unavailable")
   end
 
   local diffview_ok = pcall(require, "diffview")
@@ -79,15 +79,10 @@ local function check_git_workflow(health)
   health.info("Diffview auto-switch: " .. (vim.g.diffview_auto_switch == false and "off" or "on"))
   health.info("Diffview follow-repo: " .. (vim.g.diffview_follow_repo == false and "off" or "on"))
 
-  if vim.env.TMUX then
-    health.ok("running inside tmux")
-    if vim.env.NVIM_DIFFVIEW_SOCKET then
-      health.info("NVIM_DIFFVIEW_SOCKET=" .. vim.env.NVIM_DIFFVIEW_SOCKET)
-    else
-      health.info("NVIM_DIFFVIEW_SOCKET not set; it is exported while Diffview is open")
-    end
+  if vim.env.REX_SESSION and vim.env.REX_BLOCK then
+    health.ok("running inside Rex")
   else
-    health.info("not running inside tmux")
+    health.info("not running inside Rex")
   end
 end
 

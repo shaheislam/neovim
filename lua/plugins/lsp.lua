@@ -1087,7 +1087,7 @@ return {
           -- Hover documentation (integrated with nvim-ufo in lsp-enhancements.lua)
           map("n", "K", function() vim.lsp.buf.hover({ border = "rounded" }) end, "Hover Documentation")
 
-          -- Signature help (remapped from <C-k> to avoid conflict with vim-tmux-navigator)
+          -- Keep Ctrl-k available for editor split navigation.
           map({ "n", "i" }, "<leader>lh", function() vim.lsp.buf.signature_help({ border = "rounded" }) end,
             "Signature Help")
 

@@ -17,7 +17,9 @@ local function yank_reference_dir(opts)
 		if filetype == "oil" then
 			local ok, oil = pcall(require, "oil")
 			local oil_dir = ok and oil.get_current_dir(original_bufnr) or nil
-			if oil_dir then reference_dir = oil_dir end
+			if oil_dir then
+				reference_dir = oil_dir
+			end
 		end
 	end
 	return reference_dir
@@ -235,17 +237,39 @@ local function relaunch_history_picker(picker_type, query, scope_cwd)
 				fzf_opts = { ["--header"] = build_header("oldfiles") },
 			})
 		end,
-		git_files = function() fzf.git_files({ query = query }) end,
-		git_commits = function() fzf.git_commits({ query = query }) end,
-		git_bcommits = function() fzf.git_bcommits({ query = query }) end,
-		git_branches = function() fzf.git_branches({ query = query }) end,
-		git_stash = function() fzf.git_stash({ query = query }) end,
-		lsp_references = function() fzf.lsp_references({ query = query }) end,
-		lsp_definitions = function() fzf.lsp_definitions({ query = query }) end,
-		lsp_implementations = function() fzf.lsp_implementations({ query = query }) end,
-		lsp_doc_symbols = function() fzf.lsp_document_symbols({ query = query }) end,
-		lsp_workspace_symbols = function() fzf.lsp_workspace_symbols({ query = query }) end,
-		lsp_symbols = function() fzf.lsp_symbols({ query = query }) end,
+		git_files = function()
+			fzf.git_files({ query = query })
+		end,
+		git_commits = function()
+			fzf.git_commits({ query = query })
+		end,
+		git_bcommits = function()
+			fzf.git_bcommits({ query = query })
+		end,
+		git_branches = function()
+			fzf.git_branches({ query = query })
+		end,
+		git_stash = function()
+			fzf.git_stash({ query = query })
+		end,
+		lsp_references = function()
+			fzf.lsp_references({ query = query })
+		end,
+		lsp_definitions = function()
+			fzf.lsp_definitions({ query = query })
+		end,
+		lsp_implementations = function()
+			fzf.lsp_implementations({ query = query })
+		end,
+		lsp_doc_symbols = function()
+			fzf.lsp_document_symbols({ query = query })
+		end,
+		lsp_workspace_symbols = function()
+			fzf.lsp_workspace_symbols({ query = query })
+		end,
+		lsp_symbols = function()
+			fzf.lsp_symbols({ query = query })
+		end,
 	}
 	(dispatch[picker_type] or function()
 		fzf.files({ query = query, cwd = scope_cwd })
@@ -915,7 +939,7 @@ return {
 
 							-- Read ONLY the local history file for this directory
 							for line in io.lines(history_file) do
-							if line and line ~= "" then
+								if line and line ~= "" then
 									local entry_cwd = extract_cwd_from_entry(line)
 									if entry_cwd then
 										-- Normalize entry CWD and compare
@@ -960,7 +984,7 @@ return {
 							for _, file_path in ipairs(files) do
 								if vim.fn.filereadable(file_path) == 1 then
 									for line in io.lines(file_path) do
-									if line and line ~= "" then
+										if line and line ~= "" then
 											local entry_cwd = extract_cwd_from_entry(line)
 											if entry_cwd and git_root then
 												-- Check if entry is from within the current git repository
@@ -1004,7 +1028,7 @@ return {
 							for _, file_path in ipairs(files) do
 								if vim.fn.filereadable(file_path) == 1 then
 									for line in io.lines(file_path) do
-									if line and line ~= "" then
+										if line and line ~= "" then
 											local search_term = extract_search_from_entry(line)
 											if not seen[search_term] then
 												seen[search_term] = true
@@ -1097,9 +1121,9 @@ return {
 
 										-- Re-launch the original picker with the selected query
 										vim.schedule(function()
-										relaunch_history_picker(picker_type, query, scope_cwd)
-									end)
-								end,
+											relaunch_history_picker(picker_type, query, scope_cwd)
+										end)
+									end,
 									["ctrl-d"] = function()
 										vim.cmd("stopinsert")
 										vim.schedule(function()
@@ -1234,7 +1258,9 @@ return {
 									["ctrl-y"] = fzf_yank.action("display", {
 										preserve_whitespace = true,
 										resolve = function(entry)
-											if entry:match("^%[No .* history found") then return nil end
+											if entry:match("^%[No .* history found") then
+												return nil
+											end
 											return entry
 										end,
 									}),
@@ -1656,7 +1682,10 @@ return {
 					files = {
 						prompt = "Git Files> ",
 						-- PWD-based history for git files (evaluated dynamically)
-						fzf_opts = history_header_opts("git_files", "C-y: copy path | C-f: copy full path | C-r: search history"),
+						fzf_opts = history_header_opts(
+							"git_files",
+							"C-y: copy path | C-f: copy full path | C-r: search history"
+						),
 						actions = {
 							["ctrl-r"] = search_history_action(), -- Search history
 							["ctrl-y"] = yank_path,
@@ -1688,7 +1717,10 @@ return {
 						prompt = "Git Commits> ",
 						preview = "git show --color {1}",
 						-- PWD-based history for git commits (evaluated dynamically)
-						fzf_opts = history_header_opts("git_commits", "C-g: Diffview | C-y: copy SHA | C-r: search history"),
+						fzf_opts = history_header_opts(
+							"git_commits",
+							"C-g: Diffview | C-y: copy SHA | C-r: search history"
+						),
 						actions = {
 							["default"] = actions.git_checkout,
 							["ctrl-g"] = function(selected)
@@ -1702,7 +1734,10 @@ return {
 						prompt = "Git Buffer Commits> ",
 						preview = "git show --color {1}",
 						-- PWD-based history for git buffer commits (evaluated dynamically)
-						fzf_opts = history_header_opts("git_bcommits", "C-g: Diffview | C-y: copy SHA | C-r: search history"),
+						fzf_opts = history_header_opts(
+							"git_bcommits",
+							"C-g: Diffview | C-y: copy SHA | C-r: search history"
+						),
 						actions = {
 							["default"] = actions.git_buf_edit,
 							["ctrl-g"] = function(selected)
@@ -1748,11 +1783,8 @@ return {
 									if choice == 1 then
 										-- Stash changes with descriptive message
 										local _, current_branch = git_command.output({ "branch", "--show-current" })
-										local stash_msg = string.format(
-											"WIP on %s before switching to %s",
-											current_branch,
-											branch
-										)
+										local stash_msg =
+											string.format("WIP on %s before switching to %s", current_branch, branch)
 										git_command.run({ "stash", "push", "-m", stash_msg })
 										vim.notify("Changes stashed: " .. stash_msg, vim.log.levels.INFO)
 
@@ -1761,7 +1793,10 @@ return {
 										if result.ok then
 											vim.notify("Switched to branch: " .. branch, vim.log.levels.INFO)
 										else
-											vim.notify("Failed to switch branch: " .. result.output, vim.log.levels.ERROR)
+											vim.notify(
+												"Failed to switch branch: " .. result.output,
+												vim.log.levels.ERROR
+											)
 										end
 									end
 								else
@@ -1780,7 +1815,10 @@ return {
 						prompt = "Git Stash> ",
 						preview = "git stash show --color -p {1}",
 						-- PWD-based history for git stash (evaluated dynamically)
-						fzf_opts = history_header_opts("git_stash", "C-y: copy stash | C-x: drop | C-r: search history"),
+						fzf_opts = history_header_opts(
+							"git_stash",
+							"C-y: copy stash | C-x: drop | C-r: search history"
+						),
 						actions = {
 							["default"] = actions.git_stash_apply,
 							["ctrl-x"] = actions.git_stash_drop,
@@ -1880,7 +1918,10 @@ return {
 						},
 					},
 					implementations = {
-						fzf_opts = history_header_opts("lsp_implementations", "C-y: copy location | C-f: copy full path"),
+						fzf_opts = history_header_opts(
+							"lsp_implementations",
+							"C-y: copy location | C-f: copy full path"
+						),
 						actions = {
 							["ctrl-y"] = yank_location,
 							["ctrl-f"] = function(selected, opts)
@@ -1936,7 +1977,10 @@ return {
 						},
 					},
 					workspace_symbols = {
-						fzf_opts = history_header_opts("lsp_workspace_symbols", "C-y: copy location | C-f: copy full path"),
+						fzf_opts = history_header_opts(
+							"lsp_workspace_symbols",
+							"C-y: copy location | C-f: copy full path"
+						),
 						actions = {
 							["ctrl-y"] = yank_location,
 							["ctrl-f"] = function(selected, opts)
@@ -2000,8 +2044,12 @@ return {
 						end
 						if name == "fzf_exec" or name == "fzf_live" then
 							args[1] = require("config.terminal_picker").options(args[1])
-							if args[1] ~= nil then args.n = math.max(args.n, 1) end
-						elseif not fzf._excluded_metamap[name] and (picker_opts == nil or type(picker_opts) == "table") then
+							if args[1] ~= nil then
+								args.n = math.max(args.n, 1)
+							end
+						elseif
+							not fzf._excluded_metamap[name] and (picker_opts == nil or type(picker_opts) == "table")
+						then
 							picker_opts = require("config.terminal_picker").options(picker_opts)
 						end
 						original_bufnr = vim.api.nvim_get_current_buf()
@@ -2181,16 +2229,22 @@ return {
 						actions = {
 							["default"] = function(selected)
 								local entry = selected and selected[1]
-								if entry then aws_profiles.yank_account_id(entry) end
+								if entry then
+									aws_profiles.yank_account_id(entry)
+								end
 							end,
 							["ctrl-y"] = fzf_yank.action("aws_account"),
 							["alt-y"] = function(selected)
 								local entry = selected and selected[1]
-								if entry then aws_profiles.yank_profile_name(entry) end
+								if entry then
+									aws_profiles.yank_profile_name(entry)
+								end
 							end,
 							["alt-b"] = function(selected)
 								local entry = selected and selected[1]
-								if entry then aws_profiles.yank_both(entry) end
+								if entry then
+									aws_profiles.yank_both(entry)
+								end
 							end,
 						},
 					})
@@ -2269,11 +2323,20 @@ return {
 					local selected_refs = {} -- Persists across picker switches
 					local git_cwd = nil -- Worktree context (nil = current directory)
 					local preview_hidden = false -- Persists preview toggle state
-					local preview_log_format = "%C(yellow)commit %H%C(auto)%d%Creset%n%CblueAuthor:%Creset %an <%ae>%n%CblueDate:%Creset   %ad (%ar)%n%CblueParents:%Creset %P%n%n%Cgreen%B%Creset"
-					local file_preview_commit = [[bash -c 'format="$1"; ref="$2"; git show --no-patch --format="$format" --date=local --color=always "$ref"; printf "\033[1;34m\nChanged files:\033[0m\n"; git diff-tree --no-commit-id --stat --color=always -r "$ref"' -- ]] .. vim.fn.shellescape(preview_log_format) .. [[ {1}]]
-					local file_preview_branch = [[bash -c 'format="$1"; ref="$2"; [ "$ref" = "*" ] && ref="$3"; printf "\033[34mRef:\033[0m %s\n" "$ref"; git log -1 --format="$format" --date=local --color=always "$ref"; printf "\033[1;34m\nChanged files vs HEAD:\033[0m\n"; git diff --stat --color=always HEAD..."$ref"' -- ]] .. vim.fn.shellescape(preview_log_format) .. [[ {1} {2}]]
-					local file_preview_stash = [[bash -c 'format="$1"; ref="$2"; printf "\033[34mRef:\033[0m %s\n" "$ref"; git show --no-patch --format="$format" --date=local --color=always "$ref"; printf "\033[1;34m\nChanged files:\033[0m\n"; git stash show --stat --color=always "$ref"' -- ]] .. vim.fn.shellescape(preview_log_format) .. [[ {1}]]
-					local file_preview_worktree = [[bash -c 'format="$1"; path="$2"; printf "\033[34mPath:\033[0m %s\n" "$path"; printf "\033[34mBranch:\033[0m "; git -C "$path" branch --show-current; git -C "$path" log -1 --format="$format" --date=local --color=always; printf "\033[1;34m\nWorktree changes vs HEAD:\033[0m\n"; git -C "$path" diff --stat --color=always HEAD' -- ]] .. vim.fn.shellescape(preview_log_format) .. [[ {}]]
+					local preview_log_format =
+						"%C(yellow)commit %H%C(auto)%d%Creset%n%CblueAuthor:%Creset %an <%ae>%n%CblueDate:%Creset   %ad (%ar)%n%CblueParents:%Creset %P%n%n%Cgreen%B%Creset"
+					local file_preview_commit = [[bash -c 'format="$1"; ref="$2"; git show --no-patch --format="$format" --date=local --color=always "$ref"; printf "\033[1;34m\nChanged files:\033[0m\n"; git diff-tree --no-commit-id --stat --color=always -r "$ref"' -- ]]
+						.. vim.fn.shellescape(preview_log_format)
+						.. [[ {1}]]
+					local file_preview_branch = [[bash -c 'format="$1"; ref="$2"; [ "$ref" = "*" ] && ref="$3"; printf "\033[34mRef:\033[0m %s\n" "$ref"; git log -1 --format="$format" --date=local --color=always "$ref"; printf "\033[1;34m\nChanged files vs HEAD:\033[0m\n"; git diff --stat --color=always HEAD..."$ref"' -- ]]
+						.. vim.fn.shellescape(preview_log_format)
+						.. [[ {1} {2}]]
+					local file_preview_stash = [[bash -c 'format="$1"; ref="$2"; printf "\033[34mRef:\033[0m %s\n" "$ref"; git show --no-patch --format="$format" --date=local --color=always "$ref"; printf "\033[1;34m\nChanged files:\033[0m\n"; git stash show --stat --color=always "$ref"' -- ]]
+						.. vim.fn.shellescape(preview_log_format)
+						.. [[ {1}]]
+					local file_preview_worktree = [[bash -c 'format="$1"; path="$2"; printf "\033[34mPath:\033[0m %s\n" "$path"; printf "\033[34mBranch:\033[0m "; git -C "$path" branch --show-current; git -C "$path" log -1 --format="$format" --date=local --color=always; printf "\033[1;34m\nWorktree changes vs HEAD:\033[0m\n"; git -C "$path" diff --stat --color=always HEAD' -- ]]
+						.. vim.fn.shellescape(preview_log_format)
+						.. [[ {}]]
 
 					-- Dynamic header showing current selection and worktree context
 					local function get_header()
@@ -2315,7 +2378,9 @@ return {
 						end
 
 						local diff_cmd = { "git" }
-						if git_cwd then vim.list_extend(diff_cmd, { "-C", git_cwd }) end
+						if git_cwd then
+							vim.list_extend(diff_cmd, { "-C", git_cwd })
+						end
 						if #refs == 1 then
 							vim.list_extend(diff_cmd, { "diff-tree", "--no-commit-id", "--name-only", "-r", refs[1] })
 						else
@@ -2339,7 +2404,9 @@ return {
 											end
 										end
 									end
-									if #paths > 0 then extra_args = extra_args .. " -- " .. table.concat(paths, " ") end
+									if #paths > 0 then
+										extra_args = extra_args .. " -- " .. table.concat(paths, " ")
+									end
 									local diffview = require("git.diffview")
 									if #refs == 1 then
 										diffview.open_commit(refs[1], extra_args)
@@ -2357,7 +2424,9 @@ return {
 									end
 								end,
 								["ctrl-y"] = has_files and fzf_yank.action("path", {
-									base_dir = function() return git_cwd or vim.fn.getcwd() end,
+									base_dir = function()
+										return git_cwd or vim.fn.getcwd()
+									end,
 								}) or nil,
 							},
 						})
@@ -2474,7 +2543,9 @@ return {
 							local worktrees = {}
 							for _, line in ipairs(vim.fn.systemlist({ "git", "worktree", "list", "--porcelain" })) do
 								local path = line:match("^worktree (.+)$")
-								if path then table.insert(worktrees, path) end
+								if path then
+									table.insert(worktrees, path)
+								end
 							end
 							fzf.fzf_exec(worktrees, {
 								prompt = "Diffview Worktrees> ",

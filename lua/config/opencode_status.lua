@@ -1,4 +1,4 @@
--- Publish exact opencode.nvim session state to tmux through the dotfiles
+-- Publish exact opencode.nvim session state to Rex through the dotfiles
 -- pane-state protocol. The shared OpenCode server emits every session's
 -- events, so only sessions bound by config.opencode_handoff may contribute.
 
@@ -13,12 +13,12 @@ local sequence = 0
 local server_connected = false
 
 local function default_helper_path()
-	local configured = vim.env.OPENCODE_TMUX_STATE_HELPER
+	local configured = vim.env.OPENCODE_REX_STATE_HELPER
 	if configured and configured ~= "" then
 		return vim.fn.executable(configured) == 1 and configured or nil
 	end
 
-	local path = vim.fn.exepath("tmux-agent-state")
+	local path = vim.fn.exepath("rex-agent-state")
 	return path ~= "" and path or nil
 end
 
@@ -132,9 +132,9 @@ local function clear_cache()
 	cache_size = 0
 end
 
-local function tmux_pane()
-	local pane = vim.env.TMUX_PANE
-	if type(pane) ~= "string" or not pane:match("^%%%d+$") then
+local function rex_block()
+	local pane = vim.env.REX_BLOCK
+	if type(pane) ~= "string" or pane == "" or not vim.env.REX_SESSION then
 		return nil
 	end
 	return pane
@@ -291,7 +291,7 @@ end
 
 local function command_for(computed)
 	local helper = helper_path()
-	local pane = tmux_pane()
+	local pane = rex_block()
 	local owner = owner_token()
 	if not helper or not pane or not owner then
 		return nil
@@ -386,7 +386,7 @@ end
 
 local function clear_sync()
 	local helper = helper_path()
-	local pane = tmux_pane()
+	local pane = rex_block()
 	local owner = owner_token()
 	if helper and pane and owner then
 		pcall(hooks.system, { helper, "clear", pane, owner })
@@ -478,7 +478,7 @@ local function create_autocmds(group)
 	vim.api.nvim_create_autocmd("User", {
 		group = group,
 		pattern = "OpencodeEvent:server.connected",
-		desc = "Track OpenCode server connectivity without coloring tmux",
+		desc = "Track OpenCode server connectivity without publishing terminal status",
 		callback = function()
 			server_connected = true
 			M._recompute()
@@ -499,13 +499,13 @@ local function create_autocmds(group)
 	vim.api.nvim_create_autocmd("User", {
 		group = group,
 		pattern = "OpencodeHandoffEvent:binding_changed",
-		desc = "Recompute tmux state after an exact OpenCode bind changes",
+		desc = "Recompute Rex state after an exact OpenCode bind changes",
 		callback = M._recompute,
 	})
 
 	vim.api.nvim_create_autocmd("VimLeavePre", {
 		group = group,
-		desc = "Synchronously clear this Neovim instance's tmux state",
+		desc = "Synchronously clear this Neovim instance's Rex state",
 		callback = M.disable,
 	})
 end
@@ -517,7 +517,7 @@ function M.setup()
 	M._did_setup = true
 
 	local group = vim.api.nvim_create_augroup(AUGROUP, { clear = true })
-	if vim.env.OPENCODE_TMUX_STATE_DISABLE == "1" then
+	if vim.env.OPENCODE_REX_STATE_DISABLE == "1" then
 		M.disable()
 		return
 	end

@@ -15,10 +15,8 @@ local ok, err = pcall(function()
   request("nvim_ui_attach", 80, 24, { rgb = true })
   lua([[
     local root = ...
-    local spec = dofile(root .. "/lua/plugins/navigation.lua")
-    spec.init()
-    vim.api.nvim_create_user_command("TmuxNavigateRight", "wincmd l", {})
-    vim.api.nvim_create_user_command("TmuxNavigateLeft", "wincmd h", {})
+    local spec = dofile(root .. "/lua/config/navigation.lua")
+    spec.setup()
     for _, mapping in ipairs(spec.keys) do
       vim.keymap.set(mapping.mode or "n", mapping[1], mapping[2])
     end

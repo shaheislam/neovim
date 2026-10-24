@@ -9,8 +9,7 @@ keymap("t", "<C-Space>", [[<C-\><C-n><Cmd>lua require("which-key").show({ keys =
   desc = "Start leader from terminal",
 })
 
--- Window navigation handled by vim-tmux-navigator plugin (see plugins/navigation.lua)
--- Uses Ctrl-h/j/k/l for seamless navigation between vim splits and tmux panes
+require("config.navigation").setup()
 
 -- Resize windows
 keymap("n", "<C-Up>", ":resize +2<CR>", { desc = "Increase window height" })

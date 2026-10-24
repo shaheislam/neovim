@@ -1,13 +1,6 @@
 local M = {}
 
 local return_target = require("config.return_target")
-local pane_option = "@nvim_server"
-local cwd_option = "@nvim_cwd"
-local project_option = "@nvim_project"
-local handoff_project_option = "@agent_handoff_project"
-local handoff_base_option = "@agent_handoff_base"
-local handoff_open_diff_option = "@agent_handoff_open_diff"
-local source_pane_option = "@agent_source_pane"
 local plan_save_prompt = [[HUMAN PLAN SAVE
 The human saved the root .plan.md in the Neovim instance handed off from this OpenCode session. Please re-read .plan.md from disk and continue from the latest human direction. Keep the living plan aligned with the worktree and edit .plan.md directly when later agent-authored updates are needed.]]
 local plan_notifications = {}
@@ -16,72 +9,10 @@ local function result(status, reason)
 	return { status = status, reason = reason }
 end
 
-local function tmux_set(option, value)
-	local pane = vim.env.TMUX_PANE
-	if not pane or pane == "" or vim.fn.executable("tmux") ~= 1 then
-		return
-	end
-
-	vim.fn.jobstart({ "tmux", "set-option", "-p", "-t", pane, option, value }, { detach = true })
-end
-
-local function tmux_get(option)
-	local pane = vim.env.TMUX_PANE
-	if not pane or pane == "" or vim.fn.executable("tmux") ~= 1 then
-		return ""
-	end
-	return vim.trim(vim.fn.system({ "tmux", "show-option", "-q", "-p", "-v", "-t", pane, option }))
-end
-
 local function register_server()
-	if not vim.env.TMUX_PANE or vim.env.TMUX_PANE == "" then
-		return
-	end
-
+	M._registered_project = M._registered_project or vim.fn.getcwd()
 	if vim.v.servername == "" then
 		pcall(vim.fn.serverstart)
-	end
-	if vim.v.servername == "" then
-		return
-	end
-
-	tmux_set(pane_option, vim.v.servername)
-	tmux_set(cwd_option, vim.fn.getcwd())
-
-	-- The owning project is stamped once and never follows DirChanged. Matching
-	-- on @nvim_cwd alone loses this editor the moment the user opens a file in
-	-- a subdirectory, which makes every later handoff split a duplicate pane.
-	-- A stamp already applied by the handoff script always wins.
-	if M._registered_project == nil then
-		local existing = tmux_get(project_option)
-		if existing ~= "" then
-			M._registered_project = existing
-		else
-			M._registered_project = vim.fn.getcwd()
-			tmux_set(project_option, M._registered_project)
-		end
-	end
-end
-
-local function unregister_server()
-	local pane = vim.env.TMUX_PANE
-	if not pane or pane == "" or vim.fn.executable("tmux") ~= 1 then
-		return
-	end
-
-	-- Synchronous on purpose: a detached job started at VimLeavePre is not
-	-- guaranteed to run before the process exits, which strands the pane
-	-- advertising a live editor long after it has fallen back to a shell.
-	for _, option in ipairs({ pane_option, cwd_option, project_option }) do
-		vim.fn.system({ "tmux", "set-option", "-p", "-u", "-t", pane, option })
-	end
-	M._registered_project = nil
-end
-
-local function tmux_unset(option)
-	local pane = vim.env.TMUX_PANE
-	if pane and pane ~= "" and vim.fn.executable("tmux") == 1 then
-		vim.fn.system({ "tmux", "set-option", "-p", "-u", "-t", pane, option })
 	end
 end
 
@@ -151,91 +82,16 @@ local function refresh_plan_baseline(buf)
 	vim.b[buf].agent_plan_disk_conflict = nil
 end
 
-local function pane_key(pane)
-	if type(pane) ~= "string" or not pane:match("^%%[0-9]+$") then
+local function plan_route(project_dir, route)
+	if not vim.env.REX_SESSION or not vim.env.REX_BLOCK then
 		return nil
 	end
-	return "pane-" .. pane:sub(2)
-end
-
-local function tmux_value(pane, format)
-	if not pane_key(pane) then
-		return ""
-	end
-	return vim.trim(vim.fn.system({ "tmux", "display-message", "-p", "-t", pane, format }))
-end
-
-local function tmux_server_pid()
-	if vim.fn.executable("tmux") ~= 1 then
-		return ""
-	end
-	local value = vim.trim(vim.fn.system({ "tmux", "display-message", "-p", "#{pid}" }))
-	return value:match("^%d+$") and value or ""
-end
-
--- Ownership is proven by the same verifier the handoff scripts use, so a
--- recycled pane that happens to share the window and directory cannot route a
--- human's plan save into an unrelated session.
-local function source_pane_is_owned(pane, project_dir, session)
-	local script = vim.env.OPENCODE_DIFFVIEW_REVIEW_SCRIPT
-		or ((vim.env.HOME or "") .. "/dotfiles/scripts/opencode/diffview-review.sh")
+	local root = vim.env.DOTFILES_HOME or ((vim.env.HOME or "") .. "/dotfiles")
 	local ok, completed = pcall(function()
-		return vim.system({ script, "verify-pane", pane, project_dir, session }, { text = true }):wait()
+		return vim.system({ "python3", root .. "/scripts/rex/editor.py", project_dir,
+			"--verify-route", vim.json.encode(route) }, { text = true }):wait(5000)
 	end)
-	return ok and completed ~= nil and completed.code == 0
-end
-
-local function plan_route(project_dir)
-	local current_pane = vim.env.TMUX_PANE
-	if not pane_key(current_pane) or vim.fn.executable("tmux") ~= 1 then
-		return nil
-	end
-	local source_pane = tmux_get(source_pane_option)
-	local key = pane_key(source_pane)
-	if not key then
-		return nil
-	end
-
-	local state_home = vim.env.XDG_STATE_HOME or vim.fn.expand("~/.local/state")
-	local route_dir = vim.env.OPENCODE_PLAN_ROUTE_DIR or (state_home .. "/opencode/plan-routes")
-	local route_path = route_dir .. "/" .. key .. ".json"
-	if vim.fn.filereadable(route_path) ~= 1 then
-		return nil
-	end
-	local ok, route = pcall(vim.json.decode, table.concat(vim.fn.readfile(route_path), "\n"))
-	if
-		not ok
-		or type(route) ~= "table"
-		or route.version ~= 1
-		or route.pane ~= source_pane
-		or canonical(route.directory) ~= project_dir
-		or type(route.sessionID) ~= "string"
-		or not route.sessionID:match("^[%w_-]+$")
-	then
-		return nil
-	end
-
-	if
-		tmux_value(current_pane, "#{pane_id}") ~= current_pane
-		or tmux_value(source_pane, "#{pane_id}") ~= source_pane
-	then
-		return nil
-	end
-	if tmux_value(current_pane, "#{window_id}") ~= tmux_value(source_pane, "#{window_id}") then
-		return nil
-	end
-	if canonical(tmux_value(source_pane, "#{pane_current_path}")) ~= project_dir then
-		return nil
-	end
-	-- Pane IDs are unique only within one tmux server lifetime, so a route
-	-- written by a previous generation names unrelated content.
-	if type(route.serverPid) ~= "string" or route.serverPid == "" or route.serverPid ~= tmux_server_pid() then
-		return nil
-	end
-	if not source_pane_is_owned(source_pane, project_dir, route.sessionID) then
-		return nil
-	end
-	return route
+	return ok and completed and completed.code == 0 and route or nil
 end
 
 local function route_for_plan(buf, project_dir)
@@ -247,8 +103,8 @@ local function route_for_plan(buf, project_dir)
 		local ok, route = pcall(require("config.opencode_handoff").resolve_plan_route, provenance)
 		return ok and route or nil
 	end
-	if provenance.kind == "tmux" then
-		return plan_route(project_dir)
+	if provenance.kind == "rex" then
+		return plan_route(project_dir, provenance)
 	end
 	return nil
 end
@@ -492,18 +348,10 @@ end
 
 M._open_handoff = M.open_handoff
 
-function M.open_from_tmux()
-	local options = {
-		project_dir = tmux_get(handoff_project_option),
-		base = tmux_get(handoff_base_option),
-		open_diff = ({ ["1"] = true, ["true"] = true, ["yes"] = true, ["on"] = true })[
-			tmux_get(handoff_open_diff_option):lower()
-		] == true,
-		provenance = { kind = "tmux" },
-	}
-	tmux_unset(handoff_project_option)
-	tmux_unset(handoff_base_option)
-	tmux_unset(handoff_open_diff_option)
+function M.open_from_rex(options)
+	if canonical(M._registered_project) ~= canonical(options.project_dir) then
+		return result("refused", "editor_project_mismatch")
+	end
 	return M.open_handoff(options)
 end
 
@@ -519,11 +367,6 @@ function M.setup()
 		group = group,
 		callback = register_server,
 		desc = "Register Neovim RPC endpoint for agent handoff",
-	})
-	vim.api.nvim_create_autocmd("VimLeavePre", {
-		group = group,
-		callback = unregister_server,
-		desc = "Unregister Neovim RPC endpoint for agent handoff",
 	})
 	vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost" }, {
 		group = group,

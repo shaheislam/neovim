@@ -272,13 +272,10 @@ local first_generation = first_auth_env.OPENCODE_NVIM_GENERATION
 first_auth_env.OPENCODE_NVIM_GENERATION = nil
 assert(type(first_generation) == "string" and first_generation:match("^nvim_"), "the terminal receives a native handoff generation")
 eq(first_auth_env, {
-	OPENCODE_TMUX_WRAPPER_ACTIVE = "1",
 	OPENCODE_RESTORE_LATEST = "0",
 	OPENTUI_GRAPHICS = "0",
 	OPENCODE_SERVER_USERNAME = "opencode-spec-user-1",
 	OPENCODE_SERVER_PASSWORD = "opencode-spec-password-1",
-	TMUX = "",
-	STY = "",
 }, "launch credentials and terminal flags are passed as raw environment values")
 assert(not first_auth_terminal.cmd:find("opencode-spec-user-1", 1, true), "the username is absent from the terminal command")
 assert(not first_auth_terminal.cmd:find("opencode-spec-password-1", 1, true), "the password is absent from the terminal command")

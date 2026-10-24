@@ -10,10 +10,8 @@ local close_commit_info_window = workflow.close_commit_info_window
 local find_repo_root = workflow.find_repo_root
 local path_is_under = workflow.path_is_under
 local get_terminal_cwd = workflow.get_terminal_cwd
-local get_tmux_last_pane_cwd = workflow.get_tmux_last_pane_cwd
-local get_tmux_last_pane_cwd_async = workflow.get_tmux_last_pane_cwd_async
-local get_tmux_active_pane_cwd = workflow.get_tmux_active_pane_cwd
-local get_tmux_active_pane_cwd_async = workflow.get_tmux_active_pane_cwd_async
+local get_rex_sibling_cwd = workflow.get_rex_sibling_cwd
+local get_rex_sibling_cwd_async = workflow.get_rex_sibling_cwd_async
 local check_conflict_state = workflow.check_conflict_state
 local get_git_dir = workflow.get_git_dir
 local get_main_repo_info = workflow.get_main_repo_info
@@ -291,7 +289,7 @@ return {
 		-- closures (function(view) start_follow_timer() end) so Lua captures
 		-- the upvalue *slot*, not the current value — the actual lookup happens
 		-- at call-time (view open/close), by which point these are assigned.
-		local check_tmux_pane_and_retarget
+		local check_rex_block_and_retarget
 		local follow_timer = nil
 		local follow_timer_refs = 0
 		local start_follow_timer
@@ -979,24 +977,8 @@ return {
 						end
 					end
 
-					-- Start timer polling for tmux pane cwd changes (2s interval).
-					-- Also expose Neovim socket to tmux so Fish hook can find us.
-					-- Design constraint: one Diffview-owning Neovim per tmux session.
-					-- NVIM_DIFFVIEW_SOCKET is session-scoped; if two Neovims open
-					-- Diffview in the same session, the last one wins (last-writer-wins).
-					-- Per-pane namespacing would break the Fish hook (it wouldn't know
-					-- which pane has Neovim). This is acceptable: the user interacts
-					-- with one Diffview at a time.
+					-- Fish pushes cwd changes; polling covers missed notifications.
 					start_follow_timer()
-					if vim.env.TMUX then
-						-- Ensure Neovim has a server socket for RPC discovery.
-						if vim.v.servername == "" then
-							vim.fn.serverstart()
-						end
-						vim.fn.system(
-							"tmux set-environment NVIM_DIFFVIEW_SOCKET " .. vim.fn.shellescape(vim.v.servername)
-						)
-					end
 				end,
 				-- Called when diffview is closed
 				view_closed = function(view)
@@ -1007,11 +989,7 @@ return {
 					end)
 					diffview_current_root = nil
 					-- Stop follow timer (ref-counted: only stops on last view close).
-					-- Only remove tmux socket when no views remain.
 					stop_follow_timer()
-					if vim.env.TMUX and follow_timer_refs == 0 then
-						vim.fn.system("tmux set-environment -u NVIM_DIFFVIEW_SOCKET 2>/dev/null")
-					end
 					-- Stop git watcher
 					if view._git_watcher then
 						view._git_watcher:stop()
@@ -1355,13 +1333,8 @@ return {
 			end, 100)
 		end
 
-		-- Shared tmux pane check: query the last-active tmux pane's cwd,
-		-- compare against the current Diffview's adapter root, and retarget
-		-- if the pane is in a different repo. Multi-tab safe.
-		-- Called by: FocusGained, timer polling, and RPC from Fish hook.
-		-- Optional cwd parameter: when provided (e.g. from Fish hook RPC),
-		-- skips tmux pane query. Falls back to tmux {last} pane otherwise.
-		check_tmux_pane_and_retarget = function(cwd)
+		-- Retarget the active view from a verified sibling or Fish cwd event.
+		check_rex_block_and_retarget = function(cwd)
 			if vim.g.diffview_follow_repo == false then
 				return
 			end
@@ -1376,7 +1349,7 @@ return {
 			if not current_view then
 				return
 			end
-			local pane_cwd = cwd or get_tmux_last_pane_cwd()
+			local pane_cwd = cwd or get_rex_sibling_cwd()
 			if not pane_cwd then
 				return
 			end
@@ -1399,12 +1372,10 @@ return {
 			end
 		end
 
-		-- Timer-based polling: check tmux pane cwd periodically.
+		-- Timer-based polling: check Rex sibling cwd periodically.
 		-- Starts when Diffview opens, stops when ALL views close (ref-counted).
 		-- Acts as a reliable fallback; Fish hook provides instant response.
-		-- Uses get_tmux_active_pane_cwd_async() to avoid blocking Neovim's UI
-		-- thread — critical when multiple worktrees each run Diffview, as all
-		-- their timers hit tmux's single-threaded server simultaneously.
+		-- Async queries avoid blocking Neovim's UI across multiple worktrees.
 		-- Adaptive interval: 3s base, backs off to 5s after 5 idle ticks.
 		local FOLLOW_TIMER_BASE_MS = 3000
 		local FOLLOW_TIMER_IDLE_MS = 5000
@@ -1416,7 +1387,7 @@ return {
 			if follow_timer then
 				return
 			end
-			if not vim.env.TMUX then
+			if not vim.env.REX_SESSION then
 				return
 			end
 			follow_idle_ticks = 0
@@ -1435,15 +1406,15 @@ return {
 						return
 					end
 					follow_async_in_flight = true
-					get_tmux_active_pane_cwd_async(function(cwd)
+					get_rex_sibling_cwd_async(function(cwd)
 						follow_async_in_flight = false
 						if cwd then
 							follow_idle_ticks = 0
-							check_tmux_pane_and_retarget(cwd)
+							check_rex_block_and_retarget(cwd)
 						else
 							follow_idle_ticks = follow_idle_ticks + 1
 						end
-						-- Adaptive interval: back off when idle to reduce tmux IPC pressure
+						-- Back off while idle.
 						if follow_timer and follow_idle_ticks > 5 then
 							vim.fn.timer_stop(follow_timer)
 							follow_timer = vim.fn.timer_start(
@@ -1459,7 +1430,7 @@ return {
 										return
 									end
 									follow_async_in_flight = true
-									get_tmux_active_pane_cwd_async(function(cwd2)
+									get_rex_sibling_cwd_async(function(cwd2)
 										follow_async_in_flight = false
 										if cwd2 then
 											follow_idle_ticks = 0
@@ -1470,7 +1441,7 @@ return {
 												-- Adjust ref count since start_follow_timer increments it
 												follow_timer_refs = follow_timer_refs - 1
 											end
-											check_tmux_pane_and_retarget(cwd2)
+											check_rex_block_and_retarget(cwd2)
 										end
 									end)
 								end),
@@ -1496,43 +1467,34 @@ return {
 
 		-- RPC endpoint for Fish hook: called via
 		--   nvim --server $socket --remote-expr 'v:lua.diffview_check_pane("/path")'
-		-- Accepts optional cwd from the caller (Fish hook passes $PWD directly,
-		-- avoiding the {last} pane ambiguity when Neovim queries tmux itself).
+		-- The Fish hook passes its process-verified cwd directly.
 		-- vim.schedule ensures we run in the main loop (safe from RPC context).
 		-- Increments follow_rpc_seq so the timer defers to this authoritative data.
 		_G.diffview_check_pane = function(cwd)
 			follow_rpc_seq = follow_rpc_seq + 1
 			vim.schedule(function()
-				check_tmux_pane_and_retarget(cwd)
+				check_rex_block_and_retarget(cwd)
 			end)
 			return "ok"
 		end
 
-		-- VimLeave: clean up tmux socket var on exit (prevents stale sockets
-		-- when Neovim crashes or is killed without closing Diffview first).
+		-- Stop polling when the editor exits.
 		vim.api.nvim_create_autocmd("VimLeave", {
 			group = dv_focus_group,
 			callback = function()
-				if vim.env.TMUX then
-					vim.fn.system("tmux set-environment -u NVIM_DIFFVIEW_SOCKET 2>/dev/null")
-				end
 				stop_follow_timer()
 			end,
 			desc = "Clean up Diffview follow state on Neovim exit",
 		})
 
-		-- FocusGained: conflict detection + tmux pane repo-following.
-		-- When you switch back to the Neovim tmux pane from another pane,
-		-- Neovim receives FocusGained. We query tmux for the last-active
-		-- pane's cwd and retarget Diffview if it's in a different repo.
-		-- PERF: Uses async tmux query to avoid blocking UI during focus gain.
+		-- Refresh conflicts and sibling repository context on focus gain.
 		vim.api.nvim_create_autocmd("FocusGained", {
 			group = dv_focus_group,
 			callback = function()
 				-- Conflict detection (existing)
 				vim.defer_fn(poll_with_retry, 200)
 
-				-- Tmux repo-following (async to avoid blocking on focus gain)
+				-- Repository following stays asynchronous.
 				if vim.g.diffview_follow_repo == false or repo_switch_in_progress then
 					return
 				end
@@ -1540,13 +1502,13 @@ return {
 				if not ok or not lib.get_current_view() then
 					return
 				end
-				get_tmux_last_pane_cwd_async(function(cwd)
+				get_rex_sibling_cwd_async(function(cwd)
 					if cwd then
-						check_tmux_pane_and_retarget(cwd)
+						check_rex_block_and_retarget(cwd)
 					end
 				end)
 			end,
-			desc = "Refresh Diffview on focus gain (conflict detection + async tmux repo following)",
+			desc = "Refresh Diffview conflicts and Rex repository context",
 		})
 
 		-- TermClose: detect conflicts started from :terminal splits.

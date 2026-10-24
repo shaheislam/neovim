@@ -66,19 +66,14 @@ local function sync_opencode_auth(auth)
 end
 
 local function opencode_launch(dir, _, launch_context)
-	-- The dotfiles opencode shim reroutes `attach` through tmux when $TMUX is set.
-	-- This terminal already owns the split, so bypass that wrapper and run ocv directly.
-	-- Clear multiplexer markers so ocv emits bare OSC52 for Neovim to forward.
+	-- This terminal owns the split; run the attached TUI directly.
 	-- OPENTUI_GRAPHICS=0: suppress Kitty graphics probing which segfaults in nvim :terminal.
 	local auth = current_opencode_auth()
 	sync_opencode_auth(auth)
 	local env = {
-		OPENCODE_TMUX_WRAPPER_ACTIVE = "1",
 		OPENTUI_GRAPHICS = "0",
 		OPENCODE_RESTORE_LATEST = launch_context and launch_context.restore_latest and "1" or "0",
 		OPENCODE_SERVER_USERNAME = auth.username,
-		TMUX = "",
-		STY = "",
 	}
 	if auth.password and auth.password ~= "" then
 		env.OPENCODE_SERVER_PASSWORD = auth.password
@@ -158,9 +153,8 @@ terminal_adapter.setup({
 	project_root = project_root,
 	size = opencode_terminal_width,
 	notify_title = "opencode",
-	on_create = function(term, dir, generation)
+	on_create = function(term, dir)
 		bind_opencode_terminal_picker(term, dir)
-		require("config.opencode_attach_registry").register(term, dir, generation)
 	end,
 	on_start = function(term, dir, generation)
 		bind_opencode_terminal_picker(term, dir)
@@ -168,7 +162,6 @@ terminal_adapter.setup({
 	end,
 	on_exit = function(_, dir, generation)
 		require("config.opencode_handoff").unregister_terminal(dir, generation)
-		require("config.opencode_attach_registry").unregister(generation)
 	end,
 })
 

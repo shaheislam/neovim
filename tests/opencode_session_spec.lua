@@ -27,8 +27,6 @@ adapter.setup({
 		return {
 			cmd = cmd,
 			env = {
-				OPENCODE_TMUX_WRAPPER_ACTIVE = "1",
-				TMUX = "",
 				OPENCODE_RESTORE_LATEST = context and context.restore_latest and "1" or "0",
 			},
 		}

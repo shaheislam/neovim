@@ -1033,8 +1033,8 @@ local function opencode_bin_path()
 end
 
 local function fork_pane_launch(fork_session_id, dir, source_session_id)
-	if not vim.env.TMUX or vim.env.TMUX == "" then
-		vim.notify("forkpane requires a running tmux session", vim.log.levels.ERROR, { title = "opencode" })
+	if not vim.env.REX_SESSION or not vim.env.REX_BLOCK then
+		vim.notify("forkpane requires a Rex terminal", vim.log.levels.ERROR, { title = "opencode" })
 		return
 	end
 
@@ -1048,14 +1048,15 @@ local function fork_pane_launch(fork_session_id, dir, source_session_id)
 		"- Source worktree: " .. dir,
 	}, handoff)
 
-	local cmd = string.format(
-		"tmux split-window -h -c %s -e OPENCODE_TMUX_WRAPPER_ACTIVE=1 %s attach %s --session %s",
-		vim.fn.shellescape(dir),
+	local launch = string.format(
+		"%s attach %s --dir %s --session %s",
 		vim.fn.shellescape(opencode_bin_path()),
 		vim.fn.shellescape(opencode_server_url()),
+		vim.fn.shellescape(dir),
 		vim.fn.shellescape(fork_session_id)
 	)
-	vim.fn.jobstart(cmd, { detach = true })
+	local root = vim.env.DOTFILES_HOME or vim.fn.expand("~/dotfiles")
+	vim.fn.jobstart({ "python3", root .. "/scripts/rex/workflow.py", "split-run", "--worktree", dir, "--", launch }, { detach = true })
 	vim.notify("Fork launched: " .. fork_session_id, vim.log.levels.INFO, { title = "opencode" })
 end
 
@@ -1063,7 +1064,6 @@ local function fork_worktree_launch(fork_session_id, branch_name, item)
 	local dir = (item.session and item.session.directory) or vim.fn.getcwd()
 	local source_session_id = (item.session and item.session.id) or ""
 	local message_id = item.message_id or ""
-	local tmux_pane = vim.env.TMUX_PANE or ""
 
 	local prompt = string.format(
 		"Fork OpenCode session '%s' into a fresh worktree for branch '%s'. Continue the conversation in that isolated worktree. Source worktree: %s.",
@@ -1077,8 +1077,7 @@ local function fork_worktree_launch(fork_session_id, branch_name, item)
 
 	local env_pairs = {
 		{ "WT_AUTO_OPENCODE",            "1" },
-		{ "WT_OPENCODE_REQUIRE_TMUX",    "1" },
-		{ "WT_OPENCODE_TMUX_PANE",       tmux_pane },
+		{ "WT_OPENCODE_REQUIRE_REX",     "1" },
 		{ "WT_OPENCODE_SESSION",         fork_session_id },
 		{ "WT_OPENCODE_PROMPT",          prompt },
 		{ "WT_OPENCODE_FORK_SESSION",    source_session_id },
